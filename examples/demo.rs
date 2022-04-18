@@ -15,7 +15,7 @@ use acrylic::Size;
 use acrylic::render::Bitmap;
 use acrylic::render::Margin;
 use acrylic::render::RGBA;
-use acrylic::render::Context as RenderCtx;
+use acrylic::render::Renderer;
 
 use ab_glyph::FontRef;
 use ab_glyph::PxScaleFont;
@@ -37,7 +37,7 @@ fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
 	t.set_node_size(&mut c11, Some(Size::new(0, 0)));
 }
 
-fn char_bmp(ctx: &mut RenderCtx, font: &PxScaleFont<&FontRef>, c: char) -> Option<(PixelSource, f64)> {
+fn char_bmp(ctx: &mut Renderer, font: &PxScaleFont<&FontRef>, c: char) -> Option<(PixelSource, f64)> {
 	let key = (0, c as usize);
 	let ratio = if let Some(bmp) = ctx.bmp_store.get(&key) {
 		let size = bmp.size();
@@ -138,14 +138,14 @@ fn main() {
 
 	// add_spacer(&mut t, &mut c2, LengthPolicy::Available(0.5));
 
-	let mut rdr_ctx = RenderCtx::new();
-	rdr_ctx.bmp_store.insert((0, 0), read_png("rsc/castle-in-the-sky.png"));
+	let mut rdr = Renderer::new();
+	rdr.bmp_store.insert((0, 0), read_png("rsc/castle-in-the-sky.png"));
 
 	let font = FontRef::try_from_slice(include_bytes!("../rsc/font.ttf")).unwrap();
 	let font = font.as_scaled(line_height as f32);
 
 	for ch in TEXT.chars() {
-		if let Some((key, ratio)) = char_bmp(&mut rdr_ctx, &font, ch) {
+		if let Some((key, ratio)) = char_bmp(&mut rdr, &font, ch) {
 			let mut c = t.new_child(Some(&mut line), 3);
 			t.set_node_pixel_source(&mut c, Some(key));
 			t.set_node_policy(&mut c, Some(LengthPolicy::AspectRatio(ratio)));
@@ -158,18 +158,18 @@ fn main() {
 
 	flexbox::compute_tree(&mut t, p);
 
-	rdr_ctx.render(&t, p);
+	rdr.render(&t, p);
 
 	let timer = Instant::now();
 	let runs = 100;
 	for _ in 0..runs {
-		rdr_ctx.render(&t, p);
+		rdr.render(&t, p);
 	}
 	let elapsed = timer.elapsed().as_secs_f64();
 	let avg_fps = ((runs as f64) / elapsed) as usize;
 	println!("rendered {} frames in {}s ({} fps)", runs, elapsed as usize, avg_fps);
 
-	save_png(rdr_ctx.get_output());
+	save_png(rdr.get_output());
 
 	println!("Tree uses {}B", t.memory_usage());
 }

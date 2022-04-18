@@ -48,14 +48,14 @@ pub struct Margin {
 	pub right: isize,
 }
 
-pub struct Context {
+pub struct Renderer {
 	pub bmp_store: HashMap<(usize, usize), Bitmap>,
 	pub rwy_store: HashMap<(usize, usize), Railway>,
 	mask: Vec<u8>,
 	output: Bitmap,
 }
 
-impl Context {
+impl Renderer {
 	pub fn new() -> Self {
 		Self {
 			bmp_store: HashMap::new(),
