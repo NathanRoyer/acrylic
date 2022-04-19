@@ -6,13 +6,12 @@ use crate::Point;
 use crate::Size;
 
 pub fn compute_tree(t: &mut Tree, root: NodeKey) {
-	let n_size = t.get_node_size(root).expect("flexbox error: root node has no size!");
+	let (mut pt, n_size) = t.get_node_spot(root).expect("flexbox error: root node has no spot!");
 	let n_container = t.get_node_container(root).expect("flexbox error: root node is not a container!");
 	let (m, c) = match n_container {
 		Horizontal => (n_size.w, n_size.h),
 		Vertical   => (n_size.h, n_size.w),
 	};
-	let mut pt = t.get_node_position(root).expect("flexbox error: root node has no position!");
 	let mut occupied = 0;
 	for i in t.children(root) {
 		if let Some(l) = compute_nodes(t, i, root, None, Some(c), &mut pt) {
@@ -26,7 +25,7 @@ pub fn compute_tree(t: &mut Tree, root: NodeKey) {
 	}
 }
 
-pub fn compute_nodes(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
+fn compute_nodes(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
 	let original_cursor = *cursor;
 	let length = compute_node(t, i, p, m, c, cursor);
 	// if let None = length {
@@ -70,7 +69,7 @@ pub fn compute_nodes(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: 
 	length
 }
 
-pub fn compute_node(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
+fn compute_node(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
 	let mut children_cursor = *cursor;
 	let n_policy = t.get_node_policy(i)?;
 	let n_container = t.get_node_container(i);
@@ -137,8 +136,8 @@ pub fn compute_node(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: O
 		// size is Some -> length & p_container are Some.
 		let l = length.unwrap();
 		let p_container = p_container.unwrap();
-		let p_position = t.get_node_position(p)?;
-		let p_size = t.get_node_size(p)?;
+		// pay attention to this line:
+		let (p_position, p_size) = t.get_node_spot(p)?;
 		let p_policy = t.get_node_policy(p);
 		{
 			let (pos, max, dstm, dstc) = match p_container {
@@ -153,17 +152,11 @@ pub fn compute_node(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: O
 				}
 			}
 		}
-
-		let has_size = t.get_node_size(i).is_some();
-		let has_position = t.get_node_position(i).is_some();
-
-		if has_size && has_position {
-			let mut i = i;
-			t.set_node_size(&mut i, Some(Size::new(w, h)));
-			t.set_node_position(&mut i, Some(*cursor));
-		} else {
-			println!("flexbox warning: node lacks size or position");
-		}
+		// this looks unsafe but we're sure `i` wont change:
+		// if node had no spot, previous commented line would
+		// have made us return
+		let mut i = i;
+		t.set_node_spot(&mut i, Some((*cursor, Size::new(w, h))));
 
 		*match p_container {
 			Horizontal => &mut cursor.x,

@@ -11,6 +11,10 @@ impl Point {
 			y,
 		}
 	}
+
+	pub fn zero() -> Self {
+		Self::new(0, 0)
+	}
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

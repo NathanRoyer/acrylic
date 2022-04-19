@@ -1,11 +1,12 @@
+use bitflags::bitflags;
+
 use crate::Point;
 use crate::Size;
 
 use crate::tree::Tree;
 use crate::tree::Command;
 use crate::tree::CommandVariant;
-
-pub type Hash = u64;
+use crate::application::RcWidget;
 
 #[derive(Debug, Copy, Clone)]
 pub enum LengthPolicy {
@@ -16,16 +17,6 @@ pub enum LengthPolicy {
 	AspectRatio(f64),
 }
 
-pub type BitmapOffset = Point;
-pub type BitmapCrop = Size;
-pub type BitmapMask = [f64; 4];
-
-#[derive(Debug, Clone)]
-pub enum PixelSource {
-	Bitmap(usize, usize),
-	Railway(usize, usize),
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Axis {
 	Horizontal,
@@ -33,28 +24,28 @@ pub enum Axis {
 }
 
 pub type NodeKey = usize;
+pub type Hash = u64;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Event {
-	QuickAction1,
-	QuickAction2,
-	QuickAction3,
-	QuickAction4,
-	QuickAction5,
-	QuickAction6,
-	Modifier1,
-	Modifier2,
-	Factor1,
-	Factor2,
-	Pan1,
-	Pan2,
-	WheelX,
-	WheelY,
-	Resize,
-	Delete,
-	Drop,
-	Load,
-	WillOutput,
+bitflags! {
+	pub struct EventFlags: u32 {
+		const QUICK_ACTION_1 = 0b00000000000000001;
+		const QUICK_ACTION_2 = 0b00000000000000010;
+		const QUICK_ACTION_3 = 0b00000000000000100;
+		const QUICK_ACTION_4 = 0b00000000000001000;
+		const QUICK_ACTION_5 = 0b00000000000010000;
+		const QUICK_ACTION_6 = 0b00000000000100000;
+		const MODIFIER_1     = 0b00000000001000000;
+		const MODIFIER_2     = 0b00000000010000000;
+		const FACTOR_1       = 0b00000000100000000;
+		const FACTOR_2       = 0b00000001000000000;
+		const PAN_1          = 0b00000010000000000;
+		const PAN_2          = 0b00000100000000000;
+		const WHEEL_X        = 0b00001000000000000;
+		const WHEEL_Y        = 0b00010000000000000;
+		const RESIZE         = 0b00100000000000000;
+		const DELETE         = 0b01000000000000000;
+		const LOAD           = 0b10000000000000000;
+	}
 }
 
 macro_rules! getter {
@@ -62,7 +53,7 @@ macro_rules! getter {
 		pub fn $n(&self, i: NodeKey) -> Option<$r> {
 			let mut retval = None;
 			for i in self.range(i) {
-				if let $p = self.nodes[i] {
+				if let $p = &self.nodes[i] {
 					retval = Some($s);
 				}
 			}
@@ -73,73 +64,21 @@ macro_rules! getter {
 
 /// Getters
 impl Tree {
-	getter!(get_node_position, Point, Command::Position(x, y), Point::new(x, y));
+	getter!(get_node_spot, (Point, Size), Command::Spot(x, y, w, h), (Point::new(*x as isize, *y as isize), Size::new(*w as usize, *h as usize)));
 
-	getter!(get_node_size, Size, Command::Size(w, h), Size::new(w, h));
+	getter!(get_node_policy, LengthPolicy, Command::LengthPolicy(policy), *policy);
 
-	getter!(get_node_policy, LengthPolicy, Command::LengthPolicy(policy), policy);
+	getter!(get_node_name, Hash, Command::Name(hash), *hash);
 
-	getter!(get_node_name, Hash, Command::Name(hash), hash);
+	getter!(get_node_container, Axis, Command::ContainerNode(axis), *axis);
 
-	getter!(get_node_container, Axis, Command::ContainerNode(axis), axis);
+	getter!(get_node_widget, RcWidget, Command::Widget(a), a.clone());
 
-	getter!(get_node_bitmap_offset, BitmapOffset, Command::BitmapOffset(x, y), BitmapOffset::new(x, y));
-
-	getter!(get_node_bitmap_crop, BitmapCrop, Command::BitmapCrop(w, h), BitmapCrop::new(w, h));
-
-	pub fn get_node_pixel_source(&self, node: NodeKey) -> Option<PixelSource> {
-		let mut retval = None;
-		for i in self.range(node) {
-			match self.nodes[i] {
-				Command::BitmapSource(j1, j2)  => retval = Some(PixelSource::Bitmap(j1, j2)),
-				Command::RailwaySource(j1, j2) => retval = Some(PixelSource::Railway(j1, j2)),
-				_ => (),
-			}
-		}
-		retval
-	}
-
-	pub fn get_node_bitmap_mask(&self, node: NodeKey) -> Option<BitmapMask> {
-		let (mut rg, mut ba) = (None, None);
-		for i in self.range(node) {
-			if let Command::BitmapMaskRg(r, g) = self.nodes[i] {
-				rg = Some((r, g));
-			}
-			if let Command::BitmapMaskBa(b, a) = self.nodes[i] {
-				ba = Some((b, a));
-			}
-		}
-		match (rg, ba) {
-			(Some((r, g)), Some((b, a))) => Some([r, g, b, a]),
-			_ => None,
-		}
-	}
-
-	pub fn get_node_railway_parameters(&self, node: NodeKey) -> Vec<(usize, f32, f32)> {
-		let mut retval = Vec::with_capacity(16);
-		for i in self.range(node) {
-			if let Command::RailwayParameter(j, x, y) = self.nodes[i] {
-				retval.push((j, x, y));
-			}
-		}
-		retval
-	}
-
-	pub fn get_node_handlers(&self, node: NodeKey, event: Event) -> Vec<Hash> {
-		let mut retval = Vec::with_capacity(8);
-		for i in self.range(node) {
-			if let Command::Handler(e, hash) = self.nodes[i] {
-				if e == event {
-					retval.push(hash);
-				}
-			}
-		}
-		retval
-	}
+	getter!(get_node_handler, EventFlags, Command::Handler(m), *m);
 }
 
 macro_rules! setter {
-	($n:ident, $b:expr, $t:ty, $i:ident, $c:expr, $v:expr) => {
+	($n:ident, $b:expr, $t:ty, $i:pat_param, $c:expr, $v:expr) => {
 		pub fn $n(&mut self, i: &mut NodeKey, cmd: Option<$t>) {
 			if let Some($i) = cmd {
 				self.add_command(i, $c, $b);
@@ -151,9 +90,7 @@ macro_rules! setter {
 }
 
 impl Tree {
-	setter!(set_node_position, true, Point, p, Command::Position(p.x, p.y), CommandVariant::Position);
-
-	setter!(set_node_size, true, Size, s, Command::Size(s.w, s.h), CommandVariant::Size);
+	setter!(set_node_spot, true, (Point, Size), (p, s), Command::Spot(p.x as i32, p.y as i32, s.w as u32, s.h as u32), CommandVariant::Spot);
 
 	setter!(set_node_policy, true, LengthPolicy, p, Command::LengthPolicy(p), CommandVariant::LengthPolicy);
 
@@ -161,59 +98,9 @@ impl Tree {
 
 	setter!(set_node_container, true, Axis, a, Command::ContainerNode(a), CommandVariant::ContainerNode);
 
-	setter!(set_node_bitmap_offset, true, BitmapOffset, o, Command::BitmapOffset(o.x, o.y), CommandVariant::BitmapOffset);
-
-	setter!(set_node_bitmap_crop, true, BitmapCrop, c, Command::BitmapCrop(c.w, c.h), CommandVariant::BitmapCrop);
-
 	setter!(set_node_template, true, NodeKey, t, Command::Template(t), CommandVariant::Template);
 
-	pub fn set_node_pixel_source(&mut self, i: &mut NodeKey, cmd: Option<PixelSource>) {
-		if let Some(src) = cmd {
-			self.add_command(i, match src {
-				PixelSource::Bitmap(j1, j2)  => Command::BitmapSource(j1, j2),
-				PixelSource::Railway(j1, j2) => Command::RailwaySource(j1, j2),
-			}, true);
-		} else {
-			self.del_variant(*i, CommandVariant::BitmapSource);
-			self.del_variant(*i, CommandVariant::RailwaySource);
-		}
-	}
+	setter!(set_node_widget, true, RcWidget, a, Command::Widget(a), CommandVariant::Widget);
 
-	pub fn set_node_bitmap_mask(&mut self, i: &mut NodeKey, cmd: Option<BitmapMask>) {
-		if let Some([r, g, b, a]) = cmd {
-			self.add_command(i, Command::BitmapMaskRg(r, g), true);
-			self.add_command(i, Command::BitmapMaskBa(b, a), true);
-		} else {
-			self.del_variant(*i, CommandVariant::BitmapMaskRg);
-			self.del_variant(*i, CommandVariant::BitmapMaskBa);
-		}
-	}
-
-	pub fn set_node_railway_parameter(&mut self, node: &mut NodeKey, p: usize, value: Option<(f32, f32)>) {
-		if let Some((x, y)) = value {
-			// add_command will use cmd1.replaceable(cmd2)
-			self.add_command(node, Command::RailwayParameter(p, x, y), true);
-		} else {
-			for i in self.range(*node) {
-				if let Command::RailwayParameter(j, _, _) = self.nodes[i] {
-					if j == p {
-						self.skip_command(*node, i);
-					}
-				}
-			}
-		}
-	}
-
-	pub fn set_node_handlers(&mut self, node: &mut NodeKey, event: Event, names: Vec<Hash>) {
-		for i in self.range(*node) {
-			if let Command::Handler(e, _) = self.nodes[i] {
-				if e == event {
-					self.skip_command(*node, i);
-				}
-			}
-		}
-		for name in names {
-			self.add_command(node, Command::Handler(event, name), false);
-		}
-	}
+	setter!(set_node_handler, true, EventFlags, a, Command::Handler(a), CommandVariant::Handler);
 }

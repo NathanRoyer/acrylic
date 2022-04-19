@@ -3,37 +3,31 @@ use std::fmt::Formatter;
 use std::fmt::Result;
 use std::cmp::Ordering;
 use std::ops::Range;
+use std::mem::swap;
 
 use crate::node::LengthPolicy;
 use crate::node::NodeKey;
-use crate::node::Event;
+use crate::node::EventFlags;
 use crate::node::Axis;
 use crate::node::Hash;
+use crate::application::RcWidget;
 
 const SKIP_CONTINUED: usize = 0;
 const COMMAND_SIZE_IN_BYTES: usize = 24;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) enum Command {
 	Skip(usize),
 	Node(NodeKey, usize),
 	Child(NodeKey),
 	Template(NodeKey),
 
-	Position(isize, isize),
-	Size(usize, usize),
+	Spot(i32, i32, u32, u32),
 	LengthPolicy(LengthPolicy),
 	Name(Hash),
-	Handler(Event, Hash),
+	Handler(EventFlags),
 	ContainerNode(Axis),
-	BitmapSource(usize, usize),
-	BitmapOffset(isize, isize),
-	BitmapCrop(usize, usize),
-	BitmapMaskRg(f64, f64),
-	BitmapMaskBa(f64, f64),
-	// second usize is for parameter count
-	RailwaySource(usize, usize),
-	RailwayParameter(usize, f32, f32),
+	Widget(RcWidget),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -43,19 +37,12 @@ pub(crate) enum CommandVariant {
 	Child,
 	Template,
 
-	Position,
-	Size,
+	Spot,
 	LengthPolicy,
 	Name,
 	Handler,
 	ContainerNode,
-	BitmapSource,
-	BitmapOffset,
-	BitmapCrop,
-	BitmapMaskRg,
-	BitmapMaskBa,
-	RailwaySource,
-	RailwayParameter,
+	Widget,
 }
 
 #[derive(Debug, Clone)]
@@ -151,14 +138,14 @@ impl Tree {
 		i
 	}
 
-	fn append_command(&mut self, node: NodeKey, cmd: Command) -> Option<()> {
+	fn append_command(&mut self, node: NodeKey, cmd: &mut Command) -> Option<()> {
 		let i = self.next_skip(node)?;
 		match self.nodes[i] {
 			Command::Skip(l) if l == 1 => {
-				self.nodes[i] = cmd;
+				swap(&mut self.nodes[i], cmd);
 			},
 			Command::Skip(l) if l > 1 => {
-				self.nodes[i] = cmd;
+				swap(&mut self.nodes[i], cmd);
 				self.nodes[i + 1] = Command::Skip(l - 1);
 			},
 			_ => unreachable!(),
@@ -188,7 +175,7 @@ impl Tree {
 			match self.nodes[i] {
 				Command::Child(c) if c == node => {
 					let last = p_range.end - 1;
-					self.nodes[i] = self.nodes[last];
+					self.nodes.swap(i, last);
 					self.nodes[last] = Command::Skip(1);
 				},
 				_ => (),
@@ -230,28 +217,28 @@ impl Tree {
 		let (parent, length) = self.parent_and_length(node);
 		let end = node + length;
 		let last = end - 1;
-		self.nodes[i] = self.nodes[last];
+		self.nodes.swap(i, last);
 		self.nodes[node] = Command::Node(parent, length - 1);
 		self.nodes[last] = Command::Skip(1);
 	}
 
-	pub(crate) fn add_command(&mut self, node: &mut NodeKey, cmd: Command, replace: bool) {
+	pub(crate) fn add_command(&mut self, node: &mut NodeKey, mut cmd: Command, replace: bool) {
 		if replace {
 			for i in self.range(*node) {
-				if self.nodes[i].replaceable(&cmd) {
-					self.nodes[i] = cmd;
+				if self.nodes[i].variant() == cmd.variant() {
+					swap(&mut self.nodes[i], &mut cmd);
 					return;
 				}
 			}
 		}
-		if let None = self.append_command(*node, cmd) {
+		if let None = self.append_command(*node, &mut cmd) {
 			let (parent, length) = self.parent_and_length(*node);
 			let length = length + 1;
 			let mut commands = self.pull(*node);
 			commands.push(cmd);
 			commands[0] = Command::Node(parent, length);
 			let slot = self.find_slot(length);
-			self.nodes[slot..][..length].copy_from_slice(&commands);
+			self.nodes[slot..][..length].swap_with_slice(&mut commands);
 			self.update_relatives((*node, slot));
 			*node = slot;
 		}
@@ -328,19 +315,12 @@ impl Display for Command {
 			Command::Child(_)                  => "CH",
 			Command::Template(_)               => "TM",
 
-			Command::Position(_, _)            => "PO",
-			Command::Size(_, _)                => "SZ",
+			Command::Spot(_, _, _, _)          => "SP",
 			Command::LengthPolicy(_)           => "LP",
 			Command::Name(_)                   => "NM",
-			Command::Handler(_, _)             => "HA",
+			Command::Handler(_)                => "HA",
 			Command::ContainerNode(_)          => "CN",
-			Command::BitmapSource(_, _)        => "BS",
-			Command::BitmapOffset(_, _)        => "BO",
-			Command::BitmapCrop(_, _)          => "BC",
-			Command::BitmapMaskRg(_, _)        => "B1",
-			Command::BitmapMaskBa(_, _)        => "B2",
-			Command::RailwaySource(_, _)       => "RS",
-			Command::RailwayParameter(_, _, _) => "RP",
+			Command::Widget(_)                 => "WG",
 		};
 		write!(f, "{}", sym)
 	}
@@ -354,27 +334,12 @@ impl Command {
 			Command::Child(_)                  => CommandVariant::Child,
 			Command::Template(_)               => CommandVariant::Template,
 
-			Command::Position(_, _)            => CommandVariant::Position,
-			Command::Size(_, _)                => CommandVariant::Size,
+			Command::Spot(_, _, _, _)          => CommandVariant::Spot,
 			Command::LengthPolicy(_)           => CommandVariant::LengthPolicy,
 			Command::Name(_)                   => CommandVariant::Name,
-			Command::Handler(_, _)             => CommandVariant::Handler,
+			Command::Handler(_)                => CommandVariant::Handler,
 			Command::ContainerNode(_)          => CommandVariant::ContainerNode,
-			Command::BitmapSource(_, _)        => CommandVariant::BitmapSource,
-			Command::BitmapOffset(_, _)        => CommandVariant::BitmapOffset,
-			Command::BitmapCrop(_, _)          => CommandVariant::BitmapCrop,
-			Command::BitmapMaskRg(_, _)        => CommandVariant::BitmapMaskRg,
-			Command::BitmapMaskBa(_, _)        => CommandVariant::BitmapMaskBa,
-			Command::RailwaySource(_, _)       => CommandVariant::RailwaySource,
-			Command::RailwayParameter(_, _, _) => CommandVariant::RailwayParameter,
-		}
-	}
-
-	pub fn replaceable(&self, other: &Self) -> bool {
-		use Command::RailwayParameter;
-		match (self, other) {
-			(RailwayParameter(i, _, _), RailwayParameter(j, _, _)) => i == j,
-			_ => self.variant() == other.variant(),
+			Command::Widget(_)                 => CommandVariant::Widget,
 		}
 	}
 }
