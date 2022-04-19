@@ -2,16 +2,12 @@
 
 Acrylic is a work-in-progress user interface toolkit.
 
-![output.png](https://docs.rs/crate/acrylic/0.1.1/source/output.png)
+![output.png](https://docs.rs/crate/acrylic/0.1.2/source/output.png)
 
 ## What can you do with it?
 
 With it you can lay out glyphs (textual characters), bitmaps and [railway pictures](https://lib.rs/railway).
 It has a tree model where you're meant to insert nodes, inspired by the Web DOM.
-
-## Dependencies?
-
-The goal is to keep this project's runtime dependencies to a low amount (< 50).
 
 ## Platform support?
 
