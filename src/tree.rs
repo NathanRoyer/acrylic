@@ -1,3 +1,9 @@
+use bitflags::bitflags;
+
+use crate::Point;
+use crate::Size;
+use crate::application::RcWidget;
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
@@ -5,15 +11,65 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::mem::swap;
 
-use crate::node::LengthPolicy;
-use crate::node::NodeKey;
-use crate::node::EventFlags;
-use crate::node::Axis;
-use crate::node::Hash;
-use crate::application::RcWidget;
-
 const SKIP_CONTINUED: usize = 0;
 const COMMAND_SIZE_IN_BYTES: usize = 24;
+
+#[derive(Debug, Copy, Clone)]
+pub enum LengthPolicy {
+	Fixed(usize),
+	Available(f64),
+	Chunks(usize),
+	WrapContent(u32, u32),
+	AspectRatio(f64),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Axis {
+	Horizontal,
+	Vertical,
+}
+
+pub type NodeKey = usize;
+pub type Hash = u64;
+
+bitflags! {
+	pub struct EventFlags: u32 {
+		const QUICK_ACTION_1 = 0b000000000000001;
+		const QUICK_ACTION_2 = 0b000000000000010;
+		const QUICK_ACTION_3 = 0b000000000000100;
+		const QUICK_ACTION_4 = 0b000000000001000;
+		const QUICK_ACTION_5 = 0b000000000010000;
+		const QUICK_ACTION_6 = 0b000000000100000;
+		const MODIFIER_1     = 0b000000001000000;
+		const MODIFIER_2     = 0b000000010000000;
+		const FACTOR_1       = 0b000000100000000;
+		const FACTOR_2       = 0b000001000000000;
+		const PAN_1          = 0b000010000000000;
+		const PAN_2          = 0b000100000000000;
+		const WHEEL_X        = 0b001000000000000;
+		const WHEEL_Y        = 0b010000000000000;
+		const DELETE         = 0b100000000000000;
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Event {
+	QuickAction1,
+	QuickAction2,
+	QuickAction3,
+	QuickAction4,
+	QuickAction5,
+	QuickAction6,
+	Modifier1(bool),
+	Modifier2(bool),
+	Factor1(f64),
+	Factor2(f64),
+	Pan1(usize, usize),
+	Pan2(usize, usize),
+	WheelX(f64),
+	WheelY(f64),
+	Delete,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum Command {
@@ -106,25 +162,19 @@ impl Tree {
 					}
 					l
 				},
-				Command::Node(_, l) => {
-					empty = 0;
-					l
-				},
-				_ => {
-					println!("{}; {}", i, self);
-					unreachable!()
-				},
+				Command::Node(_, l) => (empty = 0, l).1,
+				_ => unreachable!(),
 			};
 		}
 		// we're here = not enough space
-		// push garbage to get a big-enough slot
+		// append skips to get a big-enough slot
 		i = self.nodes.len() - empty;
 		let new_len = i + required;
 		self.nodes.resize(new_len, Command::Skip(0));
 		i
 	}
 
-	pub fn new_child(&mut self, parent: Option<&mut NodeKey>, add_skips: usize) -> NodeKey {
+	pub fn add_node(&mut self, parent: Option<&mut NodeKey>, add_skips: usize) -> NodeKey {
 		let required = 1 + add_skips;
 		let i = self.find_slot(required);
 		self.nodes[i] = Command::Node(match parent {
@@ -291,6 +341,71 @@ impl Tree {
 	}
 }
 
+macro_rules! getter {
+	($n:ident, $r:ty, $p:pat_param, $s:expr) => {
+		pub fn $n(&self, i: NodeKey) -> Option<$r> {
+			let mut retval = None;
+			for i in self.range(i) {
+				if let $p = &self.nodes[i] {
+					retval = Some($s);
+				}
+			}
+			retval
+		}
+	}
+}
+
+macro_rules! setter {
+	($n:ident, $b:expr, $t:ty, $i:pat_param, $c:expr, $v:expr) => {
+		pub fn $n(&mut self, i: &mut NodeKey, cmd: Option<$t>) {
+			if let Some($i) = cmd {
+				self.add_command(i, $c, $b);
+			} else {
+				self.del_variant(*i, $v);
+			}
+		}
+	}
+}
+
+/// Getters
+impl Tree {
+	getter!(get_node_spot, (Point, Size), Command::Spot(x, y, w, h), (Point::new(*x as isize, *y as isize), Size::new(*w as usize, *h as usize)));
+	getter!(get_node_policy, LengthPolicy, Command::LengthPolicy(policy), *policy);
+	getter!(get_node_name, Hash, Command::Name(hash), *hash);
+	getter!(get_node_container, Axis, Command::ContainerNode(axis), *axis);
+	getter!(get_node_widget, RcWidget, Command::Widget(a), a.clone());
+	getter!(get_node_handler, EventFlags, Command::Handler(m), *m);
+}
+
+/// Setters
+impl Tree {
+	setter!(set_node_spot, true, (Point, Size), (p, s), Command::Spot(p.x as i32, p.y as i32, s.w as u32, s.h as u32), CommandVariant::Spot);
+	setter!(set_node_policy, true, LengthPolicy, p, Command::LengthPolicy(p), CommandVariant::LengthPolicy);
+	setter!(set_node_name, true, Hash, n, Command::Name(n), CommandVariant::Name);
+	setter!(set_node_container, true, Axis, a, Command::ContainerNode(a), CommandVariant::ContainerNode);
+	setter!(set_node_template, true, NodeKey, t, Command::Template(t), CommandVariant::Template);
+	setter!(set_node_widget, true, RcWidget, a, Command::Widget(a), CommandVariant::Widget);
+	setter!(set_node_handler, true, EventFlags, a, Command::Handler(a), CommandVariant::Handler);
+}
+
+impl Command {
+	pub fn variant(&self) -> CommandVariant {
+		match self {
+			Command::Skip(_)                   => CommandVariant::Skip,
+			Command::Node(_, _)                => CommandVariant::Node,
+			Command::Child(_)                  => CommandVariant::Child,
+			Command::Template(_)               => CommandVariant::Template,
+
+			Command::Spot(_, _, _, _)          => CommandVariant::Spot,
+			Command::LengthPolicy(_)           => CommandVariant::LengthPolicy,
+			Command::Name(_)                   => CommandVariant::Name,
+			Command::Handler(_)                => CommandVariant::Handler,
+			Command::ContainerNode(_)          => CommandVariant::ContainerNode,
+			Command::Widget(_)                 => CommandVariant::Widget,
+		}
+	}
+}
+
 impl Display for Tree {
 	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
 		write!(f, "[\n")?;
@@ -323,24 +438,6 @@ impl Display for Command {
 			Command::Widget(_)                 => "WG",
 		};
 		write!(f, "{}", sym)
-	}
-}
-
-impl Command {
-	pub fn variant(&self) -> CommandVariant {
-		match self {
-			Command::Skip(_)                   => CommandVariant::Skip,
-			Command::Node(_, _)                => CommandVariant::Node,
-			Command::Child(_)                  => CommandVariant::Child,
-			Command::Template(_)               => CommandVariant::Template,
-
-			Command::Spot(_, _, _, _)          => CommandVariant::Spot,
-			Command::LengthPolicy(_)           => CommandVariant::LengthPolicy,
-			Command::Name(_)                   => CommandVariant::Name,
-			Command::Handler(_)                => CommandVariant::Handler,
-			Command::ContainerNode(_)          => CommandVariant::ContainerNode,
-			Command::Widget(_)                 => CommandVariant::Widget,
-		}
 	}
 }
 

@@ -1,7 +1,8 @@
+use crate::tree::NodeKey;
 use crate::tree::Tree;
+use crate::tree::Event;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
-use crate::node::NodeKey;
 use crate::Size;
 use crate::Void;
 // use crate::loader::Loader;
@@ -15,7 +16,8 @@ pub trait Widget: Debug + Any + 'static {
 	/// `as_any` is required for as long as upcasting coercion is unstable
 	fn as_any(&mut self) -> &mut dyn Any;
 	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void;
-	fn handle(&mut self, ___: &mut Application, ____: NodeKey) -> Void {
+	#[allow(unused)]
+	fn handle(&mut self, app: &mut Application, node: NodeKey, _: Event) -> Void {
 		None
 	}
 }

@@ -4,11 +4,11 @@ use std::hash::Hasher;
 use std::time::Instant;
 
 use acrylic::flexbox;
-use acrylic::node::NodeKey;
+use acrylic::tree::NodeKey;
 use acrylic::tree::Tree;
-use acrylic::node::Hash;
-use acrylic::node::Axis;
-use acrylic::node::LengthPolicy;
+use acrylic::tree::Hash;
+use acrylic::tree::Axis;
+use acrylic::tree::LengthPolicy;
 use acrylic::Point;
 use acrylic::Size;
 
@@ -33,7 +33,7 @@ fn _hash(s: &str) -> Hash {
 }
 
 fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
-	let mut c11 = t.new_child(Some(p), 3);
+	let mut c11 = t.add_node(Some(p), 3);
 	t.set_node_policy(&mut c11, Some(policy));
 	t.set_node_spot(&mut c11, Some((Point::zero(), Size::zero())));
 }
@@ -104,20 +104,20 @@ fn main() {
 	let widget = rc_widget(read_png("rsc/castle-in-the-sky.png"));
 	bmp_store.insert((0, 0), widget.clone());
 
-	let mut p = app.tree.new_child(None, 10);
+	let mut p = app.tree.add_node(None, 10);
 	app.tree.set_node_container(&mut p, Some(Axis::Vertical));
 	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(600, 800))));
 
 	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
 
-	let mut c1 = app.tree.new_child(Some(&mut p), 3);
+	let mut c1 = app.tree.add_node(Some(&mut p), 3);
 	app.tree.set_node_container(&mut c1, Some(Axis::Horizontal));
 	app.tree.set_node_policy(&mut c1, Some(LengthPolicy::AspectRatio(0.33)));
 	app.tree.set_node_spot(&mut c1, Some((Point::zero(), Size::zero())));
 
 	add_spacer(&mut app.tree, &mut c1, LengthPolicy::Available(0.5));
 
-	let mut c12 = app.tree.new_child(Some(&mut c1), 3);
+	let mut c12 = app.tree.add_node(Some(&mut c1), 3);
 	app.tree.set_node_widget(&mut c12, Some(widget));
 	app.tree.set_node_policy(&mut c12, Some(LengthPolicy::AspectRatio(1.0)));
 	app.tree.set_node_spot(&mut c12, Some((Point::zero(), Size::zero())));
@@ -126,7 +126,7 @@ fn main() {
 
 	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
 
-	// let mut c2 = app.tree.new_child(Some(&mut p), 3);
+	// let mut c2 = app.tree.new_node(Some(&mut p), 3);
 	// app.tree.set_node_container(&mut c2, Some(Axis::Horizontal));
 	// app.tree.set_node_policy(&mut c2, Some(LengthPolicy::Fixed(100)));
 	// app.tree.set_node_position(&mut c2, Some(Point::new(0, 0)));
@@ -136,7 +136,7 @@ fn main() {
 
 	let line_height = 20;
 
-	let mut line = app.tree.new_child(Some(&mut p), 10);
+	let mut line = app.tree.add_node(Some(&mut p), 10);
 	app.tree.set_node_policy(&mut line, Some(LengthPolicy::Chunks(line_height)));
 	app.tree.set_node_spot(&mut line, Some((Point::zero(), Size::zero())));
 	app.tree.set_node_container(&mut line, Some(Axis::Horizontal));
@@ -148,7 +148,7 @@ fn main() {
 
 	for ch in TEXT.chars() {
 		if let Some((widget, ratio)) = char_bmp(&mut bmp_store, &font, ch) {
-			let mut c = app.tree.new_child(Some(&mut line), 3);
+			let mut c = app.tree.add_node(Some(&mut line), 3);
 			if let Some(w) = widget {
 				app.tree.set_node_widget(&mut c, Some(w));
 			}

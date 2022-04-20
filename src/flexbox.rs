@@ -1,7 +1,7 @@
 use crate::tree::Tree;
-use crate::node::NodeKey;
-use crate::node::Axis::*;
-use crate::node::LengthPolicy::*;
+use crate::tree::NodeKey;
+use crate::tree::Axis::*;
+use crate::tree::LengthPolicy::*;
 use crate::Point;
 use crate::Size;
 
