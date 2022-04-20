@@ -2,16 +2,20 @@
 
 Acrylic is a work-in-progress user interface toolkit.
 
-![output.png](https://docs.rs/crate/acrylic/0.1.2/source/output.png)
+- ◔ Familiar to web developers (DOM / XML / JSON)
+- ◔ Built-in template system
+- ☑ Platform-agnostic
+- ☑ Easy to create new elements
+- ☑ Small library for easier maintenance
+- ☑ Designed with accessibility in mind
+- ☑ Great performance
+- ☑ Low RAM use
 
-## What can you do with it?
-
-With it you can lay out glyphs (textual characters), bitmaps and [railway pictures](https://lib.rs/railway).
-It has a tree model where you're meant to insert nodes, inspired by the Web DOM.
+![output.png](https://docs.rs/crate/acrylic/0.1.3/source/output.png)
 
 ## Platform support?
 
-As-is, this library can only render elements to an in-memory pixel buffer.
+As-is, this library can only render elements to an in-memory pixel buffer or png files.
 We aim at supporting webassembly and linux framebuffer platforms before Q3 2022.
 
 ## XML Parsing?

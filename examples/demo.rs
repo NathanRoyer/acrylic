@@ -72,7 +72,7 @@ fn char_bmp(bmp_store: &mut HashMap<(usize, usize), RcWidget>, font: &PxScaleFon
 				let i = (y * bmpsz.w + x) * RGBA;
 				let a = (255.0 * c) as u8;
 				if let Some(slice) = bmp.pixels.get_mut(i..(i + RGBA)) {
-					slice.copy_from_slice(&[255, 255, 255, a]);
+					slice.copy_from_slice(&[a, a, a, 255]);
 				}
 			});
 			let bmp = rc_widget(bmp);
@@ -106,7 +106,7 @@ fn main() {
 
 	let mut p = app.tree.add_node(None, 10);
 	app.tree.set_node_container(&mut p, Some(Axis::Vertical));
-	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(600, 800))));
+	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(600, 665))));
 
 	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
 
@@ -126,22 +126,26 @@ fn main() {
 
 	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
 
-	// let mut c2 = app.tree.new_node(Some(&mut p), 3);
-	// app.tree.set_node_container(&mut c2, Some(Axis::Horizontal));
-	// app.tree.set_node_policy(&mut c2, Some(LengthPolicy::Fixed(100)));
-	// app.tree.set_node_position(&mut c2, Some(Point::new(0, 0)));
-	// app.tree.set_node_size(&mut c2, Some(Size::new(0, 0)));
-// 
-	// add_spacer(&mut app.tree, &mut c2, LengthPolicy::Available(0.5));
+	let mut c2 = app.tree.add_node(Some(&mut p), 3);
+	app.tree.set_node_container(&mut c2, Some(Axis::Horizontal));
+	app.tree.set_node_policy(&mut c2, Some(LengthPolicy::WrapContent(0, 1000)));
+	app.tree.set_node_spot(&mut c2, Some((Point::zero(), Size::zero())));
+
+	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(50));
+
+	let mut c2mid = app.tree.add_node(Some(&mut c2), 3);
+	app.tree.set_node_container(&mut c2mid, Some(Axis::Vertical));
+	app.tree.set_node_policy(&mut c2mid, Some(LengthPolicy::Available(1.0)));
+	app.tree.set_node_spot(&mut c2mid, Some((Point::zero(), Size::zero())));
 
 	let line_height = 20;
 
-	let mut line = app.tree.add_node(Some(&mut p), 10);
+	let mut line = app.tree.add_node(Some(&mut c2mid), 10);
 	app.tree.set_node_policy(&mut line, Some(LengthPolicy::Chunks(line_height)));
 	app.tree.set_node_spot(&mut line, Some((Point::zero(), Size::zero())));
 	app.tree.set_node_container(&mut line, Some(Axis::Horizontal));
 
-	// add_spacer(&mut app.tree, &mut c2, LengthPolicy::Available(0.5));
+	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(50));
 
 	let font = FontRef::try_from_slice(include_bytes!("../rsc/font.ttf")).unwrap();
 	let font = font.as_scaled(line_height as f32);
@@ -171,6 +175,13 @@ fn main() {
 	let elapsed = timer.elapsed().as_secs_f64();
 	let avg_fps = ((runs as f64) / elapsed) as usize;
 	println!("rendered {} frames in {}s ({} fps)", runs, elapsed as usize, avg_fps);
+
+	for pixel in app.output.pixels.chunks_mut(RGBA) {
+		if pixel[3] == 0 {
+			pixel[..3].fill(0);
+			pixel[3] = 255;
+		}
+	}
 
 	save_png(&app.output);
 
