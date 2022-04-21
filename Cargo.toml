@@ -1,6 +1,6 @@
 [package]
 name = "acrylic"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "WIP UI toolkit"
@@ -10,8 +10,12 @@ repository = "https://github.com/NathanRoyer/acrylic"
 readme = "README.md"
 
 [dependencies]
-ab_glyph = "0.2"
+ab_glyph = { version = "0.2", optional = true }
 bitflags = "1.3"
+
+[features]
+default = [ "text" ]
+text = [ "ab_glyph" ]
 
 [dev-dependencies]
 png = "0.17"

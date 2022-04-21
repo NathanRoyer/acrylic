@@ -29,26 +29,34 @@ pub enum Axis {
 	Vertical,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Margin {
+	pub top: isize,
+	pub bottom: isize,
+	pub left: isize,
+	pub right: isize,
+}
+
 pub type NodeKey = usize;
 pub type Hash = u64;
 
 bitflags! {
 	pub struct EventFlags: u32 {
-		const QUICK_ACTION_1 = 0b000000000000001;
-		const QUICK_ACTION_2 = 0b000000000000010;
-		const QUICK_ACTION_3 = 0b000000000000100;
-		const QUICK_ACTION_4 = 0b000000000001000;
-		const QUICK_ACTION_5 = 0b000000000010000;
-		const QUICK_ACTION_6 = 0b000000000100000;
-		const MODIFIER_1     = 0b000000001000000;
-		const MODIFIER_2     = 0b000000010000000;
-		const FACTOR_1       = 0b000000100000000;
-		const FACTOR_2       = 0b000001000000000;
-		const PAN_1          = 0b000010000000000;
-		const PAN_2          = 0b000100000000000;
-		const WHEEL_X        = 0b001000000000000;
-		const WHEEL_Y        = 0b010000000000000;
-		const DELETE         = 0b100000000000000;
+		const QUICK_ACTION_1 = 0b0000000000000001;
+		const QUICK_ACTION_2 = 0b0000000000000010;
+		const QUICK_ACTION_3 = 0b0000000000000100;
+		const QUICK_ACTION_4 = 0b0000000000001000;
+		const QUICK_ACTION_5 = 0b0000000000010000;
+		const QUICK_ACTION_6 = 0b0000000000100000;
+		const MODIFIER_1     = 0b0000000001000000;
+		const MODIFIER_2     = 0b0000000010000000;
+		const FACTOR_1       = 0b0000000100000000;
+		const FACTOR_2       = 0b0000001000000000;
+		const PAN_1          = 0b0000010000000000;
+		const PAN_2          = 0b0000100000000000;
+		const WHEEL_X        = 0b0001000000000000;
+		const WHEEL_Y        = 0b0010000000000000;
+		const DELETE         = 0b0100000000000000;
 	}
 }
 
@@ -79,6 +87,7 @@ pub(crate) enum Command {
 	Template(NodeKey),
 
 	Spot(i32, i32, u32, u32),
+	Margin(i32, i32, i32, i32),
 	LengthPolicy(LengthPolicy),
 	Name(Hash),
 	Handler(EventFlags),
@@ -94,6 +103,7 @@ pub(crate) enum CommandVariant {
 	Template,
 
 	Spot,
+	Margin,
 	LengthPolicy,
 	Name,
 	Handler,
@@ -370,6 +380,7 @@ macro_rules! setter {
 /// Getters
 impl Tree {
 	getter!(get_node_spot, (Point, Size), Command::Spot(x, y, w, h), (Point::new(*x as isize, *y as isize), Size::new(*w as usize, *h as usize)));
+	getter!(get_node_margin, Margin, Command::Margin(t, b, l, r), Margin::new(*t as isize, *b as isize, *l as isize, *r as isize));
 	getter!(get_node_policy, LengthPolicy, Command::LengthPolicy(policy), *policy);
 	getter!(get_node_name, Hash, Command::Name(hash), *hash);
 	getter!(get_node_container, Axis, Command::ContainerNode(axis), *axis);
@@ -380,12 +391,32 @@ impl Tree {
 /// Setters
 impl Tree {
 	setter!(set_node_spot, true, (Point, Size), (p, s), Command::Spot(p.x as i32, p.y as i32, s.w as u32, s.h as u32), CommandVariant::Spot);
+	setter!(set_node_margin, true, Margin, m, Command::Margin(m.top as i32, m.bottom as i32, m.left as i32, m.right as i32), CommandVariant::Margin);
 	setter!(set_node_policy, true, LengthPolicy, p, Command::LengthPolicy(p), CommandVariant::LengthPolicy);
 	setter!(set_node_name, true, Hash, n, Command::Name(n), CommandVariant::Name);
 	setter!(set_node_container, true, Axis, a, Command::ContainerNode(a), CommandVariant::ContainerNode);
 	setter!(set_node_template, true, NodeKey, t, Command::Template(t), CommandVariant::Template);
 	setter!(set_node_widget, true, RcWidget, a, Command::Widget(a), CommandVariant::Widget);
 	setter!(set_node_handler, true, EventFlags, a, Command::Handler(a), CommandVariant::Handler);
+}
+
+impl Margin {
+	pub fn new(top: isize, bottom: isize, left: isize, right: isize) -> Self {
+		Self {
+			top,
+			bottom,
+			left,
+			right,
+		}
+	}
+
+	pub fn total_v(&self) -> isize {
+		self.top + self.bottom
+	}
+
+	pub fn total_h(&self) -> isize {
+		self.left + self.right
+	}
 }
 
 impl Command {
@@ -397,6 +428,7 @@ impl Command {
 			Command::Template(_)               => CommandVariant::Template,
 
 			Command::Spot(_, _, _, _)          => CommandVariant::Spot,
+			Command::Margin(_, _, _, _)        => CommandVariant::Margin,
 			Command::LengthPolicy(_)           => CommandVariant::LengthPolicy,
 			Command::Name(_)                   => CommandVariant::Name,
 			Command::Handler(_)                => CommandVariant::Handler,
@@ -431,6 +463,7 @@ impl Display for Command {
 			Command::Template(_)               => "TM",
 
 			Command::Spot(_, _, _, _)          => "SP",
+			Command::Margin(_, _, _, _)        => "MA",
 			Command::LengthPolicy(_)           => "LP",
 			Command::Name(_)                   => "NM",
 			Command::Handler(_)                => "HA",

@@ -9,20 +9,15 @@ use acrylic::tree::Tree;
 use acrylic::tree::Hash;
 use acrylic::tree::Axis;
 use acrylic::tree::LengthPolicy;
+use acrylic::text::Paragraph;
+use acrylic::text::Font;
 use acrylic::Point;
 use acrylic::Size;
 
 use acrylic::bitmap::Bitmap;
-use acrylic::bitmap::Margin;
 use acrylic::bitmap::RGBA;
-use acrylic::application::RcWidget;
 use acrylic::application::rc_widget;
 use acrylic::application::Application;
-
-use ab_glyph::FontRef;
-use ab_glyph::PxScaleFont;
-use ab_glyph::ScaleFont;
-use ab_glyph::Font;
 
 const TEXT: &'static str = "Mais, vous savez, moi je ne crois pas qu'il y ait de bonne ou de mauvaise situation. Moi, si je devais résumer ma vie aujourd'hui avec vous, je dirais que c'est d'abord des rencontres, Des gens qui m'ont tendu la main, peut-être à un moment où je ne pouvais pas, où j'étais seul chez moi. Et c'est assez curieux de se dire que les hasards, les rencontres forgent une destinée... Parce que quand on a le goût de la chose, quand on a le goût de la chose bien faite, Le beau geste, parfois on ne trouve pas l'interlocuteur en face, je dirais, le miroir qui vous aide à avancer. Alors ce n'est pas mon cas, comme je le disais là, puisque moi au contraire, j'ai pu ; Et je dis merci à la vie, je lui dis merci, je chante la vie, je danse la vie... Je ne suis qu'amour! Et finalement, quand beaucoup de gens aujourd'hui me disent : \"Mais comment fais-tu pour avoir cette humanité ?\", Eh bien je leur réponds très simplement, je leur dis que c'est ce goût de l'amour, Ce goût donc qui m'a poussé aujourd'hui à entreprendre une construction mécanique, Mais demain, qui sait, peut-être simplement à me mettre au service de la communauté, à faire le don, le don de soi...";
 
@@ -38,56 +33,6 @@ fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
 	t.set_node_spot(&mut c11, Some((Point::zero(), Size::zero())));
 }
 
-fn char_bmp(bmp_store: &mut HashMap<(usize, usize), RcWidget>, font: &PxScaleFont<&FontRef>, c: char) -> Option<(Option<RcWidget>, f64)> {
-	let key = (0, c as usize);
-	let (ratio, bmp) = if let Some(bmp) = bmp_store.get(&key) {
-		let size = {
-			let mut bmp = bmp.lock().unwrap();
-			let bmp = bmp.as_any().downcast_ref::<Bitmap>().unwrap();
-			bmp.size()
-		};
-		((size.h as f64) / (size.w as f64), Some(bmp.clone()))
-	} else {
-		if let Some(q) = font.outline_glyph(font.scaled_glyph(c)) {
-			let r1 = q.px_bounds();
-			let r2 = font.glyph_bounds(q.glyph());
-			let top = (r1.min.y - r2.min.y) as isize;
-			let left = (r1.min.x - r2.min.x) as isize;
-			let box_w = r2.width().ceil() as isize;
-			let box_h = r2.height().ceil() as isize;
-			let glyph_w = r1.width().ceil() as isize;
-			let glyph_h = r1.height().ceil() as isize;
-
-			let bmpsz = Size::new(glyph_w as usize, glyph_h as usize);
-			let mut bmp = Bitmap::new(bmpsz, RGBA);
-			bmp.margin = Margin {
-				top,
-				left,
-				right: box_w - (left + glyph_w),
-				bottom: box_h - (top + glyph_h),
-			};
-
-			q.draw(|x, y, c| {
-				let (x, y) = (x as usize, y as usize);
-				let i = (y * bmpsz.w + x) * RGBA;
-				let a = (255.0 * c) as u8;
-				if let Some(slice) = bmp.pixels.get_mut(i..(i + RGBA)) {
-					slice.copy_from_slice(&[a, a, a, 255]);
-				}
-			});
-			let bmp = rc_widget(bmp);
-			bmp_store.insert(key, bmp.clone());
-			((box_h as f64) / (box_w as f64), Some(bmp))
-		} else {
-			let id = font.glyph_id(c);
-			let h = font.height().ceil() as usize;
-			let w = font.h_advance(id);
-			((h as f64) / (w as f64), None)
-		}
-	};
-	Some((bmp, ratio))
-}
-
 fn _debug(t: &Tree, k: NodeKey, d: usize) -> Option<()> {
 	let (position, size) = t.get_node_spot(k)?;
 	println!("{}{}: {}x{} at {}x{}", "\t".repeat(d), k, size.w, size.h, position.x, position.y);
@@ -100,15 +45,17 @@ fn _debug(t: &Tree, k: NodeKey, d: usize) -> Option<()> {
 fn main() {
 	let mut app = Application::new(None, ());
 
+	let font = Font::from_bytes(include_bytes!("../rsc/font.ttf"));
+
 	let mut bmp_store = HashMap::new();
 	let widget = rc_widget(read_png("rsc/castle-in-the-sky.png"));
 	bmp_store.insert((0, 0), widget.clone());
 
 	let mut p = app.tree.add_node(None, 10);
 	app.tree.set_node_container(&mut p, Some(Axis::Vertical));
-	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(600, 665))));
+	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(1200, 1250))));
 
-	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
+	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(60));
 
 	let mut c1 = app.tree.add_node(Some(&mut p), 3);
 	app.tree.set_node_container(&mut c1, Some(Axis::Horizontal));
@@ -124,42 +71,38 @@ fn main() {
 
 	add_spacer(&mut app.tree, &mut c1, LengthPolicy::Available(0.5));
 
-	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(30));
+	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(60));
 
 	let mut c2 = app.tree.add_node(Some(&mut p), 3);
 	app.tree.set_node_container(&mut c2, Some(Axis::Horizontal));
-	app.tree.set_node_policy(&mut c2, Some(LengthPolicy::WrapContent(0, 1000)));
+	app.tree.set_node_policy(&mut c2, Some(LengthPolicy::WrapContent(0, 10000)));
 	app.tree.set_node_spot(&mut c2, Some((Point::zero(), Size::zero())));
 
-	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(50));
+	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(100));
 
 	let mut c2mid = app.tree.add_node(Some(&mut c2), 3);
 	app.tree.set_node_container(&mut c2mid, Some(Axis::Vertical));
 	app.tree.set_node_policy(&mut c2mid, Some(LengthPolicy::Available(1.0)));
 	app.tree.set_node_spot(&mut c2mid, Some((Point::zero(), Size::zero())));
 
-	let line_height = 20;
+	let line_height = 40;
+
+	let mut paragraph = Paragraph {
+		parts: vec![((0, 0, 0, 0, 0, 0), String::from(TEXT))],
+		font: font.clone(),
+		up_to_date: false,
+	};
 
 	let mut line = app.tree.add_node(Some(&mut c2mid), 10);
 	app.tree.set_node_policy(&mut line, Some(LengthPolicy::Chunks(line_height)));
 	app.tree.set_node_spot(&mut line, Some((Point::zero(), Size::zero())));
 	app.tree.set_node_container(&mut line, Some(Axis::Horizontal));
 
-	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(50));
+	paragraph.prepare(&mut app, &mut line, line_height);
 
-	let font = FontRef::try_from_slice(include_bytes!("../rsc/font.ttf")).unwrap();
-	let font = font.as_scaled(line_height as f32);
+	app.tree.set_node_widget(&mut line, Some(rc_widget(paragraph)));
 
-	for ch in TEXT.chars() {
-		if let Some((widget, ratio)) = char_bmp(&mut bmp_store, &font, ch) {
-			let mut c = app.tree.add_node(Some(&mut line), 3);
-			if let Some(w) = widget {
-				app.tree.set_node_widget(&mut c, Some(w));
-			}
-			app.tree.set_node_policy(&mut c, Some(LengthPolicy::AspectRatio(ratio)));
-			app.tree.set_node_spot(&mut c, Some((Point::zero(), Size::zero())));
-		}
-	}
+	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(100));
 
 	// _debug(&t, p, 0);
 
@@ -215,7 +158,6 @@ fn read_png(path: &str) -> Bitmap {
 	};
 	Bitmap {
 		size: Size::new(info.width as usize, info.height as usize),
-		margin: Margin::zero(),
 		channels: RGBA,
 		pixels,
 	}

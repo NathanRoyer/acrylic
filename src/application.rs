@@ -17,7 +17,7 @@ pub trait Widget: Debug + Any + 'static {
 	fn as_any(&mut self) -> &mut dyn Any;
 	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void;
 	#[allow(unused)]
-	fn handle(&mut self, app: &mut Application, node: NodeKey, _: Event) -> Void {
+	fn handle(&mut self, app: &mut Application, node: NodeKey, event: Event) -> Void {
 		None
 	}
 }
