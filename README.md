@@ -3,7 +3,7 @@
 Acrylic is a work-in-progress user interface toolkit.
 
 - ◔ Familiar to web developers (DOM / XML / JSON)
-- ◔ Built-in template system
+- ☑ Built-in template system
 - ☑ Platform-agnostic
 - ☑ Easy to create new elements
 - ☑ Small library for easier maintenance

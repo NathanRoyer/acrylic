@@ -2,6 +2,7 @@ use bitflags::bitflags;
 
 use crate::Point;
 use crate::Size;
+use crate::Void;
 use crate::application::RcWidget;
 
 use std::fmt::Display;
@@ -189,7 +190,7 @@ impl Tree {
 		let i = self.find_slot(required);
 		self.nodes[i] = Command::Node(match parent {
 			Some(ref p) => **p,
-			None => 0,
+			None => usize::MAX,
 		}, 1);
 		self.nodes[i..][..required][1..].fill(Command::Skip(1));
 		if let Some(p) = parent {
@@ -230,15 +231,17 @@ impl Tree {
 	}
 
 	pub fn del_node(&mut self, node: NodeKey, recursive: bool) {
-		let p_range = self.range(self.parent(node));
-		for i in p_range.start..p_range.end {
-			match self.nodes[i] {
-				Command::Child(c) if c == node => {
-					let last = p_range.end - 1;
-					self.nodes.swap(i, last);
-					self.nodes[last] = Command::Skip(1);
-				},
-				_ => (),
+		if let Some(p) = self.parent(node) {
+			let p_range = self.range(p);
+			for i in p_range.start..p_range.end {
+				match self.nodes[i] {
+					Command::Child(c) if c == node => {
+						let last = p_range.end - 1;
+						self.nodes.swap(i, last);
+						self.nodes[last] = Command::Skip(1);
+					},
+					_ => (),
+				}
 			}
 		}
 		if recursive {
@@ -257,12 +260,14 @@ impl Tree {
 	}
 
 	fn update_relatives(&mut self, keys: (NodeKey, NodeKey)) {
-		for i in self.range(self.parent(keys.1)) {
-			match self.nodes[i] {
-				Command::Child(c) if c == keys.0 => {
-					self.nodes[i] = Command::Child(keys.1);
-				},
-				_ => (),
+		if let Some(p) = self.parent(keys.1) {
+			for i in self.range(p) {
+				match self.nodes[i] {
+					Command::Child(c) if c == keys.0 => {
+						self.nodes[i] = Command::Child(keys.1);
+					},
+					_ => (),
+				}
 			}
 		}
 
@@ -331,8 +336,21 @@ impl Tree {
 		}
 	}
 
-	pub fn parent(&self, node: NodeKey) -> NodeKey {
-		self.parent_and_length(node).0
+	pub fn parent(&self, node: NodeKey) -> Option<NodeKey> {
+		let p = self.parent_and_length(node).0;
+		match p == usize::MAX {
+			true => None,
+			false => Some(p),
+		}
+	}
+
+	pub fn get_node_root(&self, mut node: NodeKey) -> NodeKey {
+		loop {
+			match self.parent(node) {
+				Some(p) => node = p,
+				None => break node,
+			};
+		}
 	}
 
 	pub fn children(&self, node: NodeKey) -> Vec<NodeKey> {
@@ -349,18 +367,32 @@ impl Tree {
 	pub fn memory_usage(&self) -> usize {
 		self.nodes.len() * COMMAND_SIZE_IN_BYTES
 	}
+
+	fn show_rec(&self, k: NodeKey, d: usize) -> Void {
+		let (position, size) = self.get_node_spot(k)?;
+		println!("{}{}: {}x{} at {}x{}", "\t".repeat(d), k, size.w, size.h, position.x, position.y);
+		for i in self.children(k) {
+			self.show_rec(i, d + 1);
+		}
+		None
+	}
+
+	pub fn show(&self, k: NodeKey) {
+		self.show_rec(k, 0);
+	}
 }
 
 macro_rules! getter {
 	($n:ident, $r:ty, $p:pat_param, $s:expr) => {
-		pub fn $n(&self, i: NodeKey) -> Option<$r> {
-			let mut retval = None;
-			for i in self.range(i) {
-				if let $p = &self.nodes[i] {
-					retval = Some($s);
+		pub fn $n(&self, mut i: NodeKey) -> Option<$r> {
+			'outer: loop {
+				for i in self.range(i) {
+					if let $p = &self.nodes[i] {
+						break 'outer Some($s);
+					}
 				}
+				i = self.parent(i)?;
 			}
-			retval
 		}
 	}
 }
@@ -416,6 +448,16 @@ impl Margin {
 
 	pub fn total_h(&self) -> isize {
 		self.left + self.right
+	}
+}
+
+impl Axis {
+	pub fn is(self, other: Self) -> Void {
+		if other == self {
+			Some(())
+		} else {
+			None
+		}
 	}
 }
 
