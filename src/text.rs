@@ -1,8 +1,7 @@
 // use bitflags::bitflags;
 use ab_glyph::ScaleFont;
 use ab_glyph::GlyphId;
-use ab_glyph::FontArc;
-use ab_glyph::FontRef;
+use ab_glyph::FontVec;
 use ab_glyph::Font as AbGlyphFont;
 
 use crate::application::Application;
@@ -39,9 +38,9 @@ pub type SerifRise = usize;
 
 pub type FontConfig = (Weight, ItalicAngle, Underline, Overline, Opacity, SerifRise);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Font {
-	pub fontarc: FontArc,
+	pub ab_glyph_font: FontVec,
 	pub glyphs: HashMap<(FontConfig, GlyphId), RcWidget>,
 }
 
@@ -62,13 +61,13 @@ pub struct ParagraphIter<'a> {
 
 impl Font {
 	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> (f64, Option<(RcWidget, Margin)>) {
-		let font = self.fontarc.as_scaled(match height {
+		let font = self.ab_glyph_font.as_scaled(match height {
 			Some(h) => h as f32,
 			None => 200.0,
 		});
 		let c1 = font.glyph_id(c);
 		let kern = match next {
-			Some(c2) => font.kern(c1, self.fontarc.glyph_id(c2)),
+			Some(c2) => font.kern(c1, self.ab_glyph_font.glyph_id(c2)),
 			_ => 0.0,
 		};
 		let glyph = font.scaled_glyph(c);
@@ -210,10 +209,9 @@ impl Widget for Paragraph {
 }
 
 impl Font {
-	pub fn from_bytes(data: &'static [u8]) -> Arc<Mutex<Self>> {
-		let font = FontRef::try_from_slice(data).unwrap();
+	pub fn from_bytes(data: Vec<u8>) -> Arc<Mutex<Self>> {
 		Arc::new(Mutex::new(Self {
-			fontarc: FontArc::new(font),
+			ab_glyph_font: FontVec::try_from_vec(data).unwrap(),
 			glyphs: HashMap::new(),
 		}))
 	}

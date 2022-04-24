@@ -11,7 +11,7 @@ Acrylic is a work-in-progress user interface toolkit.
 - ☑ Great performance
 - ☑ Low RAM use
 
-![output.png](https://docs.rs/crate/acrylic/0.1.4/source/output.png)
+![output.png](https://docs.rs/crate/acrylic/0.1.6/source/output.png)
 
 ## Platform support?
 

@@ -27,7 +27,7 @@ fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
 fn main() {
 	let mut app = Application::new(None, ());
 
-	let font = Font::from_bytes(include_bytes!("../rsc/font.ttf"));
+	let font = Font::from_bytes(include_bytes!("../rsc/font.ttf").to_vec());
 
 	let mut bmp_store = HashMap::new();
 	let widget = rc_widget(read_png("rsc/castle-in-the-sky.png"));
