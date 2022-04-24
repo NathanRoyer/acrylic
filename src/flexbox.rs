@@ -115,8 +115,8 @@ fn compute_node(t: &mut Tree, i: NodeKey, p: NodeKey, m: Option<usize>, c: Optio
 		},
 		(AspectRatio(r), _, Some(l)) => {
 			let result = match p_container? {
-				Horizontal => (l as f64) / r,
-				Vertical => (l as f64) * r,
+				Horizontal => (l as f64) * r,
+				Vertical => (l as f64) / r,
 			};
 			match result.is_finite() && result >= 0.0 {
 				true => Some(result as usize),

@@ -35,3 +35,7 @@ impl Size {
 		Self::new(0, 0)
 	}
 }
+
+pub fn aspect_ratio(w: usize, h: usize) -> f64 {
+	(w as f64) / (h as f64)
+}

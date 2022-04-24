@@ -1,45 +1,27 @@
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
 use std::time::Instant;
+use std::collections::HashMap;
 
 use acrylic::flexbox;
 use acrylic::tree::NodeKey;
 use acrylic::tree::Tree;
-use acrylic::tree::Hash;
 use acrylic::tree::Axis;
 use acrylic::tree::LengthPolicy;
 use acrylic::text::Paragraph;
 use acrylic::text::Font;
 use acrylic::Point;
 use acrylic::Size;
-
 use acrylic::bitmap::Bitmap;
 use acrylic::bitmap::RGBA;
 use acrylic::application::rc_widget;
 use acrylic::application::Application;
 
 const TEXT: &'static str = "Mais, vous savez, moi je ne crois pas qu'il y ait de bonne ou de mauvaise situation. Moi, si je devais résumer ma vie aujourd'hui avec vous, je dirais que c'est d'abord des rencontres, Des gens qui m'ont tendu la main, peut-être à un moment où je ne pouvais pas, où j'étais seul chez moi. Et c'est assez curieux de se dire que les hasards, les rencontres forgent une destinée... Parce que quand on a le goût de la chose, quand on a le goût de la chose bien faite, Le beau geste, parfois on ne trouve pas l'interlocuteur en face, je dirais, le miroir qui vous aide à avancer. Alors ce n'est pas mon cas, comme je le disais là, puisque moi au contraire, j'ai pu ; Et je dis merci à la vie, je lui dis merci, je chante la vie, je danse la vie... Je ne suis qu'amour! Et finalement, quand beaucoup de gens aujourd'hui me disent : \"Mais comment fais-tu pour avoir cette humanité ?\", Eh bien je leur réponds très simplement, je leur dis que c'est ce goût de l'amour, Ce goût donc qui m'a poussé aujourd'hui à entreprendre une construction mécanique, Mais demain, qui sait, peut-être simplement à me mettre au service de la communauté, à faire le don, le don de soi...";
-
-fn _hash(s: &str) -> Hash {
-	let mut h = DefaultHasher::new();
-	h.write(s.as_bytes());
-	h.finish()
-}
+// const TEXT: &'static str = "Lol";
 
 fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
 	let mut c11 = t.add_node(Some(p), 3);
 	t.set_node_policy(&mut c11, Some(policy));
 	t.set_node_spot(&mut c11, Some((Point::zero(), Size::zero())));
-}
-
-fn _debug(t: &Tree, k: NodeKey, d: usize) -> Option<()> {
-	let (position, size) = t.get_node_spot(k)?;
-	println!("{}{}: {}x{} at {}x{}", "\t".repeat(d), k, size.w, size.h, position.x, position.y);
-	for i in t.children(k) {
-		_debug(t, i, d + 1);
-	}
-	None
 }
 
 fn main() {
@@ -53,13 +35,13 @@ fn main() {
 
 	let mut p = app.tree.add_node(None, 10);
 	app.tree.set_node_container(&mut p, Some(Axis::Vertical));
-	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(1200, 1250))));
+	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(1200, 1300))));
 
 	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(60));
 
 	let mut c1 = app.tree.add_node(Some(&mut p), 3);
 	app.tree.set_node_container(&mut c1, Some(Axis::Horizontal));
-	app.tree.set_node_policy(&mut c1, Some(LengthPolicy::AspectRatio(0.33)));
+	app.tree.set_node_policy(&mut c1, Some(LengthPolicy::AspectRatio(3.0)));
 	app.tree.set_node_spot(&mut c1, Some((Point::zero(), Size::zero())));
 
 	add_spacer(&mut app.tree, &mut c1, LengthPolicy::Available(0.5));
@@ -87,7 +69,7 @@ fn main() {
 
 	let line_height = 40;
 
-	let mut paragraph = Paragraph {
+	let paragraph = Paragraph {
 		parts: vec![((0, 0, 0, 0, 0, 0), String::from(TEXT))],
 		font: font.clone(),
 		up_to_date: false,
@@ -97,8 +79,6 @@ fn main() {
 	app.tree.set_node_policy(&mut line, Some(LengthPolicy::Chunks(line_height)));
 	app.tree.set_node_spot(&mut line, Some((Point::zero(), Size::zero())));
 	app.tree.set_node_container(&mut line, Some(Axis::Horizontal));
-
-	paragraph.prepare(&mut app, &mut line, line_height);
 
 	app.tree.set_node_widget(&mut line, Some(rc_widget(paragraph)));
 
@@ -129,6 +109,8 @@ fn main() {
 	save_png(&app.output);
 
 	println!("Tree uses {}B", app.tree.memory_usage());
+
+	// app.tree.show(p);
 }
 
 use std::path::Path;

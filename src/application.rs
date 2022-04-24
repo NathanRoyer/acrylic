@@ -11,11 +11,17 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::fmt::Debug;
+use std::ops::Range;
 
 pub trait Widget: Debug + Any + 'static {
 	/// `as_any` is required for as long as upcasting coercion is unstable
 	fn as_any(&mut self) -> &mut dyn Any;
-	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void;
+
+	#[allow(unused)]
+	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void {
+		None
+	}
+
 	#[allow(unused)]
 	fn handle(&mut self, app: &mut Application, node: NodeKey, event: Event) -> Void {
 		None
@@ -24,15 +30,32 @@ pub trait Widget: Debug + Any + 'static {
 
 pub type RcWidget = Arc<Mutex<dyn Widget>>;
 
+#[derive(Debug, Copy, Clone, Default)]
+pub struct DummyWidget;
+
+impl Widget for DummyWidget {
+	fn as_any(&mut self) -> &mut dyn Any {
+		self
+	}
+}
+
 pub fn rc_widget<W: Widget>(widget: W) -> RcWidget {
 	Arc::new(Mutex::new(widget))
 }
 
+#[derive(Debug)]
 pub struct Application {
 	pub tree: Tree,
-	// pub loader: Loader,
+	pub data_requests: Vec<DataRequest>,
 	pub model: Box<dyn Any>,
 	pub output: Bitmap,
+}
+
+#[derive(Debug, Clone, Hash)]
+pub struct DataRequest {
+	pub node: NodeKey,
+	pub name: String,
+	pub range: Option<Range<usize>>,
 }
 
 impl Application {
@@ -43,6 +66,7 @@ impl Application {
 		};
 		Self {
 			tree,
+			data_requests: vec![],
 			model: Box::new(model),
 			output: Bitmap::new(Size::zero(), RGBA),
 		}

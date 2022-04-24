@@ -6,14 +6,18 @@ use ab_glyph::FontRef;
 use ab_glyph::Font as AbGlyphFont;
 
 use crate::application::Application;
+use crate::application::DummyWidget;
 use crate::application::Widget;
 use crate::application::RcWidget;
 use crate::application::rc_widget;
+use crate::geometry::aspect_ratio;
 use crate::tree::LengthPolicy;
 use crate::tree::NodeKey;
 use crate::tree::Margin;
+use crate::tree::Axis;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
+use crate::flexbox::compute_tree;
 use crate::Void;
 use crate::Size;
 use crate::Point;
@@ -57,25 +61,32 @@ pub struct ParagraphIter<'a> {
 }
 
 impl Font {
-	pub fn get(&mut self, c: char, next: Option<char>, height: f32, cfg: FontConfig) -> (f64, Option<(RcWidget, Margin)>) {
-		let font = self.fontarc.as_scaled(height);
+	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> (f64, Option<(RcWidget, Margin)>) {
+		let font = self.fontarc.as_scaled(match height {
+			Some(h) => h as f32,
+			None => 200.0,
+		});
 		let c1 = font.glyph_id(c);
-		if let Some(q) = font.outline_glyph(font.scaled_glyph(c)) {
-			let kern = match next {
-				Some(c2) => {
-					let c2 = self.fontarc.glyph_id(c2);
-					font.kern(c1, c2).round() as isize
-				},
-				_ => 0,
-			};
-			let r1 = q.px_bounds();
-			let r2 = font.glyph_bounds(q.glyph());
-			let top = (r1.min.y - r2.min.y) as isize;
-			let left = (r1.min.x - r2.min.x) as isize - kern;
-			let box_w = r2.width().ceil() as isize;
-			let box_h = r2.height().ceil() as isize;
-			let glyph_w = r1.width().ceil() as isize;
-			let glyph_h = r1.height().ceil() as isize;
+		let kern = match next {
+			Some(c2) => font.kern(c1, self.fontarc.glyph_id(c2)),
+			_ => 0.0,
+		};
+		let glyph = font.scaled_glyph(c);
+		let g_box = font.glyph_bounds(&glyph);
+		let box_w = (g_box.width() + kern).ceil() as isize;
+		let box_h = g_box.height().ceil() as isize;
+		let ratio = aspect_ratio(box_w as usize, box_h as usize);
+		let mut widget_margin = None;
+		if height.is_none() {
+			let widget = rc_widget(DummyWidget);
+			let margin = Margin::new(0, 0, 0, 0);
+			widget_margin = Some((widget, margin));
+		} else if let Some(q) = font.outline_glyph(glyph) {
+			let outline_bounds = q.px_bounds();
+			let top = (outline_bounds.min.y - g_box.min.y).ceil() as isize;
+			let left = (outline_bounds.min.x - g_box.min.x).ceil() as isize;
+			let glyph_w = outline_bounds.width().ceil() as isize;
+			let glyph_h = outline_bounds.height().ceil() as isize;
 			let margin = Margin {
 				top,
 				left,
@@ -102,13 +113,9 @@ impl Font {
 				self.glyphs.insert((cfg, c1), bmp.clone());
 				bmp
 			};
-
-			((box_h as f64) / (box_w as f64), Some((widget, margin)))
-		} else {
-			let h = font.height().ceil() as usize;
-			let w = font.h_advance(c1);
-			((h as f64) / (w as f64), None)
-		}
+			widget_margin = Some((widget, margin))
+		};
+		(ratio, widget_margin)
 	}
 }
 
@@ -122,7 +129,7 @@ impl Paragraph {
 		}
 	}
 
-	pub fn prepare(&mut self, app: &mut Application, node: &mut NodeKey, line_height: usize) {
+	fn deploy(&mut self, app: &mut Application, node: &mut NodeKey, line_height: Option<usize>) {
 		let children = app.tree.children(*node);
 		let mut children = children.as_slice();
 
@@ -144,19 +151,18 @@ impl Paragraph {
 				None => None,
 			};
 			let mut font = self.font.lock().unwrap();
-			let (ratio, widget_margin) = font.get(c1, c2, line_height as f32, cfg);
+			let (r, widget_margin) = font.get(c1, c2, line_height, cfg);
 			if let Some((widget, margin)) = widget_margin {
 				app.tree.set_node_widget(&mut child, Some(widget));
 				app.tree.set_node_margin(&mut child, Some(margin));
 			}
-			app.tree.set_node_policy(&mut child, Some(LengthPolicy::AspectRatio(ratio)));
+			app.tree.set_node_policy(&mut child, Some(LengthPolicy::AspectRatio(r)));
 			app.tree.set_node_spot(&mut child, Some((Point::zero(), Size::zero())));
 			current = next;
 		}
 		for i in children {
 			app.tree.del_node(*i, true);
 		}
-		self.up_to_date = true;
 	}
 }
 
@@ -179,7 +185,22 @@ impl<'a> Iterator for ParagraphIter<'a> {
 }
 
 impl Widget for Paragraph {
-	fn render(&mut self, __: &mut Application, mut ____: NodeKey) -> Void {
+	fn render(&mut self, app: &mut Application, mut node: NodeKey) -> Void {
+		if !self.up_to_date {
+			self.up_to_date = true;
+			app.tree.get_node_container(node)?.is(Axis::Horizontal)?;
+			let root = app.tree.get_node_root(node);
+			if let LengthPolicy::Chunks(line_height) = app.tree.get_node_policy(node)? {
+				self.deploy(app, &mut node, Some(line_height));
+				compute_tree(&mut app.tree, root);
+			} else {
+				self.deploy(app, &mut node, None);
+				compute_tree(&mut app.tree, root);
+				let (_, size) = app.tree.get_node_spot(node)?;
+				self.deploy(app, &mut node, Some(size.h));
+				compute_tree(&mut app.tree, root);
+			}
+		}
 		None
 	}
 
