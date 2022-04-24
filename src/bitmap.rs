@@ -4,8 +4,8 @@ use crate::tree::NodeKey;
 use crate::application::Application;
 use crate::application::Widget;
 
-use std::fmt::Debug;
-use std::any::Any;
+use core::fmt::Debug;
+use core::any::Any;
 
 pub const RGBA: usize = 4;
 pub const RGB: usize = 3;

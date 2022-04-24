@@ -5,12 +5,13 @@ use crate::Size;
 use crate::Void;
 use crate::application::RcWidget;
 
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
-use std::cmp::Ordering;
-use std::ops::Range;
-use std::mem::swap;
+use core::fmt::Display;
+use core::fmt::Formatter;
+use core::fmt::Result;
+use core::cmp::Ordering;
+use core::ops::Range;
+use core::mem::swap;
+use core::mem::size_of;
 
 const SKIP_CONTINUED: usize = 0;
 const COMMAND_SIZE_IN_BYTES: usize = 24;
@@ -97,7 +98,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum CommandVariant {
+pub(crate) enum  {
 	Skip,
 	Node,
 	Child,
@@ -119,7 +120,7 @@ pub struct Tree {
 
 impl Tree {
 	pub fn new() -> Self {
-		if std::mem::size_of::<Command>() != COMMAND_SIZE_IN_BYTES {
+		if size_of::<Command>() != COMMAND_SIZE_IN_BYTES {
 			println!("Warning! (acrylic/common/tree.rs): Command has an unpredicted size");
 		}
 		Self {

@@ -21,11 +21,12 @@ use crate::Void;
 use crate::Size;
 use crate::Point;
 
+use core::any::Any;
+use core::str::Chars;
+
 use std::collections::HashMap;
-use std::any::Any;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::str::Chars;
 
 /// in cents:
 pub type Weight = usize;

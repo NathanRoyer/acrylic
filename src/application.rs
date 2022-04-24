@@ -7,11 +7,12 @@ use crate::Size;
 use crate::Void;
 // use crate::loader::Loader;
 
-use std::any::Any;
+use core::any::Any;
+use core::fmt::Debug;
+use core::ops::Range;
+
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::fmt::Debug;
-use std::ops::Range;
 
 pub trait Widget: Debug + Any + 'static {
 	/// `as_any` is required for as long as upcasting coercion is unstable

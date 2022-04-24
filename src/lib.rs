@@ -1,11 +1,11 @@
 pub mod tree;
-
-#[cfg(feature = "text")]
-pub mod text;
 pub mod flexbox;
 pub mod geometry;
 pub mod bitmap;
 pub mod application;
+
+#[cfg(feature = "text")]
+pub mod text;
 
 pub use application::Application;
 
