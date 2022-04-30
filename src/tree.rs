@@ -98,7 +98,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum  {
+pub(crate) enum CommandVariant {
 	Skip,
 	Node,
 	Child,

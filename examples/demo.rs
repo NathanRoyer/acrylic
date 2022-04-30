@@ -25,7 +25,7 @@ fn add_spacer(t: &mut Tree, p: &mut NodeKey, policy: LengthPolicy) {
 }
 
 fn main() {
-	let mut app = Application::new(None, ());
+	let mut app = Application::new(None, (), 0);
 
 	let font = Font::from_bytes(include_bytes!("../rsc/font.ttf").to_vec());
 
@@ -37,9 +37,12 @@ fn main() {
 	app.tree.set_node_container(&mut p, Some(Axis::Vertical));
 	app.tree.set_node_spot(&mut p, Some((Point::zero(), Size::new(1200, 1300))));
 
-	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(60));
+	app.view_root = p;
+	let p = &mut app.view_root;
 
-	let mut c1 = app.tree.add_node(Some(&mut p), 3);
+	add_spacer(&mut app.tree, p, LengthPolicy::Fixed(60));
+
+	let mut c1 = app.tree.add_node(Some(p), 3);
 	app.tree.set_node_container(&mut c1, Some(Axis::Horizontal));
 	app.tree.set_node_policy(&mut c1, Some(LengthPolicy::AspectRatio(3.0)));
 	app.tree.set_node_spot(&mut c1, Some((Point::zero(), Size::zero())));
@@ -53,9 +56,9 @@ fn main() {
 
 	add_spacer(&mut app.tree, &mut c1, LengthPolicy::Available(0.5));
 
-	add_spacer(&mut app.tree, &mut p, LengthPolicy::Fixed(60));
+	add_spacer(&mut app.tree, p, LengthPolicy::Fixed(60));
 
-	let mut c2 = app.tree.add_node(Some(&mut p), 3);
+	let mut c2 = app.tree.add_node(Some(p), 3);
 	app.tree.set_node_container(&mut c2, Some(Axis::Horizontal));
 	app.tree.set_node_policy(&mut c2, Some(LengthPolicy::WrapContent(0, 10000)));
 	app.tree.set_node_spot(&mut c2, Some((Point::zero(), Size::zero())));
@@ -86,14 +89,14 @@ fn main() {
 
 	// _debug(&t, p, 0);
 
-	flexbox::compute_tree(&mut app.tree, p);
+	flexbox::compute_tree(&mut app.tree, *p);
 
-	app.render(p);
+	app.render();
 
 	let timer = Instant::now();
 	let runs = 100;
 	for _ in 0..runs {
-		app.render(p);
+		app.render();
 	}
 	let elapsed = timer.elapsed().as_secs_f64();
 	let avg_fps = ((runs as f64) / elapsed) as usize;

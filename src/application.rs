@@ -27,6 +27,11 @@ pub trait Widget: Debug + Any + 'static {
 	fn handle(&mut self, app: &mut Application, node: NodeKey, event: Event) -> Void {
 		None
 	}
+
+	#[allow(unused)]
+	fn loaded(&mut self, app: &mut Application, node: NodeKey, name: &str, offset: usize, data: &[u8]) -> Void {
+		None
+	}
 }
 
 pub type RcWidget = Arc<Mutex<dyn Widget>>;
@@ -50,6 +55,7 @@ pub struct Application {
 	pub data_requests: Vec<DataRequest>,
 	pub model: Box<dyn Any>,
 	pub output: Bitmap,
+	pub view_root: NodeKey,
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -60,7 +66,7 @@ pub struct DataRequest {
 }
 
 impl Application {
-	pub fn new<M: Any + 'static>(tree: Option<Tree>, model: M) -> Self {
+	pub fn new<M: Any + 'static>(tree: Option<Tree>, model: M, view_root: NodeKey) -> Self {
 		let tree = match tree {
 			Some(tree) => tree,
 			None => Tree::new(),
@@ -70,6 +76,7 @@ impl Application {
 			data_requests: vec![],
 			model: Box::new(model),
 			output: Bitmap::new(Size::zero(), RGBA),
+			view_root,
 		}
 	}
 
@@ -77,14 +84,14 @@ impl Application {
 		self.model.downcast_mut::<M>()
 	}
 
-	pub fn render(&mut self, root: NodeKey) -> Void {
-		let size = self.tree.get_node_spot(root)?.1;
+	pub fn render(&mut self) -> Void {
+		let size = self.tree.get_node_spot(self.view_root)?.1;
 		if size != self.output.size {
 			self.output = Bitmap::new(size, RGBA);
 		} else {
 			self.output.pixels.fill(0);
 		}
-		self.render_cont(root)
+		self.render_cont(self.view_root)
 	}
 
 	fn render_cont(&mut self, node: NodeKey) -> Void {
