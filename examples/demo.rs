@@ -1,7 +1,6 @@
 use std::time::Instant;
 use std::collections::HashMap;
 
-use acrylic::flexbox;
 use acrylic::tree::NodeKey;
 use acrylic::tree::Tree;
 use acrylic::tree::Axis;
@@ -87,9 +86,7 @@ fn main() {
 
 	add_spacer(&mut app.tree, &mut c2, LengthPolicy::Fixed(100));
 
-	// _debug(&t, p, 0);
-
-	flexbox::compute_tree(&mut app.tree, *p);
+	app.tree.compute_flexbox(*p);
 
 	app.render();
 
