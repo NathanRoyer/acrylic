@@ -4,6 +4,7 @@ use crate::Point;
 use crate::Size;
 use crate::Void;
 use crate::application::RcWidget;
+use crate::flexbox::compute_tree;
 
 use core::fmt::Display;
 use core::fmt::Formatter;
@@ -362,6 +363,10 @@ impl Tree {
 			}
 		}
 		result
+	}
+
+	pub fn compute_flexbox(&mut self, root: NodeKey) {
+		compute_tree(self, root);
 	}
 
 	/// in bytes
