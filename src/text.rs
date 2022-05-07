@@ -191,6 +191,13 @@ pub fn paragraph(app: &mut Application, parent: Option<&mut NodeKey>, attributes
 }
 
 impl Paragraph {
+	/// Mark the paragraph as dirty: the paragraph
+	/// will check that its glyph are up to date during
+	/// the next frame rendering.
+	pub fn refresh(&mut self) {
+		self.previous_size = Size::zero();
+	}
+
 	fn into_iter(&self) -> ParagraphIter {
 		ParagraphIter {
 			paragraph: self,
