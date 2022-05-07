@@ -1,25 +1,49 @@
-# Acrylic
+## 🎨 acrylic
 
-Acrylic is a work-in-progress user interface toolkit.
+This is a work-in-progress, cross-platform, small, web-inspired user interface toolkit.
 
-- ◔ Familiar to web developers (DOM / XML / JSON)
-- ☑ Built-in template system
-- ☑ Platform-agnostic
-- ☑ Easy to create new elements
-- ☑ Small library for easier maintenance
-- ☑ Designed with accessibility in mind
-- ☑ Great performance
-- ☑ Low RAM use
+## 🪀 Live Demos
 
-![output.png](https://docs.rs/crate/acrylic/0.1.7/source/output.png)
+> coming soon!
 
-## Platform support?
+## 🧱 Supported platforms
 
-As-is, this library can only render elements to an in-memory pixel buffer or png files.
-We aim at supporting webassembly and linux framebuffer platforms before Q3 2022.
+| platform | Link | Rendering | Asset Loading | Event Handling |
+|---|---|---|---|---|
+| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ |  |
+| wayland |  |  |  |  |
+| x11 |  |  |  |  |
+| gdi |  |  |  |  |
+| fbdev |  |  |  |  |
+| drmkms |  |  |  |  |
 
-## XML Parsing?
+## ⚡️ Quickstart
 
-It is a planned feature.
-You would be able to add nodes to the tree based on an xml file which would represent your UI.
-This would result in a system very close to how web pages are handled in web browsers.
+> coming soon!
+
+## ☕ Contact & Contributions
+
+### Contact
+
+You can contact me via [email](nathan.royer.pro@gmail.com)
+or on Discord: `bitsneak#1889`.
+
+You can use these for any question regarding this project.
+
+### Contributions
+
+We gladly accept all contributions via Github PRs.
+
+If you contribute rust code, please put all dependencies
+behind features; adding tens of dependencies to this crate
+or another one of this project might be a reason for not
+merging your PR.
+
+## 👉🏻 See Also
+
+* [egui](https://lib.rs/egui)
+* [slint](https://lib.rs/slint)
+
+## 🕯️ License
+
+MIT
