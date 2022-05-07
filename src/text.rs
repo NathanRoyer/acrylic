@@ -278,6 +278,14 @@ impl Widget for Paragraph {
 		None
 	}
 
+	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+		let mut legend = String::new();
+		for (_, part) in &self.parts {
+			legend += &part;
+		}
+		legend
+	}
+
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
 	}

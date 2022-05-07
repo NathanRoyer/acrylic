@@ -84,6 +84,10 @@ impl Widget for PngLoader {
 		self
 	}
 
+	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+		String::from("Loading PNG image...")
+	}
+
 	fn loaded(&mut self, app: &mut Application, mut node: NodeKey, _: &str, _: usize, data: &[u8]) -> Void {
 		let bitmap = read_png(data);
 		let ratio = aspect_ratio(bitmap.size.w, bitmap.size.h);

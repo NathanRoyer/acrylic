@@ -26,6 +26,12 @@ pub trait Widget: Debug + Any + 'static {
 	/// `as_any` is required for as long as upcasting coercion is unstable
 	fn as_any(&mut self) -> &mut dyn Any;
 
+	/// The `legend` method is called when the platform needs a
+	/// textual description of a widget. This helps making
+	/// applications accessible to people with disabilities.
+	#[allow(unused)]
+	fn legend(&mut self, app: &mut Application, node: NodeKey) -> String;
+
 	/// The `render` method is called when the platform
 	/// needs to refresh the screen. Using `app.tree`, one
 	/// can manipulate the node identified by the `node` argument.
@@ -69,6 +75,10 @@ pub struct DummyWidget;
 impl Widget for DummyWidget {
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
+	}
+
+	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+		String::from("This should not appear on screen. You are probably facing a bug.")
 	}
 }
 

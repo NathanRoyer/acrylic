@@ -91,6 +91,10 @@ impl Widget for Bitmap {
 		None
 	}
 
+	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+		String::from("Image")
+	}
+
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
 	}
