@@ -1,8 +1,8 @@
 use crate::Size;
 use crate::Void;
 use crate::tree::NodeKey;
-use crate::application::Application;
-use crate::application::Widget;
+use crate::app::Application;
+use crate::app::Widget;
 
 use core::fmt::Debug;
 use core::any::Any;

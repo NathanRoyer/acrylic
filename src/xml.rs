@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::application::Application;
+use crate::app::Application;
 use crate::tree::LengthPolicy;
 use crate::tree::NodeKey;
 use crate::tree::Axis;

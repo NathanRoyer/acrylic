@@ -1,8 +1,8 @@
-use crate::application::Application;
-use crate::application::DataRequest;
+use crate::app::Application;
+use crate::app::DataRequest;
 use crate::geometry::aspect_ratio;
-use crate::application::rc_widget;
-use crate::application::Widget;
+use crate::app::rc_widget;
+use crate::app::Widget;
 use crate::tree::LengthPolicy;
 use crate::bitmap::Bitmap;
 use crate::xml::Attribute;

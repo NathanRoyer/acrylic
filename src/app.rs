@@ -71,7 +71,7 @@ pub fn rc_widget<W: Widget>(widget: W) -> RcWidget {
 	Arc::new(Mutex::new(widget))
 }
 
-/// The Application structure represent your application.
+/// The Application structure represents your application.
 /// It has a [`Tree`] containing nodes, a `model` field
 /// where you can store your application-specific model,
 /// and a vector of [`DataRequest`] where you can add

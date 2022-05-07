@@ -3,11 +3,11 @@ use ab_glyph::GlyphId;
 use ab_glyph::FontVec;
 use ab_glyph::Font as AbGlyphFont;
 
-use crate::application::Application;
-use crate::application::DummyWidget;
-use crate::application::Widget;
-use crate::application::RcWidget;
-use crate::application::rc_widget;
+use crate::app::Application;
+use crate::app::DummyWidget;
+use crate::app::Widget;
+use crate::app::RcWidget;
+use crate::app::rc_widget;
 use crate::geometry::aspect_ratio;
 use crate::tree::LengthPolicy;
 use crate::tree::NodeKey;

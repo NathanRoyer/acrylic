@@ -39,7 +39,7 @@ behind features; adding tens of dependencies to this crate
 or another one of this project might be a reason for not
 merging your PR.
 
-## 👉🏻 See Also
+## 👉 See Also
 
 * [egui](https://lib.rs/egui)
 * [slint](https://lib.rs/slint)

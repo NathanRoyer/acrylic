@@ -2,7 +2,7 @@ pub mod tree;
 pub mod flexbox;
 pub mod geometry;
 pub mod bitmap;
-pub mod application;
+pub mod app;
 
 #[cfg(feature = "text")]
 pub mod text;
@@ -13,9 +13,7 @@ pub mod xml;
 #[cfg(feature = "png")]
 pub mod png;
 
-pub use application::Application;
-
-pub use geometry::Point;
-pub use geometry::Size;
+pub type Point = geometry::Point;
+pub type Size = geometry::Size;
 
 pub type Void = Option<()>;

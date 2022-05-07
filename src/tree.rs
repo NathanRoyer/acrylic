@@ -3,7 +3,7 @@ use bitflags::bitflags;
 use crate::Point;
 use crate::Size;
 use crate::Void;
-use crate::application::RcWidget;
+use crate::app::RcWidget;
 use crate::flexbox::compute_tree;
 
 use core::fmt::Display;
@@ -51,7 +51,7 @@ pub enum Axis {
 	Vertical,
 }
 
-/// This can be used by [`Widget`] implementations
+/// This can be used by [`crate::application::Widget`] implementations
 /// to offset the boundaries of their original
 /// rendering spot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
