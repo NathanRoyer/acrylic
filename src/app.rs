@@ -150,7 +150,7 @@ impl Application {
 		let (position, size) = self.tree.get_node_spot(self.view_root)?;
 		if size != self.output.size {
 			self.output = Bitmap::new(size, RGBA);
-			self.tree.set_node_spot(self.view_root, (position, size));
+			self.tree.set_node_spot(&mut self.view_root, Some((position, size)));
 		} else {
 			self.output.pixels.fill(0);
 		}
