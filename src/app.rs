@@ -6,12 +6,18 @@ use crate::bitmap::RGBA;
 use crate::Size;
 use crate::Void;
 
+#[cfg(feature = "text")]
+use crate::text::Font;
+
 use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Range;
 
 use std::sync::Arc;
 use std::sync::Mutex;
+
+#[cfg(feature = "text")]
+use std::collections::HashMap;
 
 /// Once you assign an object implementing Widget
 /// to a node, this node can render and react to UI
@@ -87,6 +93,14 @@ pub struct Application {
 	/// so this could actually be called a forest.
 	pub tree: Tree,
 
+	/// Fonts that can be used by widgets to draw glyphs
+	#[cfg(feature = "text")]
+	pub fonts: HashMap<Option<String>, Arc<Mutex<Font>>>,
+
+	/// Default font size used by textual widgets
+	#[cfg(feature = "text")]
+	pub default_font_size: usize,
+
 	/// Data requests allow widgets to load external assets,
 	/// partially or completely. You can append new ones to
 	/// this vector.
@@ -126,13 +140,24 @@ impl Application {
 			Some(tree) => tree,
 			None => Tree::new(),
 		};
-		Self {
+		#[allow(unused_mut)]
+		let mut app = Self {
 			tree,
+			#[cfg(feature = "text")]
+			fonts: HashMap::new(),
+			#[cfg(feature = "text")]
+			default_font_size: 30,
 			data_requests: vec![],
 			model: Box::new(model),
 			output: Bitmap::new(Size::zero(), RGBA),
 			view_root,
+		};
+		#[cfg(all(feature = "text", feature = "noto-default-font"))]
+		{
+			let font = Font::from_bytes(include_bytes!("noto-sans-regular.ttf").to_vec());
+			app.fonts.insert(None, font);
 		}
+		app
 	}
 
 	/// This getter allows you to get your model as its initial
@@ -142,6 +167,18 @@ impl Application {
 	/// Under the hood, this is a simple downcast.
 	pub fn model<M: Any + 'static>(&mut self) -> Option<&mut M> {
 		self.model.downcast_mut::<M>()
+	}
+
+	/// Adds a font to the font store. If `default` is `true`,
+	/// this font will be used by default when textual nodes
+	/// are created.
+	#[cfg(feature = "text")]
+	pub fn add_font(&mut self, name: String, data: Vec<u8>, default: bool) {
+		let font = Font::from_bytes(data);
+		self.fonts.insert(Some(name), font.clone());
+		if default {
+			self.fonts.insert(None, font);
+		}
 	}
 
 	/// This method is called by the platform to request a refresh
