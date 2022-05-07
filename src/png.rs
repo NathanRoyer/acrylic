@@ -5,12 +5,14 @@ use crate::app::rc_widget;
 use crate::app::Widget;
 use crate::tree::LengthPolicy;
 use crate::bitmap::Bitmap;
-use crate::xml::Attribute;
 use crate::tree::NodeKey;
 use crate::bitmap::RGBA;
 use crate::Point;
 use crate::Size;
 use crate::Void;
+
+#[cfg(feature = "xml")]
+use crate::xml::Attribute;
 
 use png::Decoder;
 use png::ColorType;
@@ -54,6 +56,7 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 /// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
 /// instance parses the png image and replaces itself with a [`Bitmap`]
 /// containing the decoded image.
+#[cfg(feature = "xml")]
 pub fn xml_handler(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
 	let mut source = Err(String::from("missing src attribute"));
 

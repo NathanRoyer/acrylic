@@ -20,6 +20,9 @@ use crate::Void;
 use crate::Size;
 use crate::Point;
 
+#[cfg(feature = "xml")]
+use crate::xml::Attribute;
+
 use core::any::Any;
 use core::str::Chars;
 
@@ -67,7 +70,7 @@ pub struct Font {
 pub struct Paragraph {
 	pub parts: Vec<(FontConfig, String)>,
 	pub font: Arc<Mutex<Font>>,
-	pub up_to_date: bool,
+	pub previous_size: Size,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +152,44 @@ impl Font {
 	}
 }
 
+/// This function is to be used in [`crate::xml::TreeParser::with`].
+#[cfg(feature = "xml")]
+pub fn paragraph(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
+	let mut text = Err(String::from("missing txt attribute"));
+	let mut font_size = app.default_font_size;
+	let mut font = None;
+
+	for Attribute { name, value } in attributes {
+		match name.as_str() {
+			"txt" => text = Ok(value.clone()),
+			"font" => font = Some(value.clone()),
+			"font-size" => font_size = value.parse().ok().ok_or(format!("bad font-size: {}", &value))?,
+			_ => Err(format!("unexpected attribute: {}", name))?,
+		}
+	}
+
+	let err_msg = format!("unknown font: \"{}\"", font.as_ref().unwrap_or(&format!("<none>")));
+	let font = app.fonts.get(&font).ok_or(err_msg)?.clone();
+
+	let err_msg = String::from("paragraph must be in a container");
+	let parent = parent.ok_or(err_msg.clone())?;
+	let parent_axis = app.tree.get_node_container(*parent).ok_or(err_msg)?;
+
+	let mut node = app.tree.add_node(Some(parent), 4);
+	app.tree.set_node_widget(&mut node, Some(rc_widget(Paragraph {
+		parts: vec![ ((0, 0, 0, 0, 0, 0), text?) ],
+		font,
+		previous_size: Size::zero(),
+	})));
+	app.tree.set_node_policy(&mut node, Some(match parent_axis {
+		Axis::Vertical => LengthPolicy::Chunks(font_size),
+		Axis::Horizontal => LengthPolicy::WrapContent(0, u32::MAX),
+	}));
+	app.tree.set_node_container(&mut node, Some(Axis::Horizontal));
+	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
+	Ok(node)
+}
+
 impl Paragraph {
 	fn into_iter(&self) -> ParagraphIter {
 		ParagraphIter {
@@ -216,19 +257,22 @@ impl<'a> Iterator for ParagraphIter<'a> {
 
 impl Widget for Paragraph {
 	fn render(&mut self, app: &mut Application, mut node: NodeKey) -> Void {
-		if !self.up_to_date {
-			self.up_to_date = true;
+		let size = app.tree.get_node_spot(node)?.1;
+		if size != self.previous_size {
+			self.previous_size = size;
 			app.tree.get_node_container(node)?.is(Axis::Horizontal)?;
 			let root = app.tree.get_node_root(node);
 			if let LengthPolicy::Chunks(line_height) = app.tree.get_node_policy(node)? {
 				self.deploy(app, &mut node, Some(line_height));
 				compute_tree(&mut app.tree, root);
+				self.previous_size = app.tree.get_node_spot(node)?.1;
 			} else {
 				self.deploy(app, &mut node, None);
 				compute_tree(&mut app.tree, root);
 				let (_, size) = app.tree.get_node_spot(node)?;
 				self.deploy(app, &mut node, Some(size.h));
 				compute_tree(&mut app.tree, root);
+				self.previous_size = app.tree.get_node_spot(node)?.1;
 			}
 		}
 		None
