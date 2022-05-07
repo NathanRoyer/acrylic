@@ -7,6 +7,12 @@ pub mod application;
 #[cfg(feature = "text")]
 pub mod text;
 
+#[cfg(feature = "xml")]
+pub mod xml;
+
+#[cfg(feature = "png")]
+pub mod png;
+
 pub use application::Application;
 
 pub use geometry::Point;

@@ -11,14 +11,14 @@ readme = "README.md"
 
 [dependencies]
 ab_glyph = { version = "0.2", optional = true }
+xmlparser = { version = "0.13.3", optional = true }
+png = { version = "0.17", optional = true }
 bitflags = "1.3"
 
 [features]
-default = [ "text" ]
+default = [ "text", "xml", "png" ]
 text = [ "ab_glyph" ]
-
-[dev-dependencies]
-png = "0.17"
+xml = [ "xmlparser" ]
 
 [[example]]
 name = "demo"
