@@ -5,6 +5,14 @@ use crate::tree::LengthPolicy::*;
 use crate::Point;
 use crate::Size;
 
+/// This function will update the size and position of each
+/// node under `root` in a way that ressembles the CSS Flexible
+/// Box Layout aglorithm. For each node it encounters, it lays
+/// it out according to the [`crate::tree::LengthPolicy`] setting of the node.
+///
+/// Note: This function must never add properties to nodes, so
+/// nodes which do not already have size and position settings
+/// (whatever their value) are skipped.
 pub fn compute_tree(t: &mut Tree, root: NodeKey) {
 	let (mut pt, n_size) = t.get_node_spot(root).expect("flexbox error: root node has no spot!");
 	let n_container = t.get_node_container(root).expect("flexbox error: root node is not a container!");

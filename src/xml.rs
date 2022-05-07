@@ -12,14 +12,20 @@ use xmlparser::Tokenizer;
 use xmlparser::StrSpan;
 use xmlparser::Token;
 
+/// An XML Attribute
 #[derive(Debug, Clone)]
 pub struct Attribute {
+	/// If a namespace was specified in the xml file,
+	/// `name` will contain both namespace and local
+	/// name as in: `"[namespace]:[local name]"`.
 	pub name: String,
 	pub value: String,
 }
 
 type Handler = &'static dyn Fn(&mut Application, Option<&mut NodeKey>, &[Attribute]) -> Result<NodeKey, String>;
 
+/// This structure is used to parse an xml file
+/// representing a view of an application.
 #[derive(Clone)]
 pub struct TreeParser {
 	handlers: HashMap<String, Handler>,
@@ -39,11 +45,13 @@ impl TreeParser {
 		}
 	}
 
-	pub fn with(&mut self, name: &str, handler: Handler) -> &mut Self {
-		self.handlers.insert(String::from(name), handler);
+	/// Add a tag handler to the parser
+	pub fn with(&mut self, tag: &str, handler: Handler) -> &mut Self {
+		self.handlers.insert(String::from(tag), handler);
 		self
 	}
 
+	/// Try to parse the xml
 	pub fn parse(&self, app: &mut Application, xml: &str) -> Result<NodeKey, String> {
 		let mut root = Err(String::from("Empty XML"));
 		let mut parents = Vec::new();
@@ -97,10 +105,12 @@ impl TreeParser {
 	}
 }
 
+/// tag parser for a vertical container.
 pub fn v_container(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
 	container(app, Axis::Vertical, parent, attributes)
 }
 
+/// tag parser for an horizontal container.
 pub fn h_container(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
 	container(app, Axis::Horizontal, parent, attributes)
 }

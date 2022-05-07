@@ -17,12 +17,31 @@ use core::mem::size_of;
 const SKIP_CONTINUED: usize = 0;
 const COMMAND_SIZE_IN_BYTES: usize = 24;
 
+/// This allows nodes to be layed out in various ways
+/// by our flexbox-like algorithm. This structure
+/// helps decide the main axis length; the cross axis
+/// length depends on the container and cannot be
+/// impacted by the children of the container.
 #[derive(Debug, Copy, Clone)]
 pub enum LengthPolicy {
+	/// Main length is a fixed number of pixels
 	Fixed(usize),
+	/// Main length is a fraction of the space
+	/// which is left over by neighbors with other
+	/// length policies.
 	Available(f64),
+	/// Main length is divided in chunks of specified
+	/// length (in pixels). The number of chunks is
+	/// determined by the contained nodes: there will
+	/// be as many chunks as necessary for all children
+	/// to fit in.
 	Chunks(usize),
+	/// Main length is the content's length, clamped
+	/// between a maximum and a minimum (in pixels).
 	WrapContent(u32, u32),
+	/// Main length is computed from the cross length
+	/// so that the size of the node maintains a certain
+	/// aspect ratio.
 	AspectRatio(f64),
 }
 
@@ -32,6 +51,9 @@ pub enum Axis {
 	Vertical,
 }
 
+/// This can be used by [`Widget`] implementations
+/// to offset the boundaries of their original
+/// rendering spot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Margin {
 	pub top: isize,
@@ -63,6 +85,7 @@ bitflags! {
 	}
 }
 
+/// An event which widgets can handle.
 #[derive(Debug, Copy, Clone)]
 pub enum Event {
 	QuickAction1,
@@ -114,6 +137,12 @@ pub(crate) enum CommandVariant {
 	Widget,
 }
 
+/// An object which can store multiple independent
+/// tree-like structures representing application views.
+///
+/// Note: You should never create [`NodeKey`]s yourself;
+/// you should use those returned by the following
+/// methods instead.
 #[derive(Debug, Clone)]
 pub struct Tree {
 	pub(crate) nodes: Vec<Command>,
@@ -187,6 +216,15 @@ impl Tree {
 		i
 	}
 
+	/// Add a node to the tree.
+	///
+	/// If `parent` is None, the node will be a new root.
+	/// Otherwise, the node will be a child of the other node.
+	///
+	/// The `add_skips` should correspond to a hint of how many
+	/// properties (see the setters below) you will set. It is a
+	/// memory allocation optimization that you can disable by
+	/// passing `0` instead.
 	pub fn add_node(&mut self, parent: Option<&mut NodeKey>, add_skips: usize) -> NodeKey {
 		let required = 1 + add_skips;
 		let i = self.find_slot(required);
@@ -232,6 +270,8 @@ impl Tree {
 		}
 	}
 
+	/// Delete a specific node. If `recursive` is `true`, the
+	/// node's chilren will also be deleted.
 	pub fn del_node(&mut self, node: NodeKey, recursive: bool) {
 		if let Some(p) = self.parent(node) {
 			let p_range = self.range(p);
@@ -338,6 +378,8 @@ impl Tree {
 		}
 	}
 
+	/// Retrieve the parent of this node. If the node is a root one,
+	/// this will return None.
 	pub fn parent(&self, node: NodeKey) -> Option<NodeKey> {
 		let p = self.parent_and_length(node).0;
 		match p == usize::MAX {
@@ -346,6 +388,7 @@ impl Tree {
 		}
 	}
 
+	/// Get the topmost node of the tree for this node.
 	pub fn get_node_root(&self, mut node: NodeKey) -> NodeKey {
 		loop {
 			match self.parent(node) {
@@ -355,6 +398,7 @@ impl Tree {
 		}
 	}
 
+	/// List the children of a node.
 	pub fn children(&self, node: NodeKey) -> Vec<NodeKey> {
 		let mut result = Vec::with_capacity(20);
 		for i in self.range(node) {
@@ -365,13 +409,15 @@ impl Tree {
 		result
 	}
 
+	/// Update the sizes and positions of nodes under `root`.
+	/// Shortcut to [`crate::flexbox::compute_tree`].
 	pub fn compute_flexbox(&mut self, root: NodeKey) {
 		compute_tree(self, root);
 	}
 
-	/// in bytes
+	/// Compute the memory use of this object.
 	pub fn memory_usage(&self) -> usize {
-		self.nodes.len() * COMMAND_SIZE_IN_BYTES
+		self.nodes.capacity() * COMMAND_SIZE_IN_BYTES
 	}
 
 	fn show_rec(&self, k: NodeKey, d: usize) -> Void {
@@ -383,6 +429,8 @@ impl Tree {
 		None
 	}
 
+	/// Display a text representation of the internal
+	/// structures (using `println`). Made for debugging.
 	pub fn show(&self, k: NodeKey) {
 		self.show_rec(k, 0);
 	}
@@ -448,10 +496,12 @@ impl Margin {
 		}
 	}
 
+	/// Sum of `top` and `bottom`
 	pub fn total_v(&self) -> isize {
 		self.top + self.bottom
 	}
 
+	/// Sum of `left` and `right`
 	pub fn total_h(&self) -> isize {
 		self.left + self.right
 	}

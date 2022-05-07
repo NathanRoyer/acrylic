@@ -7,19 +7,37 @@ use crate::application::Widget;
 use core::fmt::Debug;
 use core::any::Any;
 
-pub const RGBA: usize = 4;
-pub const RGB: usize = 3;
-pub const BW: usize = 1;
+pub type Channels = usize;
 
+/// red, green, blue, alpha
+pub const RGBA: Channels = 4;
+
+/// red, green, blue
+pub const RGB:  Channels = 3;
+
+/// black and white
+pub const BW:   Channels = 1;
+
+/// This structure has two purposes.
+///
+/// First, it is used across this crate as a way to
+/// store 2D pixel arrays.
+///
+/// It also implements [`Widget`], so it can be set to
+/// a node so that this node renders as an image.
 #[derive(Debug, Clone)]
 pub struct Bitmap {
+	/// The pixel array
 	pub pixels: Vec<u8>,
-	pub channels: usize,
+	/// The number of channels; must be one of
+	/// BW, RGB or RGBA.
+	pub channels: Channels,
+	/// The size (width and height) of the image
 	pub size: Size,
 }
 
 impl Bitmap {
-	pub fn new(size: Size, channels: usize) -> Self {
+	pub fn new(size: Size, channels: Channels) -> Self {
 		Self {
 			size,
 			channels,

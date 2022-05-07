@@ -1,4 +1,3 @@
-// use bitflags::bitflags;
 use ab_glyph::ScaleFont;
 use ab_glyph::GlyphId;
 use ab_glyph::FontVec;
@@ -28,23 +27,42 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-/// in cents:
-pub type Weight = usize;
-pub type ItalicAngle = usize;
-pub type Underline = usize;
-pub type Overline = usize;
-pub type Opacity = usize;
-pub type SerifRise = usize;
-// pub type zbab = e46;
+pub type Cents = usize;
+
+/// Weight of the text, times 0.01
+pub type Weight = Cents;
+
+/// Italic Angle of the text, times 0.01
+pub type ItalicAngle = Cents;
+
+/// Underline of the text, times 0.01
+pub type Underline = Cents;
+
+/// Overline of the text, times 0.01
+pub type Overline = Cents;
+
+/// Opacity of the text, times 0.01
+pub type Opacity = Cents;
+
+/// Serif rise of the text, times 0.01
+pub type SerifRise = Cents;
 
 pub type FontConfig = (Weight, ItalicAngle, Underline, Overline, Opacity, SerifRise);
 
+/// The Font object contains font data as well
+/// as a cache of previously rendered glyphs.
 #[derive(Debug)]
 pub struct Font {
-	pub ab_glyph_font: FontVec,
-	pub glyphs: HashMap<(FontConfig, GlyphId), RcWidget>,
+	pub(crate) ab_glyph_font: FontVec,
+	pub(crate) glyphs: HashMap<(FontConfig, GlyphId), RcWidget>,
 }
 
+/// A Paragraph represent a block of text. It can be
+/// made of multiple parts which may have different
+/// configurations: some might be underlined, some
+/// might be bold, others can be both, etc.
+///
+/// TODO: handle font size changes properly.
 #[derive(Debug, Clone)]
 pub struct Paragraph {
 	pub parts: Vec<(FontConfig, String)>,
@@ -61,6 +79,18 @@ pub struct ParagraphIter<'a> {
 }
 
 impl Font {
+	/// Parse a TTF / OpenType font's data
+	pub fn from_bytes(data: Vec<u8>) -> Arc<Mutex<Self>> {
+		Arc::new(Mutex::new(Self {
+			ab_glyph_font: FontVec::try_from_vec(data).unwrap(),
+			glyphs: HashMap::new(),
+		}))
+	}
+
+	/// Used internally to obtain a rendered glyph
+	/// from the font, which is then kept in cache.
+	///
+	/// TODO: handle font size changes properly.
 	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> (f64, Option<(RcWidget, Margin)>) {
 		let font = self.ab_glyph_font.as_scaled(match height {
 			Some(h) => h as f32,
@@ -206,14 +236,5 @@ impl Widget for Paragraph {
 
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
-	}
-}
-
-impl Font {
-	pub fn from_bytes(data: Vec<u8>) -> Arc<Mutex<Self>> {
-		Arc::new(Mutex::new(Self {
-			ab_glyph_font: FontVec::try_from_vec(data).unwrap(),
-			glyphs: HashMap::new(),
-		}))
 	}
 }

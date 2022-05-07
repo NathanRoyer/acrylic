@@ -17,6 +17,7 @@ use png::ColorType;
 
 use core::any::Any;
 
+/// See [`xml_handler`]
 #[derive(Debug, Clone)]
 pub struct PngLoader;
 
@@ -48,6 +49,11 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 	}
 }
 
+/// This function is to be used in [`crate::xml::TreeParser::with`].
+/// It parses xml attributes to find an image source, and installs
+/// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
+/// instance parses the png image and replaces itself with a [`Bitmap`]
+/// containing the decoded image.
 pub fn xml_handler(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
 	let mut source = Err(String::from("missing src attribute"));
 
