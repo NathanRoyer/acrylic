@@ -89,6 +89,7 @@ impl Widget for PngLoader {
 		let ratio = aspect_ratio(bitmap.size.w, bitmap.size.h);
 		app.tree.set_node_widget(&mut node, Some(rc_widget(bitmap)));
 		app.tree.set_node_policy(&mut node, Some(LengthPolicy::AspectRatio(ratio)));
+		app.tree.compute_flexbox(app.tree.get_node_root(node));
 		None
 	}
 }
