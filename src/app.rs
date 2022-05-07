@@ -147,9 +147,10 @@ impl Application {
 	/// This method is called by the platform to request a refresh
 	/// of the output. It should be called for every frame.
 	pub fn render(&mut self) -> Void {
-		let size = self.tree.get_node_spot(self.view_root)?.1;
+		let (position, size) = self.tree.get_node_spot(self.view_root)?;
 		if size != self.output.size {
 			self.output = Bitmap::new(size, RGBA);
+			self.tree.set_node_spot(self.view_root, (position, size));
 		} else {
 			self.output.pixels.fill(0);
 		}

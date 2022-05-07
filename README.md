@@ -25,7 +25,7 @@ This is a work-in-progress, cross-platform, small, web-inspired user interface t
 
 ### Contact
 
-You can contact me via [email](nathan.royer.pro@gmail.com)
+You can contact me via [email](mailto:nathan.royer.pro@gmail.com)
 or on Discord: `bitsneak#1889`.
 
 You can use these for any question regarding this project.

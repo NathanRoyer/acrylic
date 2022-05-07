@@ -1,11 +1,12 @@
 [package]
 name = "acrylic"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "cross-platform, small, web-inspired user interface toolkit"
 license = "MIT"
-keywords = ["toolkit", "gui", "ui", "xml"]
+categories = [ "gui" ]
+keywords = [ "toolkit", "gui", "ui", "xml" ]
 repository = "https://github.com/NathanRoyer/acrylic"
 readme = "README.md"
 
