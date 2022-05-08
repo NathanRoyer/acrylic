@@ -70,8 +70,8 @@ impl Widget for Railway {
 		self.mask.resize(size.w * size.h, 0);
 		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
 		self.program.compute(&mut self.stack);
-		let offset = (position.y as usize) * app.output.size.w + (position.x as usize);
-		let pitch = app.output.size.w - size.w;
+		let offset = 4 * ((position.y as usize) * app.output.size.w + (position.x as usize));
+		let pitch = 4 * (app.output.size.w - size.w);
 		let dst = &mut app.output.pixels[offset..];
 		self.program.render(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
 		None
