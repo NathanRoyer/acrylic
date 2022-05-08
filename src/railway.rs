@@ -73,7 +73,7 @@ impl Widget for Railway {
 		let offset = (position.y as usize) * app.output.size.w + (position.x as usize);
 		let pitch = app.output.size.w - size.w;
 		let dst = &mut app.output.pixels[offset..];
-		self.program.render(&self.stack, dst, &mut self.mask, size.w, pitch);
+		self.program.render(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
 		None
 	}
 }
