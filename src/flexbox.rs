@@ -5,6 +5,8 @@ use crate::tree::LengthPolicy::*;
 use crate::Point;
 use crate::Size;
 
+use std::println;
+
 /// This function will update the size and position of each
 /// node under `root` in a way that ressembles the CSS Flexible
 /// Box Layout aglorithm. For each node it encounters, it lays

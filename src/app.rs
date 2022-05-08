@@ -15,6 +15,9 @@ use core::ops::Range;
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::string::String;
+use std::vec::Vec;
+use std::boxed::Box;
 
 #[cfg(feature = "text")]
 use std::collections::HashMap;
@@ -157,7 +160,7 @@ impl Application {
 			fonts: HashMap::new(),
 			#[cfg(feature = "text")]
 			default_font_size: 30,
-			data_requests: vec![],
+			data_requests: Vec::new(),
 			model: Box::new(model),
 			output: Bitmap::new(Size::zero(), RGBA),
 			view_root,

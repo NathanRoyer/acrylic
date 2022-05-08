@@ -1,6 +1,6 @@
 [package]
 name = "acrylic"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "cross-platform, small, web-inspired user interface toolkit"
@@ -15,10 +15,12 @@ ab_glyph = { version = "0.2", optional = true }
 xmlparser = { version = "0.13.3", optional = true }
 png = { version = "0.17", optional = true }
 railway = { version = "0.1.4", features = [ "zeno" ], optional = true }
+no-std-compat = { version = "0.4.1", features = [ "alloc", "compat_hash", "compat_sync", "compat_macros" ] }
 bitflags = "1.3"
 
 [features]
-default = [ "text", "xml", "png", "railway", "noto-default-font" ]
+default = [ "text", "xml", "png", "railway", "noto-default-font", "std" ]
 text = [ "ab_glyph" ]
 xml = [ "xmlparser" ]
+std = [ "no-std-compat/std" ]
 noto-default-font = []

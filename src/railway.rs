@@ -18,6 +18,11 @@ use railway::Couple;
 
 use core::any::Any;
 
+use std::string::String;
+use std::vec::Vec;
+use std::println;
+use std::format;
+
 /// See [`xml_handler`]
 #[derive(Debug, Clone)]
 pub struct Railway {

@@ -19,6 +19,11 @@ use png::ColorType;
 
 use core::any::Any;
 
+use std::string::String;
+use std::vec::Vec;
+use std::format;
+use std::vec;
+
 /// See [`xml_handler`]
 #[derive(Debug, Clone)]
 pub struct PngLoader;

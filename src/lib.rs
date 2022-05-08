@@ -1,3 +1,7 @@
+#![no_std]
+
+extern crate no_std_compat as std;
+
 pub mod tree;
 pub mod flexbox;
 pub mod geometry;

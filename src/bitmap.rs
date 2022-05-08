@@ -7,6 +7,10 @@ use crate::app::Widget;
 use core::fmt::Debug;
 use core::any::Any;
 
+use std::string::String;
+use std::vec::Vec;
+use std::vec;
+
 pub type Channels = usize;
 
 /// red, green, blue, alpha

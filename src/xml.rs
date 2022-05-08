@@ -12,6 +12,11 @@ use xmlparser::Tokenizer;
 use xmlparser::StrSpan;
 use xmlparser::Token;
 
+use std::string::String;
+use std::vec::Vec;
+use std::format;
+use std::println;
+
 /// An XML Attribute
 #[derive(Debug, Clone)]
 pub struct Attribute {
