@@ -13,6 +13,9 @@ pub mod xml;
 #[cfg(feature = "png")]
 pub mod png;
 
+#[cfg(feature = "railway")]
+pub mod railway;
+
 pub type Point = geometry::Point;
 pub type Size = geometry::Size;
 
