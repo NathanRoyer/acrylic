@@ -16,6 +16,7 @@ use core::mem::size_of;
 
 use std::vec::Vec;
 use std::println;
+#[cfg(not(feature = "std"))]
 use std::print;
 
 const SKIP_CONTINUED: usize = 0;

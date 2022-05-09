@@ -6,6 +6,7 @@ use crate::Point;
 use crate::Size;
 
 use std::println;
+#[cfg(not(feature = "std"))]
 use std::print;
 
 /// This function will update the size and position of each
