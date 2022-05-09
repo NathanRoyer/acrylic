@@ -14,6 +14,7 @@ use core::ops::Range;
 use core::mem::swap;
 use core::mem::size_of;
 
+use std::string::String;
 use std::vec::Vec;
 use std::println;
 #[cfg(not(feature = "std"))]
@@ -86,12 +87,13 @@ bitflags! {
 		const PAN_2          = 0b0000100000000000;
 		const WHEEL_X        = 0b0001000000000000;
 		const WHEEL_Y        = 0b0010000000000000;
-		const DELETE         = 0b0100000000000000;
+		const TEXT_INPUT     = 0b0100000000000000;
+		const DELETE         = 0b1000000000000000;
 	}
 }
 
 /// An event which widgets can handle.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Event {
 	QuickAction1,
 	QuickAction2,
@@ -107,6 +109,7 @@ pub enum Event {
 	Pan2(usize, usize),
 	WheelX(f64),
 	WheelY(f64),
+	TextInput(String),
 	Delete,
 }
 
