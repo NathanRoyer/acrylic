@@ -216,7 +216,10 @@ impl Application {
 
 	fn render_node(&mut self, node: NodeKey) -> Void {
 		let widget = self.tree.get_node_widget(node)?;
+		#[cfg(feature = "std")]
 		let mut widget = widget.lock().ok()?;
+		#[cfg(not(feature = "std"))]
+		let mut widget = widget.lock();
 		widget.render(self, node);
 		Some(())
 	}

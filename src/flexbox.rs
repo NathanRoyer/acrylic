@@ -6,6 +6,7 @@ use crate::Point;
 use crate::Size;
 
 use std::println;
+use std::print;
 
 /// This function will update the size and position of each
 /// node under `root` in a way that ressembles the CSS Flexible

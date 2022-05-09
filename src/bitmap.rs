@@ -9,7 +9,7 @@ use core::any::Any;
 
 use std::string::String;
 use std::vec::Vec;
-use std::vec;
+use std::prelude::v1::vec;
 
 pub type Channels = usize;
 
@@ -78,8 +78,8 @@ impl Widget for Bitmap {
 					if dst_x.contains(&ox) && dst_y.contains(&oy) {
 						let (ox, oy) = (ox as usize, oy as usize);
 						let i = (oy * dst.size.w + ox) * RGBA;
-						let x = ((x as f32) * ratio).round() as usize;
-						let y = ((y as f32) * ratio).round() as usize;
+						let x = round((x as f32) * ratio);
+						let y = round((y as f32) * ratio);
 						let j = (y * self.size.w + x) * RGBA;
 						if let Some(src) = self.pixels.get(j..(j + RGBA)) {
 							if let Some(dst) = dst.pixels.get_mut(i..(i + RGBA)) {
@@ -101,5 +101,23 @@ impl Widget for Bitmap {
 
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
+	}
+}
+
+#[cfg(feature = "std")]
+#[inline(always)]
+fn round(float: f32) -> usize {
+	float.round() as usize
+}
+
+#[cfg(not(feature = "std"))]
+#[inline(always)]
+fn round(mut float: f32) -> usize {
+	// given float > 0
+	let integer = float as usize;
+	float -= integer as f32;
+	match float > 0.5 {
+		true => integer + 1,
+		false => integer,
 	}
 }
