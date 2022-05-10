@@ -125,7 +125,7 @@ pub(crate) enum Command {
 	LengthPolicy(LengthPolicy),
 	Name(Hash),
 	Handler(EventFlags),
-	ContainerNode(Axis),
+	ContainerNode(Axis, usize),
 	Widget(RcWidget),
 }
 
@@ -477,7 +477,7 @@ impl Tree {
 	getter!(get_node_margin, Margin, Command::Margin(t, b, l, r), Margin::new(*t as isize, *b as isize, *l as isize, *r as isize));
 	getter!(get_node_policy, LengthPolicy, Command::LengthPolicy(policy), *policy);
 	getter!(get_node_name, Hash, Command::Name(hash), *hash);
-	getter!(get_node_container, Axis, Command::ContainerNode(axis), *axis);
+	getter!(get_node_container, (Axis, usize), Command::ContainerNode(axis, gap), (*axis, *gap));
 	getter!(get_node_widget, RcWidget, Command::Widget(a), a.clone());
 	getter!(get_node_handler, EventFlags, Command::Handler(m), *m);
 }
@@ -488,7 +488,7 @@ impl Tree {
 	setter!(set_node_margin, true, Margin, m, Command::Margin(m.top as i32, m.bottom as i32, m.left as i32, m.right as i32), CommandVariant::Margin);
 	setter!(set_node_policy, true, LengthPolicy, p, Command::LengthPolicy(p), CommandVariant::LengthPolicy);
 	setter!(set_node_name, true, Hash, n, Command::Name(n), CommandVariant::Name);
-	setter!(set_node_container, true, Axis, a, Command::ContainerNode(a), CommandVariant::ContainerNode);
+	setter!(set_node_container, true, (Axis, usize), (a, g), Command::ContainerNode(a, g), CommandVariant::ContainerNode);
 	setter!(set_node_template, true, NodeKey, t, Command::Template(t), CommandVariant::Template);
 	setter!(set_node_widget, true, RcWidget, a, Command::Widget(a), CommandVariant::Widget);
 	setter!(set_node_handler, true, EventFlags, a, Command::Handler(a), CommandVariant::Handler);
@@ -538,7 +538,7 @@ impl Command {
 			Command::LengthPolicy(_)           => CommandVariant::LengthPolicy,
 			Command::Name(_)                   => CommandVariant::Name,
 			Command::Handler(_)                => CommandVariant::Handler,
-			Command::ContainerNode(_)          => CommandVariant::ContainerNode,
+			Command::ContainerNode(_, _)       => CommandVariant::ContainerNode,
 			Command::Widget(_)                 => CommandVariant::Widget,
 		}
 	}
@@ -573,10 +573,24 @@ impl Display for Command {
 			Command::LengthPolicy(_)           => "LP",
 			Command::Name(_)                   => "NM",
 			Command::Handler(_)                => "HA",
-			Command::ContainerNode(_)          => "CN",
+			Command::ContainerNode(_, _)       => "CN",
 			Command::Widget(_)                 => "WG",
 		};
 		write!(f, "{}", sym)
+	}
+}
+
+pub trait SameAxisContainerOrNone {
+	fn same_axis_or_both_none(self) -> bool;
+}
+
+impl SameAxisContainerOrNone for (Option<(Axis, usize)>, Option<(Axis, usize)>) {
+	fn same_axis_or_both_none(self) -> bool {
+		match self {
+			(Some((a, _)), Some((b, _))) => a == b,
+			(None, None) => true,
+			_ => false,
+		}
 	}
 }
 

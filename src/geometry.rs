@@ -1,3 +1,5 @@
+use crate::tree::Axis;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
 	pub x: isize,
@@ -14,6 +16,13 @@ impl Point {
 
 	pub fn zero() -> Self {
 		Self::new(0, 0)
+	}
+
+	pub fn add_to_axis(&mut self, axis: Axis, operand: isize) {
+		*match axis {
+			Axis::Horizontal => &mut self.x,
+			Axis::Vertical   => &mut self.y,
+		} += operand as isize;
 	}
 }
 

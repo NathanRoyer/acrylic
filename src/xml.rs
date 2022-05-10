@@ -122,9 +122,11 @@ pub fn h_container(app: &mut Application, parent: Option<&mut NodeKey>, attribut
 
 fn container(app: &mut Application, axis: Axis, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
 	let mut policy = Err(String::from("missing policy attribute"));
+	let mut gap = 0;
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
+			"gap"           => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
 			"pol:fixed"     => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"pol:available" => policy = Ok(LengthPolicy::Available  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"pol:chunks"    => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
@@ -140,7 +142,7 @@ fn container(app: &mut Application, axis: Axis, parent: Option<&mut NodeKey>, at
 	}
 
 	let mut node = app.tree.add_node(parent, 3);
-	app.tree.set_node_container(&mut node, Some(axis));
+	app.tree.set_node_container(&mut node, Some((axis, gap)));
 	app.tree.set_node_policy(&mut node, Some(policy?));
 	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
 

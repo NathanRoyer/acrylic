@@ -177,19 +177,19 @@ pub fn paragraph(app: &mut Application, parent: Option<&mut NodeKey>, attributes
 
 	let err_msg = String::from("paragraph must be in a container");
 	let parent = parent.ok_or(err_msg.clone())?;
-	let parent_axis = app.tree.get_node_container(*parent).ok_or(err_msg)?;
+	let (parent_axis, _) = app.tree.get_node_container(*parent).ok_or(err_msg)?;
 
 	let mut node = app.tree.add_node(Some(parent), 4);
 	app.tree.set_node_widget(&mut node, Some(rc_widget(Paragraph {
 		parts: vec![ ((0, 0, 0, 0, 0, 0), text?) ],
 		font,
-		previous_size: Size::zero(),
+		previous_size: Size::new(usize::MAX, 0),
 	})));
 	app.tree.set_node_policy(&mut node, Some(match parent_axis {
 		Axis::Vertical => LengthPolicy::Chunks(font_size),
-		Axis::Horizontal => LengthPolicy::WrapContent(0, u32::MAX),
+		Axis::Horizontal => LengthPolicy::WrapContent(0, 99999),
 	}));
-	app.tree.set_node_container(&mut node, Some(Axis::Horizontal));
+	app.tree.set_node_container(&mut node, Some((Axis::Horizontal, 0)));
 	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
 	Ok(node)
 }
@@ -199,7 +199,7 @@ impl Paragraph {
 	/// will check that its glyph are up to date during
 	/// the next frame rendering.
 	pub fn refresh(&mut self) {
-		self.previous_size = Size::zero();
+		self.previous_size = Size::new(usize::MAX, 0);
 	}
 
 	fn into_iter(&self) -> ParagraphIter {
@@ -271,7 +271,7 @@ impl Widget for Paragraph {
 		let size = app.tree.get_node_spot(node)?.1;
 		if size != self.previous_size {
 			self.previous_size = size;
-			app.tree.get_node_container(node)?.is(Axis::Horizontal)?;
+			app.tree.get_node_container(node)?.0.is(Axis::Horizontal)?;
 			let root = app.tree.get_node_root(node);
 			if let LengthPolicy::Chunks(line_height) = app.tree.get_node_policy(node)? {
 				self.deploy(app, &mut node, Some(line_height));
