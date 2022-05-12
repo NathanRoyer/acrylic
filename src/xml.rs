@@ -60,6 +60,17 @@ impl TreeParser {
 		}
 	}
 
+	pub fn with_builtin_tags(&mut self) -> &mut Self {
+		#[cfg(feature = "text")]
+		self.with("p", &crate::text::paragraph);
+		#[cfg(feature = "png")]
+		self.with("png", &crate::png::xml_handler);
+		#[cfg(feature = "railway")]
+		self.with("rwy", &crate::railway::xml_handler);
+		self.with("x", &h_container)
+			.with("y", &v_container)
+	}
+
 	/// Add a tag handler to the parser
 	pub fn with(&mut self, tag: &str, handler: Handler) -> &mut Self {
 		self.handlers.insert(String::from(tag), handler);
