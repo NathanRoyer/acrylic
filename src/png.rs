@@ -1,11 +1,9 @@
 use crate::app::Application;
-use crate::app::DataRequest;
+use crate::node::rc_node;
+use crate::node::NodePath;
+use crate::node::Node;
 use crate::geometry::aspect_ratio;
-use crate::app::rc_widget;
-use crate::app::Widget;
-use crate::tree::LengthPolicy;
 use crate::bitmap::Bitmap;
-use crate::tree::NodeKey;
 use crate::bitmap::RGBA;
 use crate::Point;
 use crate::Size;
@@ -13,6 +11,10 @@ use crate::Void;
 
 #[cfg(feature = "xml")]
 use crate::xml::Attribute;
+#[cfg(feature = "xml")]
+use crate::xml::unexpected_attr;
+#[cfg(feature = "xml")]
+use crate::app::DataRequest;
 
 use png::Decoder;
 use png::ColorType;
@@ -21,8 +23,6 @@ use core::any::Any;
 
 use std::string::String;
 use std::vec::Vec;
-use std::format;
-use std::vec;
 
 /// See [`xml_handler`]
 #[derive(Debug, Clone)]
@@ -31,7 +31,8 @@ pub struct PngLoader;
 fn read_png(bytes: &[u8]) -> Bitmap {
 	let decoder = Decoder::new(bytes);
 	let mut reader = decoder.read_info().unwrap();
-	let mut buf = vec![0; reader.output_buffer_size()];
+	let mut buf = Vec::with_capacity(reader.output_buffer_size());
+	buf.resize(reader.output_buffer_size(), 0);
 	let info = reader.next_frame(&mut buf).unwrap();
 	let len = (info.width * info.height) as usize;
 	let pixels = match info.color_type {
@@ -49,10 +50,14 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 		ColorType::Rgba => buf,
 		_ => panic!("unsupported img"),
 	};
+	let size = Size::new(info.width as usize, info.height as usize);
 	Bitmap {
-		size: Size::new(info.width as usize, info.height as usize),
+		size,
 		channels: RGBA,
+		spot: (Point::zero(), Size::zero()),
 		pixels,
+		margin: None,
+		ratio: aspect_ratio(size.w, size.h),
 	}
 }
 
@@ -62,43 +67,38 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 /// instance parses the png image and replaces itself with a [`Bitmap`]
 /// containing the decoded image.
 #[cfg(feature = "xml")]
-pub fn xml_handler(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
+pub fn xml_handler(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
 	let mut source = Err(String::from("missing src attribute"));
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
 			"src" => source = Ok(value.clone()),
-			_ => Err(format!("unexpected attribute: {}", name))?,
+			_ => unexpected_attr(&name)?,
 		}
 	}
 
-	let mut node = app.tree.add_node(parent, 3);
-	app.tree.set_node_widget(&mut node, Some(rc_widget(PngLoader {})));
-	app.tree.set_node_policy(&mut node, Some(LengthPolicy::AspectRatio(1.0)));
-	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
+	path.push(app.add_node(path, rc_node(PngLoader))?);
+
 	app.data_requests.push(DataRequest {
-		node,
+		node: path.clone(),
 		name: source?,
 		range: None,
 	});
-	Ok(node)
+
+	Ok(())
 }
 
-impl Widget for PngLoader {
+impl Node for PngLoader {
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
 	}
 
-	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+	fn describe(&self) -> String {
 		String::from("Loading PNG image...")
 	}
 
-	fn loaded(&mut self, app: &mut Application, mut node: NodeKey, _: &str, _: usize, data: &[u8]) -> Void {
-		let bitmap = read_png(data);
-		let ratio = aspect_ratio(bitmap.size.w, bitmap.size.h);
-		app.tree.set_node_widget(&mut node, Some(rc_widget(bitmap)));
-		app.tree.set_node_policy(&mut node, Some(LengthPolicy::AspectRatio(ratio)));
-		app.tree.compute_flexbox(app.tree.get_node_root(node));
+	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
+		app.replace_node(path, rc_node(read_png(data))).unwrap();
 		None
 	}
 }

@@ -1,10 +1,16 @@
-use crate::tree::NodeKey;
-use crate::tree::Tree;
-use crate::tree::Event;
+use crate::node::Axis;
+use crate::node::Container;
+use crate::node::LengthPolicy;
+use crate::node::RcNode;
+use crate::node::NodePath;
+use crate::node::rc_node;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
+use crate::flexbox::compute_tree;
+use crate::Point;
 use crate::Size;
 use crate::Void;
+use crate::lock;
 
 #[cfg(feature = "text")]
 use crate::text::Font;
@@ -12,99 +18,27 @@ use crate::text::Font;
 use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Range;
+use core::ops::Deref;
 
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::string::String;
 use std::vec::Vec;
 use std::boxed::Box;
 
 #[cfg(feature = "text")]
 use std::collections::HashMap;
-
-/// Once you assign an object implementing Widget
-/// to a node, this node can render and react to UI
-/// events. Widgets define the behaviour of nodes.
-pub trait Widget: Debug + Any + 'static {
-	/// `as_any` is required for as long as upcasting coercion is unstable
-	fn as_any(&mut self) -> &mut dyn Any;
-
-	/// The `legend` method is called when the platform needs a
-	/// textual description of a widget. This helps making
-	/// applications accessible to people with disabilities.
-	#[allow(unused)]
-	fn legend(&mut self, app: &mut Application, node: NodeKey) -> String;
-
-	/// The `render` method is called when the platform
-	/// needs to refresh the screen. Using `app.tree`, one
-	/// can manipulate the node identified by the `node` argument.
-	#[allow(unused)]
-	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void {
-		None
-	}
-
-	/// The `handle` method is called when the platform forwards an event
-	/// to the application. Using `app.tree`, one can manipulate the node
-	/// identified by the `node` argument in reaction.
-	///
-	/// To receive events via this interface, you must first initialize
-	/// the node using [`Tree::set_node_handler`].
-	#[allow(unused)]
-	fn handle(&mut self, app: &mut Application, node: NodeKey, event: Event) -> Void {
-		None
-	}
-
-	/// Once you add [`DataRequest`]s to `app.data_requests`, the platform
-	/// should fetch the data you requested. Once it has fetched the data,
-	/// It will call the `loaded` method.
-	#[allow(unused)]
-	fn loaded(&mut self, app: &mut Application, node: NodeKey, name: &str, offset: usize, data: &[u8]) -> Void {
-		None
-	}
-}
-
-pub type RcWidget = Arc<Mutex<dyn Widget>>;
-
-/// This type implementing [`Widget`] will not
-/// do anything in reaction to rendering calls
-/// or event appearance. It is used for text
-/// rendering, where glyphs which have not yet
-/// been loaded have this instead of a real widget.
-/// This prevents re-allocating memory space
-/// once the real widget is to be added.
-#[derive(Debug, Copy, Clone, Default)]
-pub struct DummyWidget;
-
-impl Widget for DummyWidget {
-	fn as_any(&mut self) -> &mut dyn Any {
-		self
-	}
-
-	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
-		String::from("This should not appear on screen. You are probably facing a bug.")
-	}
-}
-
-/// This utility function wraps a widget in an Arc<Mutex<W>>.
-pub fn rc_widget<W: Widget>(widget: W) -> RcWidget {
-	Arc::new(Mutex::new(widget))
-}
+#[cfg(feature = "text")]
+use std::sync::Arc;
+#[cfg(feature = "text")]
+use std::sync::Mutex;
 
 /// The Application structure represents your application.
 /// It has a [`Tree`] containing nodes, a `model` field
 /// where you can store your application-specific model,
 /// and a vector of [`DataRequest`] where you can add
 /// you own data requests (which the platform will handle).
-///
-/// The tree can actually contain multiple independent views,
-/// so the `view_root` field helps setting one as the
-/// current one that the platform should select.
 #[derive(Debug)]
 pub struct Application {
-	/// The tree containing all nodes in a tree structure.
-	/// It can contain multiple independent views/trees,
-	/// so this could actually be called a forest.
-	pub tree: Tree,
+	pub view: RcNode,
 
 	/// Fonts that can be used by widgets to draw glyphs
 	#[cfg(feature = "text")]
@@ -128,11 +62,7 @@ pub struct Application {
 	/// the application, to be rendered by the platform.
 	pub output: Bitmap,
 
-	/// This is used by the platform to locate the root
-	/// node of the view in the tree. Setting an invalid
-	/// value here may cause undefined behaviour, but this
-	/// should change in the future.
-	pub view_root: NodeKey,
+	pub should_recompute: bool,
 }
 
 /// Data requests allow widgets to load external assets,
@@ -140,7 +70,7 @@ pub struct Application {
 /// You can append new ones to `app.data_requests`.
 #[derive(Debug, Clone, Hash)]
 pub struct DataRequest {
-	pub node: NodeKey,
+	pub node: NodePath,
 	pub name: String,
 	pub range: Option<Range<usize>>,
 }
@@ -148,22 +78,24 @@ pub struct DataRequest {
 impl Application {
 	/// The Application constructor. If you omit the `tree`
 	/// argument, it will be initialized to an empty tree.
-	pub fn new<M: Any + 'static>(tree: Option<Tree>, model: M, view_root: NodeKey) -> Self {
-		let tree = match tree {
-			Some(tree) => tree,
-			None => Tree::new(),
-		};
+	pub fn new<M: Any + 'static>(model: M) -> Self {
 		#[allow(unused_mut)]
 		let mut app = Self {
-			tree,
+			view: rc_node(Container {
+				children: Vec::new(),
+				policy: LengthPolicy::Available(1.0),
+				spot: (Point::zero(), Size::zero()),
+				axis: Axis::Horizontal,
+				gap: 0,
+			}),
 			#[cfg(feature = "text")]
 			fonts: HashMap::new(),
 			#[cfg(feature = "text")]
 			default_font_size: 30,
 			data_requests: Vec::new(),
 			model: Box::new(model),
-			output: Bitmap::new(Size::zero(), RGBA),
-			view_root,
+			output: Bitmap::new(Size::zero(), RGBA, None),
+			should_recompute: true,
 		};
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{
@@ -194,33 +126,85 @@ impl Application {
 		}
 	}
 
+	pub fn get_node(&mut self, path: &NodePath) -> Option<RcNode> {
+		let mut node = self.view.clone();
+		for i in path {
+			// todo: get rid of these locks
+			let child = {
+				let tmp = lock(&node)?;
+				tmp.children().get(*i)?.clone()
+			};
+			node = child;
+		}
+		Some(node)
+	}
+
+	pub fn add_node(&mut self, path: &NodePath, child: RcNode) -> Result<usize, String> {
+		self.should_recompute = true;
+		let node = self.get_node(path).ok_or(String::from("No child at that path"))?;
+		let i = {
+			let mut node = lock(&node).unwrap();
+			node.add_node(self, child.clone())?
+		};
+		let mut child = lock(&child).unwrap();
+		child.attach(self, path);
+		Ok(i)
+	}
+
+	pub fn replace_node(&mut self, path: &NodePath, new_node: RcNode) -> Result<(), String> {
+		self.should_recompute = true;
+		if let Some(j) = path.last() {
+			let mut node = self.view.clone();
+			for i in &path[..path.len() - 1] {
+				// todo: get rid of these locks
+				let child = {
+					let tmp = lock(&node).unwrap();
+					tmp.children()[*i].clone()
+				};
+				node = child;
+			}
+			let mut tmp = lock(&node).unwrap();
+			tmp.replace_node(self, *j, new_node.clone())?;
+		} else {
+			self.view = new_node.clone();
+		}
+		let mut new_node = lock(&new_node).unwrap();
+		new_node.attach(self, path);
+		Ok(())
+	}
+
 	/// This method is called by the platform to request a refresh
 	/// of the output. It should be called for every frame.
 	pub fn render(&mut self) -> Void {
-		let (position, size) = self.tree.get_node_spot(self.view_root)?;
-		if size != self.output.size {
-			self.output = Bitmap::new(size, RGBA);
-			self.tree.set_node_spot(&mut self.view_root, Some((position, size)));
-		} else {
-			self.output.pixels.fill(0);
+		{
+			let mut view = lock(&self.view)?;
+			let (position, size) = view.get_spot();
+			if size != self.output.size {
+				self.output = Bitmap::new(size, RGBA, None);
+				view.set_spot((position, size));
+			} else {
+				self.output.pixels.fill(0);
+			}
+			if self.should_recompute {
+				compute_tree(view.deref());
+				self.should_recompute = false;
+			}
 		}
-		self.render_cont(self.view_root)
+		let mut path = Vec::new();
+		self.render_node(self.view.clone(), &mut path)
 	}
 
-	fn render_cont(&mut self, node: NodeKey) -> Void {
-		for i in self.tree.children(node) {
-			self.render_cont(i);
+	fn render_node(&mut self, node: RcNode, path: &mut NodePath) -> Void {
+		let children = {
+			let mut node = lock(&node)?;
+			node.render(self, path);
+			node.children().to_vec()
+		};
+		for i in 0..children.len() {
+			path.push(i);
+			self.render_node(children[i].clone(), path);
+			path.pop();
 		}
-		self.render_node(node)
-	}
-
-	fn render_node(&mut self, node: NodeKey) -> Void {
-		let widget = self.tree.get_node_widget(node)?;
-		#[cfg(feature = "std")]
-		let mut widget = widget.lock().ok()?;
-		#[cfg(not(feature = "std"))]
-		let mut widget = widget.lock();
-		widget.render(self, node);
-		Some(())
+		None
 	}
 }

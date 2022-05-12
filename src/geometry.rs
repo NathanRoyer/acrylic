@@ -1,4 +1,4 @@
-use crate::tree::Axis;
+use crate::node::Axis;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
@@ -44,6 +44,8 @@ impl Size {
 		Self::new(0, 0)
 	}
 }
+
+pub type Spot = (Point, Size);
 
 pub fn aspect_ratio(w: usize, h: usize) -> f64 {
 	(w as f64) / (h as f64)

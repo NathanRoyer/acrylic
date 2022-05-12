@@ -4,64 +4,154 @@ use ab_glyph::FontVec;
 use ab_glyph::Font as AbGlyphFont;
 
 use crate::app::Application;
-use crate::app::DummyWidget;
-use crate::app::Widget;
-use crate::app::RcWidget;
-use crate::app::rc_widget;
+use crate::node::Node;
+use crate::node::RcNode;
+use crate::node::NodePath;
+use crate::node::rc_node;
 use crate::geometry::aspect_ratio;
-use crate::tree::LengthPolicy;
-use crate::tree::NodeKey;
-use crate::tree::Margin;
-use crate::tree::Axis;
+use crate::node::LengthPolicy;
+use crate::node::Margin;
+use crate::node::Axis;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
-use crate::flexbox::compute_tree;
+use crate::Spot;
 use crate::Void;
 use crate::Size;
 use crate::Point;
+use crate::lock;
 
 #[cfg(feature = "xml")]
 use crate::xml::Attribute;
+#[cfg(feature = "xml")]
+use crate::xml::unexpected_attr;
+#[cfg(feature = "xml")]
+use crate::format;
 
 use core::any::Any;
 use core::str::Chars;
+use core::mem::swap;
+use core::ops::DerefMut;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::string::String;
 use std::vec::Vec;
-use std::format;
-use std::vec;
 
 pub type Cents = usize;
 
-/// Weight of the text, times 0.01
-pub type Weight = Cents;
-
-/// Italic Angle of the text, times 0.01
-pub type ItalicAngle = Cents;
-
-/// Underline of the text, times 0.01
-pub type Underline = Cents;
-
-/// Overline of the text, times 0.01
-pub type Overline = Cents;
-
-/// Opacity of the text, times 0.01
-pub type Opacity = Cents;
-
-/// Serif rise of the text, times 0.01
-pub type SerifRise = Cents;
-
-pub type FontConfig = (Weight, ItalicAngle, Underline, Overline, Opacity, SerifRise);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct FontConfig {
+	pub weight: Cents,
+	pub italic_angle: Cents,
+	pub underline: Cents,
+	pub overline: Cents,
+	pub opacity: Cents,
+	pub serif_rise: Cents,
+}
 
 /// The Font object contains font data as well
 /// as a cache of previously rendered glyphs.
 #[derive(Debug)]
 pub struct Font {
 	pub(crate) ab_glyph_font: FontVec,
-	pub(crate) glyphs: HashMap<(FontConfig, GlyphId), RcWidget>,
+	pub(crate) glyphs: HashMap<(usize, FontConfig, GlyphId), RcNode>,
+}
+
+pub type RcFont = Arc<Mutex<Font>>;
+
+#[derive(Debug, Clone)]
+pub struct Unbreakable {
+	pub glyphs: Vec<RcNode>,
+	pub text: String,
+	pub spot: Spot,
+}
+
+impl Node for Unbreakable {
+	fn as_any(&mut self) -> &mut dyn Any {
+		self
+	}
+
+	fn describe(&self) -> String {
+		self.text.clone()
+	}
+
+	fn policy(&self) -> LengthPolicy {
+		LengthPolicy::WrapContent(0, u32::MAX)
+	}
+
+	fn container(&self) -> Option<(Axis, usize)> {
+		Some((Axis::Horizontal, 0))
+	}
+
+	fn children(&self) -> &[RcNode] {
+		&self.glyphs
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct GlyphNode {
+	pub bitmap: RcNode,
+	pub spot: Spot,
+}
+
+impl Node for GlyphNode {
+	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+		let mut bitmap = lock(&self.bitmap)?;
+		let bitmap = bitmap.deref_mut().as_any();
+		bitmap.downcast_mut::<Bitmap>()?.render_at(app, self.spot)
+	}
+
+	fn policy(&self) -> LengthPolicy {
+		// that unwrap is ugly...
+		let mut bitmap = lock(&self.bitmap).unwrap();
+		bitmap.deref_mut().policy()
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
+	}
+
+	fn describe(&self) -> String {
+		String::from("Glyph")
+	}
+
+	fn as_any(&mut self) -> &mut dyn Any {
+		self
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct Placeholder {
+	pub ratio: f64,
+}
+
+impl Node for Placeholder {
+	fn policy(&self) -> LengthPolicy {
+		LengthPolicy::AspectRatio(self.ratio)
+	}
+
+	fn describe(&self) -> String {
+		String::from("Loading glyphs...")
+	}
+
+	fn as_any(&mut self) -> &mut dyn Any {
+		self
+	}
 }
 
 /// A Paragraph represent a block of text. It can be
@@ -74,7 +164,11 @@ pub struct Font {
 pub struct Paragraph {
 	pub parts: Vec<(FontConfig, String)>,
 	pub font: Arc<Mutex<Font>>,
-	pub previous_size: Size,
+	pub children: Vec<RcNode>,
+	pub space_width: usize,
+	pub policy: LengthPolicy,
+	pub previous_height: usize,
+	pub spot: Spot,
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +192,7 @@ impl Font {
 	/// from the font, which is then kept in cache.
 	///
 	/// TODO: handle font size changes properly.
-	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> (f64, Option<(RcWidget, Margin)>) {
+	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> RcNode {
 		let font = self.ab_glyph_font.as_scaled(match height {
 			Some(h) => h as f32,
 			None => 200.0,
@@ -113,11 +207,8 @@ impl Font {
 		let box_w = (g_box.width() + kern).ceil() as isize;
 		let box_h = g_box.height().ceil() as isize;
 		let ratio = aspect_ratio(box_w as usize, box_h as usize);
-		let mut widget_margin = None;
 		if height.is_none() {
-			let widget = rc_widget(DummyWidget);
-			let margin = Margin::new(0, 0, 0, 0);
-			widget_margin = Some((widget, margin));
+			rc_node(Placeholder { ratio })
 		} else if let Some(q) = font.outline_glyph(glyph) {
 			let outline_bounds = q.px_bounds();
 			let top = (outline_bounds.min.y - g_box.min.y).ceil() as isize;
@@ -131,120 +222,91 @@ impl Font {
 				bottom: box_h - (top + glyph_h),
 			};
 
-			let widget = if let Some(widget) = self.glyphs.get(&(cfg, c1)) {
-				widget.clone()
+			let h = height.unwrap();
+			let rc_bitmap = if let Some(rc_bitmap) = self.glyphs.get(&(h, cfg, c1)) {
+				rc_bitmap.clone()
 			} else {
 				let bmpsz = Size::new(glyph_w as usize, glyph_h as usize);
-				let mut bmp = Bitmap::new(bmpsz, RGBA);
+				let mut bitmap = Bitmap::new(bmpsz, RGBA, Some(margin));
 
 				q.draw(|x, y, c| {
 					let (x, y) = (x as usize, y as usize);
 					let i = (y * bmpsz.w + x) * RGBA;
 					let a = (255.0 * c) as u8;
-					if let Some(slice) = bmp.pixels.get_mut(i..(i + RGBA)) {
+					if let Some(slice) = bitmap.pixels.get_mut(i..(i + RGBA)) {
 						slice.copy_from_slice(&[a, a, a, 255]);
 					}
 				});
 
-				let bmp = rc_widget(bmp);
-				self.glyphs.insert((cfg, c1), bmp.clone());
-				bmp
+				let rc_bitmap = rc_node(bitmap);
+				self.glyphs.insert((h, cfg, c1), rc_bitmap.clone());
+				rc_bitmap
 			};
-			widget_margin = Some((widget, margin))
-		};
-		(ratio, widget_margin)
-	}
-}
-
-/// This function is to be used in [`crate::xml::TreeParser::with`].
-#[cfg(feature = "xml")]
-pub fn paragraph(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
-	let mut text = Err(String::from("missing txt attribute"));
-	let mut font_size = app.default_font_size;
-	let mut font = None;
-
-	for Attribute { name, value } in attributes {
-		match name.as_str() {
-			"txt" => text = Ok(value.clone()),
-			"font" => font = Some(value.clone()),
-			"font-size" => font_size = value.parse().ok().ok_or(format!("bad font-size: {}", &value))?,
-			_ => Err(format!("unexpected attribute: {}", name))?,
+			rc_node(GlyphNode {
+				bitmap: rc_bitmap,
+				spot: (Point::zero(), Size::zero()),
+			})
+		} else {
+			rc_node(Placeholder { ratio })
 		}
 	}
-
-	let err_msg = format!("unknown font: \"{}\"", font.as_ref().unwrap_or(&format!("<none>")));
-	let font = app.fonts.get(&font).ok_or(err_msg)?.clone();
-
-	let err_msg = String::from("paragraph must be in a container");
-	let parent = parent.ok_or(err_msg.clone())?;
-	let (parent_axis, _) = app.tree.get_node_container(*parent).ok_or(err_msg)?;
-
-	let mut node = app.tree.add_node(Some(parent), 4);
-	app.tree.set_node_widget(&mut node, Some(rc_widget(Paragraph {
-		parts: vec![ ((0, 0, 0, 0, 0, 0), text?) ],
-		font,
-		previous_size: Size::new(usize::MAX, 0),
-	})));
-	app.tree.set_node_policy(&mut node, Some(match parent_axis {
-		Axis::Vertical => LengthPolicy::Chunks(font_size),
-		Axis::Horizontal => LengthPolicy::WrapContent(0, 99999),
-	}));
-	app.tree.set_node_container(&mut node, Some((Axis::Horizontal, 0)));
-	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
-	Ok(node)
 }
 
 impl Paragraph {
-	/// Mark the paragraph as dirty: the paragraph
-	/// will check that its glyph are up to date during
-	/// the next frame rendering.
-	pub fn refresh(&mut self) {
-		self.previous_size = Size::new(usize::MAX, 0);
-	}
-
 	fn into_iter(&self) -> ParagraphIter {
 		ParagraphIter {
 			paragraph: self,
 			i: 0,
-			cfg: (0, 0, 0, 0, 0, 0),
+			cfg: FontConfig {
+				weight: 0,
+				italic_angle: 0,
+				underline: 0,
+				overline: 0,
+				opacity: 0,
+				serif_rise: 0,
+			},
 			chars: None,
 		}
 	}
 
-	fn deploy(&mut self, app: &mut Application, node: &mut NodeKey, line_height: Option<usize>) {
-		let children = app.tree.children(*node);
-		let mut children = children.as_slice();
+	fn deploy(&mut self, line_height: Option<usize>) {
+		let mut children = Vec::with_capacity(self.children.len());
+		let default_unbreakable = Unbreakable {
+			glyphs: Vec::new(),
+			text: String::new(),
+			spot: (Point::zero(), Size::zero()),
+		};
+		let mut unbreakable = default_unbreakable.clone();
+		let mut font = lock(&self.font).unwrap();
 
 		let mut next;
 		let mut iter = self.into_iter();
 		let mut current = iter.next();
 		while let Some((cfg, c1)) = current {
 			next = iter.next();
-			let child_before = if let Some(child) = children.first() {
-				children = children.split_at(1).1;
-				*child
+			if c1 == ' ' {
+				let mut prev = default_unbreakable.clone();
+				swap(&mut prev, &mut unbreakable);
+				children.push(rc_node(prev));
 			} else {
-				// spot + widget + policy + margin = 4
-				app.tree.add_node(Some(node), 4)
-			};
-			let mut child = child_before;
-			let c2 = match next {
-				Some((_, c)) => Some(c),
-				None => None,
-			};
-			let mut font = self.font.lock().unwrap();
-			let (r, widget_margin) = font.get(c1, c2, line_height, cfg);
-			if let Some((widget, margin)) = widget_margin {
-				app.tree.set_node_widget(&mut child, Some(widget));
-				app.tree.set_node_margin(&mut child, Some(margin));
+				let c2 = match next {
+					Some((_, c)) => match c {
+						' ' => None,
+						_ => Some(c),
+					},
+					None => None,
+				};
+				unbreakable.glyphs.push(font.get(c1, c2, line_height, cfg));
+				unbreakable.text.push(c1);
+				if let None = next {
+					let mut prev = default_unbreakable.clone();
+					swap(&mut prev, &mut unbreakable);
+					children.push(rc_node(prev));
+				}
 			}
-			app.tree.set_node_policy(&mut child, Some(LengthPolicy::AspectRatio(r)));
-			app.tree.set_node_spot(&mut child, Some((Point::zero(), Size::zero())));
 			current = next;
 		}
-		for i in children {
-			app.tree.del_node(*i, true);
-		}
+		self.children = children;
 	}
 }
 
@@ -266,30 +328,35 @@ impl<'a> Iterator for ParagraphIter<'a> {
 	}
 }
 
-impl Widget for Paragraph {
-	fn render(&mut self, app: &mut Application, mut node: NodeKey) -> Void {
-		let size = app.tree.get_node_spot(node)?.1;
-		if size != self.previous_size {
-			self.previous_size = size;
-			app.tree.get_node_container(node)?.0.is(Axis::Horizontal)?;
-			let root = app.tree.get_node_root(node);
-			if let LengthPolicy::Chunks(line_height) = app.tree.get_node_policy(node)? {
-				self.deploy(app, &mut node, Some(line_height));
-				compute_tree(&mut app.tree, root);
-				self.previous_size = app.tree.get_node_spot(node)?.1;
-			} else {
-				self.deploy(app, &mut node, None);
-				compute_tree(&mut app.tree, root);
-				let (_, size) = app.tree.get_node_spot(node)?;
-				self.deploy(app, &mut node, Some(size.h));
-				compute_tree(&mut app.tree, root);
-				self.previous_size = app.tree.get_node_spot(node)?.1;
+impl Node for Paragraph {
+	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+		if let LengthPolicy::Chunks(_fs) = self.policy {
+			// everything is fine
+		} else {
+			let h = self.spot.1.h;
+			if h != self.previous_height {
+				self.previous_height = h;
+				self.deploy(Some(h));
+				app.should_recompute = true;
 			}
 		}
 		None
 	}
 
-	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+	fn attach(&mut self, app: &mut Application, _path: &NodePath) -> Void {
+		self.deploy(match self.policy {
+			LengthPolicy::Chunks(l) => Some(l),
+			_ => None,
+		});
+		app.should_recompute = true;
+		None
+	}
+
+	fn as_any(&mut self) -> &mut dyn Any {
+		self
+	}
+
+	fn describe(&self) -> String {
 		let mut legend = String::new();
 		for (_, part) in &self.parts {
 			legend += &part;
@@ -297,7 +364,83 @@ impl Widget for Paragraph {
 		legend
 	}
 
-	fn as_any(&mut self) -> &mut dyn Any {
-		self
+	fn container(&self) -> Option<(Axis, usize)> {
+		Some((Axis::Horizontal, self.space_width))
 	}
+
+	fn policy(&self) -> LengthPolicy {
+		self.policy
+	}
+
+	fn children(&self) -> &[RcNode] {
+		&self.children
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
+	}
+}
+
+/// This function is to be used in [`crate::xml::TreeParser::with`].
+#[cfg(feature = "xml")]
+pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+	let mut text = Err(String::from("missing txt attribute"));
+	let mut font_size = app.default_font_size;
+	let mut font = None;
+
+	for Attribute { name, value } in attributes {
+		match name.as_str() {
+			"txt" => text = Ok(value.clone()),
+			"font" => font = Some(value.clone()),
+			"font-size" => font_size = value.parse().ok().ok_or(format!("bad font-size: {}", &value))?,
+			_ => unexpected_attr(&name)?,
+		}
+	}
+
+	let err_msg = format!("unknown font: \"{}\"", font.as_ref().unwrap_or(&format!("<none>")));
+	let font = app.fonts.get(&font).ok_or(err_msg)?.clone();
+
+	let font_config = FontConfig {
+		weight: 0,
+		italic_angle: 0,
+		underline: 0,
+		overline: 0,
+		opacity: 0,
+		serif_rise: 0,
+	};
+
+	let policy = {
+		let err_msg = format!("paragraph must be in a container");
+		let parent = app.get_node(path).ok_or(err_msg.clone())?;
+		let parent = parent.lock().unwrap();
+		let (parent_axis, _) = parent.container().ok_or(err_msg)?;
+
+		match parent_axis {
+			Axis::Vertical => LengthPolicy::Chunks(font_size),
+			Axis::Horizontal => LengthPolicy::WrapContent(0, u32::MAX),
+		}
+	};
+
+	let paragraph = rc_node(Paragraph {
+		parts: {
+			let mut vec = Vec::new();
+			vec.push((font_config, text?));
+			vec
+		},
+		font,
+		children: Vec::new(),
+		space_width: 10,
+		policy,
+		spot: (Point::zero(), Size::zero()),
+		previous_height: 0,
+	});
+
+	path.push(app.add_node(path, paragraph)?);
+
+	Ok(())
 }

@@ -1,8 +1,13 @@
 use crate::Size;
+use crate::Point;
+use crate::Spot;
 use crate::Void;
-use crate::tree::NodeKey;
 use crate::app::Application;
-use crate::app::Widget;
+use crate::node::Node;
+use crate::node::Margin;
+use crate::node::NodePath;
+use crate::node::LengthPolicy;
+use crate::geometry::aspect_ratio;
 
 use core::fmt::Debug;
 use core::any::Any;
@@ -38,33 +43,50 @@ pub struct Bitmap {
 	pub channels: Channels,
 	/// The size (width and height) of the image
 	pub size: Size,
+	/// The screen spot of the node
+	pub spot: Spot,
+	pub margin: Option<Margin>,
+	pub ratio: f64,
 }
 
 impl Bitmap {
-	pub fn new(size: Size, channels: Channels) -> Self {
+	pub fn new(size: Size, channels: Channels, margin: Option<Margin>) -> Self {
 		Self {
 			size,
 			channels,
 			pixels: vec![0; channels * size.w * size.h],
+			spot: (Point::zero(), Size::zero()),
+			margin,
+			ratio: {
+				let (add_w, add_h) = match margin {
+					Some(m) => (m.total_h(), m.total_v()),
+					None => (0, 0),
+				};
+				aspect_ratio((size.w as isize + add_w) as usize, (size.h as isize + add_h) as usize)
+			},
 		}
 	}
-}
 
-impl Widget for Bitmap {
-	fn render(&mut self, app: &mut Application, node: NodeKey) -> Void {
+	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
 		assert!(self.channels == RGBA);
-		let (mut position, mut size) = app.tree.get_node_spot(node)?;
+		let (mut position, mut size) = spot;
 		let dst = &mut app.output;
 		assert!(dst.channels == RGBA);
-		if let Some(margin) = app.tree.get_node_margin(node) {
+		if let Some(margin) = self.margin {
 			let x = position.x as isize;
 			let y = position.y as isize;
 			let w = size.w as isize;
 			let h = size.h as isize;
 			position.x = x + margin.left;
 			position.y = y + margin.top;
-			size.w = (w - margin.total_h()).try_into().expect("render.rs: bad H margin!");
-			size.h = (h - margin.total_v()).try_into().expect("render.rs: bad V margin!");
+			// match (w - margin.total_h()).try_into() {
+				// Ok(l) => size.w = l,
+				// Err(_) => panic!("{:?}", size),
+			// }
+			// size.w = (w - margin.total_h()).try_into().expect("render.rs: bad H margin!");
+			// size.h = (h - margin.total_v()).try_into().expect("render.rs: bad V margin!");
+			size.w = (w - margin.total_h()).try_into().ok()?;
+			size.h = (h - margin.total_v()).try_into().ok()?;
 		}
 		if size.w > 0 && size.h > 0 {
 			let spot_factor = (size.w - 1) as f32;
@@ -94,8 +116,31 @@ impl Widget for Bitmap {
 		}
 		None
 	}
+}
 
-	fn legend(&mut self, _: &mut Application, _: NodeKey) -> String {
+impl Node for Bitmap {
+	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+		self.render_at(app, self.spot)
+	}
+
+	fn policy(&self) -> LengthPolicy {
+		LengthPolicy::AspectRatio(self.ratio)
+	}
+
+	fn margin(&self) -> Option<Margin> {
+		self.margin
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
+	}
+
+	fn describe(&self) -> String {
 		String::from("Image")
 	}
 

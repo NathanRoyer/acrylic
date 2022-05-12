@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
 use crate::app::Application;
-use crate::tree::LengthPolicy;
-use crate::tree::NodeKey;
-use crate::tree::Axis;
+use crate::node::LengthPolicy;
+use crate::node::Axis;
+use crate::node::NodePath;
+use crate::node::rc_node;
+use crate::node::Container;
 use crate::Point;
 use crate::Size;
+use crate::format;
 
 use xmlparser::ElementEnd;
 use xmlparser::Tokenizer;
@@ -14,8 +17,9 @@ use xmlparser::Token;
 
 use std::string::String;
 use std::vec::Vec;
-use std::format;
 use std::println;
+#[cfg(not(feature = "std"))]
+use std::print;
 
 /// An XML Attribute
 #[derive(Debug, Clone)]
@@ -27,7 +31,13 @@ pub struct Attribute {
 	pub value: String,
 }
 
-type Handler = &'static dyn Fn(&mut Application, Option<&mut NodeKey>, &[Attribute]) -> Result<NodeKey, String>;
+pub fn unexpected_attr(attr: &str) -> Result<(), String> {
+	let mut errmsg = String::from("unexpected attribute: ");
+	errmsg += attr;
+	Err(errmsg)
+}
+
+type Handler = &'static dyn Fn(&mut Application, &mut NodePath, &[Attribute]) -> Result<(), String>;
 
 /// This structure is used to parse an xml file
 /// representing a view of an application.
@@ -57,9 +67,7 @@ impl TreeParser {
 	}
 
 	/// Try to parse the xml
-	pub fn parse(&self, app: &mut Application, xml: &str) -> Result<NodeKey, String> {
-		let mut root = Err(String::from("Empty XML"));
-		let mut parents = Vec::new();
+	pub fn parse(&self, app: &mut Application, path: &mut NodePath, xml: &str) -> Result<(), String> {
 		let mut names = Vec::new();
 		let mut attributes = Vec::new();
 		for token in Tokenizer::from(xml) {
@@ -80,47 +88,41 @@ impl TreeParser {
 							if names.pop() != Some(concat(prefix, local)) {
 								Err(format!("unexpected close tag [@{}]", addr))?;
 							}
-							let this = parents.pop().unwrap();
-							if parents.len() == 0 {
-								root = Ok(this);
-							}
+							path.pop().unwrap();
 						},
 						_ => {
 							let name = names.last().unwrap();
-							let new_el = match self.handlers.get(name) {
-								Some(handler) => handler(app, parents.last_mut(), &attributes)?,
+							// handler is meant to push to path
+							match self.handlers.get(name) {
+								Some(handler) => handler(app, path, &attributes)?,
 								None => Err(format!("unknown element: {} [@{}]", name, addr))?,
 							};
-							parents.push(new_el);
 							attributes.clear();
 						},
 					}
 					if let ElementEnd::Empty = end {
 						let _ = names.pop();
-						let this = parents.pop().unwrap();
-						if parents.len() == 0 {
-							root = Ok(this);
-						}
+						path.pop().unwrap();
 					}
 				}
 				_ => println!("xml: ignoring {:?}", token.unwrap()),
 			}
 		}
-		root
+		Ok(())
 	}
 }
 
 /// tag parser for a vertical container.
-pub fn v_container(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
-	container(app, Axis::Vertical, parent, attributes)
+pub fn v_container(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+	container(app, Axis::Vertical, path, attributes)
 }
 
 /// tag parser for an horizontal container.
-pub fn h_container(app: &mut Application, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
-	container(app, Axis::Horizontal, parent, attributes)
+pub fn h_container(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+	container(app, Axis::Horizontal, path, attributes)
 }
 
-fn container(app: &mut Application, axis: Axis, parent: Option<&mut NodeKey>, attributes: &[Attribute]) -> Result<NodeKey, String> {
+fn container(app: &mut Application, axis: Axis, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
 	let mut policy = Err(String::from("missing policy attribute"));
 	let mut gap = 0;
 
@@ -141,10 +143,13 @@ fn container(app: &mut Application, axis: Axis, parent: Option<&mut NodeKey>, at
 		}
 	}
 
-	let mut node = app.tree.add_node(parent, 3);
-	app.tree.set_node_container(&mut node, Some((axis, gap)));
-	app.tree.set_node_policy(&mut node, Some(policy?));
-	app.tree.set_node_spot(&mut node, Some((Point::zero(), Size::zero())));
+	path.push(app.add_node(path, rc_node(Container {
+		children: Vec::new(),
+		policy: policy?,
+		spot: (Point::zero(), Size::zero()),
+		axis,
+		gap,
+	}))?);
 
-	Ok(node)
+	Ok(())
 }
