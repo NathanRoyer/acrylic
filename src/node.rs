@@ -172,6 +172,24 @@ pub trait Node: Debug + Any + 'static {
 		(Point::zero(), Size::zero())
 	}
 
+	fn get_content_spot_at(&self, mut spot: Spot) -> Option<Spot> {
+		if let Some(margin) = self.margin() {
+			spot.0.x += margin.left;
+			spot.0.y += margin.top;
+			let w = ((spot.1.w as isize) - margin.total_h()).try_into();
+			let h = ((spot.1.h as isize) - margin.total_v()).try_into();
+			match (w, h) {
+				(Ok(w), Ok(h)) => spot.1 = Size::new(w, h),
+				_ => None?,
+			}
+		}
+		Some(spot)
+	}
+
+	fn get_content_spot(&self) -> Option<Spot> {
+		self.get_content_spot_at(self.get_spot())
+	}
+
 	#[allow(unused)]
 	fn set_spot(&mut self, spot: Spot) -> Void {
 		None

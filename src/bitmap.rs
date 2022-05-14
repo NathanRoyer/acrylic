@@ -69,25 +69,9 @@ impl Bitmap {
 
 	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
 		assert!(self.channels == RGBA);
-		let (mut position, mut size) = spot;
+		let (position, size) = self.get_content_spot_at(spot)?;
 		let dst = &mut app.output;
 		assert!(dst.channels == RGBA);
-		if let Some(margin) = self.margin {
-			let x = position.x as isize;
-			let y = position.y as isize;
-			let w = size.w as isize;
-			let h = size.h as isize;
-			position.x = x + margin.left;
-			position.y = y + margin.top;
-			// match (w - margin.total_h()).try_into() {
-				// Ok(l) => size.w = l,
-				// Err(_) => panic!("{:?}", size),
-			// }
-			// size.w = (w - margin.total_h()).try_into().expect("render.rs: bad H margin!");
-			// size.h = (h - margin.total_v()).try_into().expect("render.rs: bad V margin!");
-			size.w = (w - margin.total_h()).try_into().ok()?;
-			size.h = (h - margin.total_v()).try_into().ok()?;
-		}
 		if size.w > 0 && size.h > 0 {
 			let spot_factor = (size.w - 1) as f32;
 			let img_factor = (self.size.w - 1) as f32;
