@@ -31,15 +31,19 @@ Create a basic layout for your user interface:
 ```xml
 <!-- my-app/src/layout.xml -->
 
-<x pol:available="1.0">
-	<x pol:available="0.5" />
-	<y pol:fixed="100" gap="20">
-		<y pol:available="0.5" />
+<x pol:rem="1">
+	<x pol:rem="1" />
+	<y pol:fixed="100" gap="10">
+		<y pol:rem="1" />
 		<png src="ferris.png" />
-		<p txt="Rust rocks!" />
-		<y pol:available="0.5" />
+		<x pol:fixed="40" gap="10">
+			<x pol:rem="1" />
+			<p txt="Rust rocks!" />
+			<x pol:rem="1" />
+		</x>
+		<y pol:rem="1" />
 	</y>
-	<x pol:available="0.5" />
+	<x pol:rem="1" />
 </x>
 ```
 
@@ -74,11 +78,11 @@ $ curl https://rustacean.net/assets/rustacean-flat-happy.png > assets/ferris.png
 ```
 
 As the web is the only functional platform at the moment, we are going to build for it.
+Install the corresponding rustc target, a minimal http server and a page which will start our app.
 
 ```sh
 $ rustup target add wasm32-unknown-unknown
 $ cargo install httpserv
-$ # run a local http server in the background:
 $ curl https://raw.githubusercontent.com/NathanRoyer/acrylic-web/main/index.html > index.html
 $ httpserv > /dev/null &
 ```
@@ -97,8 +101,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.21"
-platform = { package = "acrylic-web", version = "0.1.21" }
+acrylic = "0.1.22"
+platform = { package = "acrylic-web", version = "0.1.22" }
 ```
 
 Build:
@@ -109,7 +113,7 @@ $ cargo build -r --target wasm32-unknown-unknown
 
 Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.21/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
