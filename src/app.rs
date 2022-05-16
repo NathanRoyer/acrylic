@@ -63,6 +63,8 @@ pub struct Application {
 	pub output: Bitmap,
 
 	pub should_recompute: bool,
+
+	pub debug_containers: bool,
 }
 
 /// Data requests allow widgets to load external assets,
@@ -83,9 +85,10 @@ impl Application {
 		let mut app = Self {
 			view: rc_node(Container {
 				children: Vec::new(),
-				policy: LengthPolicy::Available(1.0),
+				policy: LengthPolicy::Remaining(1.0),
 				spot: (Point::zero(), Size::zero()),
 				axis: Axis::Horizontal,
+				margin: None,
 				gap: 0,
 			}),
 			#[cfg(feature = "text")]
@@ -96,6 +99,7 @@ impl Application {
 			model: Box::new(model),
 			output: Bitmap::new(Size::zero(), RGBA, None),
 			should_recompute: true,
+			debug_containers: false,
 		};
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{

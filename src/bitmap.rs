@@ -3,6 +3,8 @@ use crate::Point;
 use crate::Spot;
 use crate::Void;
 use crate::app::Application;
+use crate::node::Axis::Vertical;
+use crate::node::Axis::Horizontal;
 use crate::node::Node;
 use crate::node::Margin;
 use crate::node::NodePath;
@@ -10,6 +12,8 @@ use crate::node::LengthPolicy;
 use crate::geometry::aspect_ratio;
 
 use core::fmt::Debug;
+use core::fmt::Result;
+use core::fmt::Formatter;
 use core::any::Any;
 
 use std::string::String;
@@ -34,7 +38,7 @@ pub const BW:   Channels = 1;
 ///
 /// It also implements [`Widget`], so it can be set to
 /// a node so that this node renders as an image.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Bitmap {
 	/// The pixel array
 	pub pixels: Vec<u8>,
@@ -49,6 +53,18 @@ pub struct Bitmap {
 	pub ratio: f64,
 }
 
+impl Debug for Bitmap {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+		f.debug_struct("Bitmap")
+			.field("channels", &self.channels)
+			.field("size", &self.size)
+			.field("spot", &self.spot)
+			.field("margin", &self.margin)
+			.field("ratio", &self.ratio)
+			.finish()
+	}
+}
+
 impl Bitmap {
 	pub fn new(size: Size, channels: Channels, margin: Option<Margin>) -> Self {
 		Self {
@@ -59,7 +75,7 @@ impl Bitmap {
 			margin,
 			ratio: {
 				let (add_w, add_h) = match margin {
-					Some(m) => (m.total_h(), m.total_v()),
+					Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
 					None => (0, 0),
 				};
 				aspect_ratio((size.w as isize + add_w) as usize, (size.h as isize + add_h) as usize)

@@ -1,12 +1,12 @@
 use crate::node::Node;
-use crate::node::RcNode;
-use crate::node::Axis::*;
+use crate::node::Axis;
+use crate::node::Axis::Vertical;
+use crate::node::Axis::Horizontal;
 use crate::node::LengthPolicy::*;
 use crate::Point;
 use crate::Size;
+use crate::Void;
 use crate::lock;
-
-use crate::node::SameAxisContainerOrNone;
 
 use core::ops::DerefMut;
 
@@ -22,183 +22,341 @@ use std::print;
 /// Note: This function must never add properties to nodes, so
 /// nodes which do not already have size and position settings
 /// (whatever their value) are skipped.
-pub fn compute_tree(root: &dyn Node) {
-	let (orig_pt, n_size) = root.get_spot();
-	let (axis, gap) = root.container().expect("flexbox error: root node is not a container!");
-	let mut pt = orig_pt;
-	let (m, c) = match axis {
-		Horizontal => (n_size.w, n_size.h),
-		Vertical   => (n_size.h, n_size.w),
-	};
-	let mut occupied = 0;
-	for i in root.children() {
-		if let Some(l) = compute_nodes(i, root, None, Some(c), &mut pt) {
-			occupied += l;
-		}
-		occupied += gap;
-		pt.add_to_axis(axis, gap as isize);
-	}
-	if occupied != 0 {
-		occupied -= gap;
-	}
-	pt = orig_pt;
-	let available = m - occupied;
-	for i in root.children() {
-		compute_nodes(i, root, Some(available), Some(c), &mut pt);
-		pt.add_to_axis(axis, gap as isize);
-	}
+pub fn compute_tree(root: &dyn Node) -> Void {
+	let (_, size) = root.get_content_spot()?;
+	let (axis, _) = root.container()?;
+	let cross = size.get_for_axis(axis.complement());
+	compute_children_sizes(root, cross);
+	compute_remaining_children_sizes(root, cross);
+	compute_children_positions(root);
+	// println!("{:#?}", root);
+	Some(())
 }
 
-fn compute_nodes(node: &RcNode, p: &dyn Node, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
-	let mut node = lock(node)?;
-	let node = node.deref_mut();
-	let length = compute_node(node, p, m, c, cursor);
-	if let Some((axis, gap)) = node.container() {
-		let (p_axis, _) = p.container().unwrap();
-		let backup = *cursor;
-		*cursor = node.get_spot().0;
-		let n_policy = node.policy();
-		let same_axis = axis == p_axis;
-		let (m, c) = match n_policy {
-			Chunks(r) => match same_axis {
-				true => {
-					println!("flexbox warning: Chunks policy in same-axis config");
-					None?
-				},
-				false => (c, Some(r)),
-			},
-			_ => match same_axis {
-				true => (m, c),
-				false => (c, length),
-			},
-		};
-		let mut occupied = 0;
-		let mut remaining = 0;
-		for j in node.children() {
-			remaining += 1;
-			if let Some(l) = compute_nodes(j, node, None, c, cursor) {
-				occupied += l;
-				remaining -= 1;
-			}
-			occupied += gap;
-			cursor.add_to_axis(axis, gap as isize);
-		}
-		if occupied != 0 {
-			occupied -= gap;
-		}
-		if remaining > 0 {
-		if let Some(total) = m {
-			if let Some(available) = total.checked_sub(occupied) {
-				*cursor = node.get_spot().0;
-				for j in node.children() {
-					compute_nodes(j, node, Some(available), c, cursor);
-					cursor.add_to_axis(axis, gap as isize);
-				}
-			}
-		}
-		}
-		*cursor = backup;
-	}
-	length
-}
-
-fn compute_node(node: &mut dyn Node, p: &dyn Node, m: Option<usize>, c: Option<usize>, cursor: &mut Point) -> Option<usize> {
-	let mut children_cursor = *cursor;
-	let n_policy = node.policy();
-	let n_container  = node.container();
-	let p_container = p.container();
-	// println!("{} → {:?}, {:?}, {:?}", i, n_policy, m, c);
-	let length = match (n_policy, m, c) {
-		(Fixed(l), _, _) => Some(l),
-		(Available(q), Some(l), _) => Some(((l as f64) * q) as usize),
-		(WrapContent(_min, _max), _, _) => {
-			let same_axis = (n_container, p_container).same_axis_or_both_none();
-			let (m, c) = match same_axis {
-				true  => (m, c),
-				false => (None, None),
-			};
-			let children = node.children();
-			let lengthy_children = children.iter().filter_map(|child| {
-				let mut child = lock(child)?;
-				compute_node(child.deref_mut(), node, m, c, &mut children_cursor)
-			});
-			match same_axis {
-				false => lengthy_children.max(),
-				true => Some({
-					let mut sum = 0;
-					let mut count: usize = 0;
-					for len in lengthy_children {
-						count += 1;
-						sum += len;
-					}
-					let gaps = match (count.checked_sub(1), n_container) {
-						(Some(l), Some((_, gap))) => l * gap,
-						_ => 0,
+fn compute_children_sizes(container: &dyn Node, cross: usize) -> Void {
+	let (axis, _) = container.container()?;
+	for child in container.children() {
+		let mut child = lock(child).unwrap();
+		let child = child.deref_mut();
+		let result = match child.policy() {
+			WrapContent => compute_wrapper_size(axis, child, Some(cross)),
+			Fixed(l) => compute_fixed_size(axis, child, Some(cross), l),
+			Chunks(r) => compute_chunks_size(axis, child, cross, r),
+			AspectRatio(r) => {
+				let result = match axis {
+					Horizontal => (cross as f64) * r,
+					Vertical => (cross as f64) / r,
+				};
+				if result.is_finite() && result >= 0.0 {
+					let length = result as usize;
+					let size = match axis {
+						Horizontal => Size::new(length, cross),
+						Vertical   => Size::new(cross, length),
 					};
-					sum + gaps
-				}),
-			}
-		},
-		(Chunks(r), _, Some(l)) if !(n_container, p_container).same_axis_or_both_none() => {
-			// n_container could be None and it would create
-			// an empty Chunks container... not an issue?
-			let (_, gap) = n_container?;
-			let (m, c) = (Some(l), Some(r));
-			let children = node.children();
-			let lengthy_children = children.iter().filter_map(|child| {
-				let mut child = lock(child)?;
-				compute_node(child.deref_mut(), node, m, c, &mut children_cursor)
-			});
-			let mut chunks = 1;
-			let mut chunk_length = 0;
-			for child_length in lengthy_children {
-				let new_chunk_length = chunk_length + child_length + gap;
-				if new_chunk_length > l {
-					chunks += 1;
-					chunk_length = child_length;
+					child.set_spot((Point::zero(), size));
+					if let Some((axis, _)) = child.container() {
+						let cross = size.get_for_axis(axis.complement());
+						if let Some(cross) = adjust_cross(child, cross) {
+							compute_children_sizes(child, cross);
+							compute_remaining_children_sizes(child, cross);
+						}
+					}
+					Some(())
 				} else {
-					chunk_length = new_chunk_length;
+					None
+				}
+			},
+			Remaining(_) => None,
+		};
+		if let None = result {
+			child.set_spot((Point::zero(), Size::zero()));
+			recursively_zero(child);
+		}
+	}
+	Some(())
+}
+
+fn recursively_zero(node: &dyn Node) {
+	for child in node.children() {
+		let mut child = lock(child).unwrap();
+		child.set_spot((Point::zero(), Size::zero()));
+		recursively_zero(child.deref_mut());
+	}
+}
+
+fn compute_remaining_children_sizes(container: &dyn Node, cross: usize) -> Void {
+	let (axis, gap) = container.container()?;
+	let mut quota_sum = 0f64;
+	let mut used = 0;
+	for child in container.children() {
+		let child = lock(child).unwrap();
+		if let Remaining(q) = child.policy() {
+			quota_sum += q;
+			used += gap;
+		} else {
+			let (_, size) = child.get_spot();
+			used += size.get_for_axis(axis) + gap;
+		}
+	}
+	if used > 0 {
+		used -= gap;
+	}
+	if let Some(margin) = container.margin() {
+		used += margin.total_on(axis) as usize;
+	}
+	let (_, size) = container.get_spot();
+	let total = size.get_for_axis(axis);
+	let available = (total.checked_sub(used)?) as f64;
+	for child in container.children() {
+		let mut child = lock(child).unwrap();
+		let child = child.deref_mut();
+		if let Remaining(q) = child.policy() {
+			let length = (q * available / quota_sum) as usize;
+			let size = match axis {
+				Horizontal => Size::new(length, cross),
+				Vertical   => Size::new(cross, length),
+			};
+			child.set_spot((Point::zero(), size));
+			if let Some((axis, _)) = child.container() {
+				let cross = size.get_for_axis(axis.complement());
+				if let Some(cross) = adjust_cross(child, cross) {
+					compute_children_sizes(child, cross);
+					compute_remaining_children_sizes(child, cross);
 				}
 			}
-			Some(chunks * r)
-		},
-		(AspectRatio(r), _, Some(l)) => {
-			let result = match p_container?.0 {
-				Horizontal => (l as f64) * r,
-				Vertical => (l as f64) / r,
-			};
-			match result.is_finite() && result >= 0.0 {
-				true => Some(result as usize),
-				false => Some(0),
+		}
+	}
+	Some(())
+}
+
+fn compute_wrapper_size(cont_axis: Axis, wrapper: &mut dyn Node, mut cross: Option<usize>) -> Void {
+	let (wrapper_axis, gap) = wrapper.container()?;
+	if wrapper_axis != cont_axis {
+		// pass 1 for cross length
+		cross = get_max_length_on(cont_axis, wrapper, None);
+	}
+	let apparent_cross = adjust_cross(wrapper, cross?)?;
+	// pass 2
+	compute_children_sizes(wrapper, apparent_cross);
+	let mut length = 0;
+	for child in wrapper.children() {
+		let child = lock(child).unwrap();
+		let (_, size) = child.get_spot();
+		length += size.get_for_axis(wrapper_axis) + gap;
+	}
+	if length > 0 {
+		length -= gap;
+	}
+	if let Some(margin) = wrapper.margin() {
+		length += margin.total_on(cont_axis) as usize;
+	}
+	let size = match wrapper_axis {
+		Horizontal => Size::new(length, cross?),
+		Vertical   => Size::new(cross?, length),
+	};
+	wrapper.set_spot((Point::zero(), size));
+	compute_remaining_children_sizes(wrapper, apparent_cross);
+	Some(())
+}
+
+fn compute_fixed_size(cont_axis: Axis, fixed: &mut dyn Node, mut cross: Option<usize>, mut length: usize) -> Void {
+	let mut same_axis = true;
+	if let Some((fixed_axis, gap)) = fixed.container() {
+		same_axis = fixed_axis == cont_axis;
+		let c_cross = match fixed_axis == cont_axis {
+			true => cross?,
+			false => length,
+		};
+		if let Some(c_cross) = adjust_cross(fixed, c_cross) {
+			compute_children_sizes(fixed, c_cross);
+		}
+		if cross.is_none() && fixed_axis != cont_axis {
+			let mut length = 0;
+			for child in fixed.children() {
+				let child = lock(child).unwrap();
+				let (_, size) = child.get_spot();
+				length += size.get_for_axis(fixed_axis) + gap;
 			}
-		},
-		_ => None,
+			if length > 0 {
+				length -= gap;
+			}
+			cross = Some(length);
+		}
+	}
+	if same_axis {
+		if let Some(margin) = fixed.margin() {
+			length += margin.total_on(cont_axis) as usize;
+		}
+	}
+	let size = match cont_axis {
+		Horizontal => Size::new(length, cross?),
+		Vertical   => Size::new(cross?, length),
 	};
+	fixed.set_spot((Point::zero(), size));
+	if let Some((fixed_axis, _)) = fixed.container() {
+		let cross = match fixed_axis == cont_axis {
+			true => cross?,
+			false => length,
+		};
+		if let Some(cross) = adjust_cross(fixed, cross) {
+			compute_remaining_children_sizes(fixed, cross);
+		}
+	}
+	Some(())
+}
 
-	let size = match (length, c, p_container) {
-		(Some(l), Some(c), Some((Horizontal, _))) => Some((l, c)),
-		(Some(l), Some(c), Some((Vertical,   _))) => Some((c, l)),
-		_ => None,
+fn compute_chunks_size(cont_axis: Axis, this: &mut dyn Node, cross: usize, row: usize) -> Void {
+	let (this_axis, gap) = this.container()?;
+	if this_axis == cont_axis {
+		None?
+	}
+	let cross = adjust_cross(this, cross)?;
+	compute_children_sizes(this, row)?;
+	let mut chunks = 1;
+	let mut gap_sum = 0;
+	let mut chunk_length = 0;
+	for child in this.children() {
+		let child = lock(child).unwrap();
+		let (_, size) = child.get_spot();
+		let child_length = size.get_for_axis(this_axis);
+		let new_chunk_length = chunk_length + gap + child_length;
+		if new_chunk_length > cross {
+			gap_sum += gap;
+			chunks += 1;
+			chunk_length = child_length;
+		} else {
+			chunk_length = new_chunk_length;
+		}
+	}
+	let mut length = row * chunks + gap_sum;
+	if let Some(margin) = this.margin() {
+		length += margin.total_on(cont_axis) as usize;
+	}
+	let size = match this_axis {
+		Horizontal => Size::new(cross, length),
+		Vertical   => Size::new(length, cross),
 	};
+	this.set_spot((Point::zero(), size));
+	compute_remaining_children_sizes(this, row);
+	Some(())
+}
 
-	if let Some((w, h)) = size {
-		// size is Some -> length & p_container are Some.
-		let l = length.unwrap();
-		let (p_axis, _) = p_container.unwrap();
-		if let Chunks(r) = p.policy() {
-			let (p_position, p_size) = p.get_spot();
-			let (pos, len, dstm, dstc) = match p_axis {
-				Horizontal => (p_position.x, p_size.w, &mut cursor.x, &mut cursor.y),
-				Vertical   => (p_position.y, p_size.h, &mut cursor.y, &mut cursor.x),
+fn get_max_length_on(axis: Axis, cont: &dyn Node, cross: Option<usize>) -> Option<usize> {
+	let (cont_axis, _) = cont.container()?;
+	let cross = match cross {
+		Some(c) => Some(adjust_cross(cont, c)?),
+		None => None,
+	};
+	let mut max = None;
+	for child in cont.children() {
+		let mut child = lock(child).unwrap();
+		let child = child.deref_mut();
+		let child_axis = child.container().map(|cont| cont.0);
+		let same_axis = Some(cont_axis) == child_axis;
+		let candidate = match child.policy() {
+			WrapContent => match (Some(axis) == child_axis, same_axis) {
+				(true, _) => {
+					if let Some(_) = compute_wrapper_size(cont_axis, child, cross) {
+						let (_, size) = child.get_spot();
+						Some(size.get_for_axis(axis))
+					} else {
+						None
+					}
+				},
+				(false, true) => get_max_length_on(axis, child, cross),
+				(false, false) => get_max_length_on(axis, child, None),
+			},
+			Fixed(l) => match (cont_axis == axis, Some(axis) == child_axis, same_axis) {
+				(false, true, _) => {
+					if let Some(_) = compute_fixed_size(cont_axis, child, cross, l) {
+						let (_, size) = child.get_spot();
+						Some(size.get_for_axis(axis))
+					} else {
+						None
+					}
+				}
+				(false, false, true) => get_max_length_on(axis, child, cross),
+				(false, false, false) => get_max_length_on(axis, child, Some(l)),
+				_ => Some(l),
+			},
+			Chunks(row) if !same_axis && (cont_axis != axis) => {
+				let mut result = None;
+				if let Some(cross) = cross {
+					if let Some(_) = compute_chunks_size(cont_axis, child, cross, row) {
+						let (_, size) = child.get_spot();
+						result = Some(size.get_for_axis(axis));
+					}
+				}
+				result
+			},
+			AspectRatio(r) if cont_axis != axis && cross.is_some() => {
+				let result = match cont_axis {
+					Horizontal => (cross? as f64) * r,
+					Vertical => (cross? as f64) / r,
+				};
+				Some(match result.is_finite() && result >= 0.0 {
+					true => result as usize,
+					false => 0,
+				})
+			},
+			_ => None,
+		};
+		if let Some(len) = candidate {
+			let write = match max {
+				Some(max) => max < len,
+				None => true,
 			};
-			if *dstm + (l as isize) > (pos + (len as isize)) {
-				*dstc += r as isize;
-				*dstm = pos;
+			if write {
+				max = candidate;
 			}
 		}
-		node.set_spot((*cursor, Size::new(w, h)));
-		cursor.add_to_axis(p_axis, l as isize);
 	}
+	if let (Some(margin), Some(max)) = (cont.margin(), max.as_mut()) {
+		let to_add = margin.total_on(axis);
+		*max += to_add as usize;
+	}
+	max
+}
 
-	length
+fn compute_children_positions(container: &dyn Node) -> Void {
+	let (axis, gap) = container.container()?;
+	let (mut base_cursor, size) = container.get_content_spot()?;
+	let mut cursor = base_cursor;
+	let mut chunk_length = 0;
+	let max = size.get_for_axis(axis);
+	for child in container.children() {
+		let mut child = lock(child).unwrap();
+		let child = child.deref_mut();
+		let (_, size) = child.get_spot();
+		let child_length = size.get_for_axis(axis);
+		if let Chunks(row) = container.policy() {
+			let new_chunk_length = chunk_length + child_length + gap;
+			if new_chunk_length > max {
+				base_cursor.add_to_axis(axis.complement(), (row + gap) as isize);
+				cursor = base_cursor;
+				chunk_length = child_length;
+			} else {
+				chunk_length = new_chunk_length;
+			}
+		}
+		child.set_spot((cursor, size));
+		compute_children_positions(child);
+		let length = child_length + gap;
+		cursor.add_to_axis(axis, length as isize);
+	}
+	Some(())
+}
+
+fn adjust_cross(cont: &dyn Node, cross: usize) -> Option<usize> {
+	let (axis, _) = cont.container()?;
+	if let Some(margin) = cont.margin() {
+		let to_sub = margin.total_on(axis.complement());
+		if cross as isize > to_sub {
+			Some(cross - to_sub as usize)
+		} else {
+			None
+		}
+	} else {
+		Some(cross)
+	}
 }

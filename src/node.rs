@@ -21,25 +21,26 @@ use std::vec::Vec;
 /// impacted by the children of the container.
 #[derive(Debug, Copy, Clone)]
 pub enum LengthPolicy {
+	// needs two passes in diff-axis config
+	// needs one pass in same-axis config
+	/// Main length is just enough to contain all children.
+	/// Valid for containers only.
+	WrapContent,
 	/// Main length is a fixed number of pixels
 	Fixed(usize),
-	/// Main length is a fraction of the space
-	/// which is left over by neighbors with other
-	/// length policies.
-	Available(f64),
 	/// Main length is divided in chunks of specified
 	/// length (in pixels). The number of chunks is
 	/// determined by the contained nodes: there will
 	/// be as many chunks as necessary for all children
 	/// to fit in.
+	/// Valid for diff-axis [todo: explain diff-axis] containers only.
 	Chunks(usize),
-	/// Main length is the content's length, clamped
-	/// between a maximum and a minimum (in pixels).
-	WrapContent(u32, u32),
 	/// Main length is computed from the cross length
 	/// so that the size of the node maintains a certain
 	/// aspect ratio.
 	AspectRatio(f64),
+	/// todo: doc
+	Remaining(f64),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -176,8 +177,8 @@ pub trait Node: Debug + Any + 'static {
 		if let Some(margin) = self.margin() {
 			spot.0.x += margin.left;
 			spot.0.y += margin.top;
-			let w = ((spot.1.w as isize) - margin.total_h()).try_into();
-			let h = ((spot.1.h as isize) - margin.total_v()).try_into();
+			let w = ((spot.1.w as isize) - margin.total_on(Axis::Horizontal)).try_into();
+			let h = ((spot.1.h as isize) - margin.total_on(Axis::Vertical)).try_into();
 			match (w, h) {
 				(Ok(w), Ok(h)) => spot.1 = Size::new(w, h),
 				_ => None?,
@@ -233,11 +234,35 @@ pub struct Container {
 	pub spot: Spot,
 	pub axis: Axis,
 	pub gap: usize,
+	pub margin: Option<Margin>,
 }
 
 impl Node for Container {
+	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+		if app.debug_containers {
+			let (pos, size) = self.spot;
+			let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
+			let stop = start + (size.w * 4);
+			app.output.pixels.get_mut(start..stop)?.fill(255);
+			for y in 0..size.h {
+				let start = start + (app.output.size.w * 4 * y);
+				app.output.pixels.get_mut(start..)?.get_mut(..4)?.fill(255);
+				let stop = stop + (app.output.size.w * 4 * y);
+				app.output.pixels.get_mut(stop..)?.get_mut(..4)?.fill(255);
+			}
+			let start = start + (size.h * app.output.size.w * 4);
+			let stop = start + (size.w * 4);
+			app.output.pixels.get_mut(start..stop)?.fill(255);
+		}
+		None
+	}
+
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
+	}
+
+	fn margin(&self) -> Option<Margin> {
+		self.margin
 	}
 
 	fn children(&self) -> &[RcNode] {
@@ -293,14 +318,11 @@ impl Margin {
 		}
 	}
 
-	/// Sum of `top` and `bottom`
-	pub fn total_v(&self) -> isize {
-		self.top + self.bottom
-	}
-
-	/// Sum of `left` and `right`
-	pub fn total_h(&self) -> isize {
-		self.left + self.right
+	pub fn total_on(&self, axis: Axis) -> isize {
+		match axis {
+			Axis::Horizontal => self.left + self.right,
+			Axis::Vertical   => self.top + self.bottom,
+		}
 	}
 }
 
@@ -321,7 +343,7 @@ impl Axis {
 	}
 }
 
-pub trait SameAxisContainerOrNone {
+pub(crate) trait SameAxisContainerOrNone {
 	fn same_axis_or_both_none(self) -> bool;
 }
 

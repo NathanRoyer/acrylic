@@ -43,6 +43,13 @@ impl Size {
 	pub fn zero() -> Self {
 		Self::new(0, 0)
 	}
+
+	pub fn get_for_axis(&self, axis: Axis) -> usize {
+		match axis {
+			Axis::Horizontal => self.w,
+			Axis::Vertical   => self.h,
+		}
+	}
 }
 
 pub type Spot = (Point, Size);

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::app::Application;
 use crate::node::LengthPolicy;
 use crate::node::Axis;
+use crate::node::Margin;
 use crate::node::NodePath;
 use crate::node::rc_node;
 use crate::node::Container;
@@ -135,29 +136,42 @@ pub fn h_container(app: &mut Application, path: &mut NodePath, attributes: &[Att
 
 fn container(app: &mut Application, axis: Axis, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
 	let mut policy = Err(String::from("missing policy attribute"));
+	let mut margin = None;
 	let mut gap = 0;
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
-			"gap"           => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
-			"pol:fixed"     => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:available" => policy = Ok(LengthPolicy::Available  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:chunks"    => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:ratio"     => policy = Ok(LengthPolicy::AspectRatio(value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:wrap" => {
-				let (min, max) = value.split_once('-').ok_or(format!("bad value: {}", value))?;
-				let min = min.parse().map_err(|_| format!("bad value: {}", value))?;
-				let max = max.parse().map_err(|_| format!("bad value: {}", value))?;
-				policy = Ok(LengthPolicy::WrapContent(min, max));
+			"margin"        => {
+				let m = value.parse().map_err(|_| format!("bad value: {}", value))?;
+				margin = Some(Margin {
+					left: m,
+					top: m,
+					bottom: m,
+					right: m,
+				});
 			},
+			"gap"         => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
+			"pol:fixed"   => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"pol:rem"     => policy = Ok(LengthPolicy::Remaining  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"pol:chunks"  => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"pol:ratio"   => policy = Ok(LengthPolicy::AspectRatio(value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"pol:wrap"    => policy = Ok(LengthPolicy::WrapContent),
 			_ => Err(format!("unexpected attribute: {}", name))?,
 		}
 	}
+
+	// {
+		// let parent = app.get_node(path).unwrap();
+		// let parent = crate::lock(&parent).unwrap();
+		// let (_, p_gap) = parent.container().unwrap();
+		// println!("adding {} to {}", gap, p_gap);
+	// }
 
 	path.push(app.add_node(path, rc_node(Container {
 		children: Vec::new(),
 		policy: policy?,
 		spot: (Point::zero(), Size::zero()),
+		margin,
 		axis,
 		gap,
 	}))?);

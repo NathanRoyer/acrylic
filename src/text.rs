@@ -31,6 +31,9 @@ use core::any::Any;
 use core::str::Chars;
 use core::mem::swap;
 use core::ops::DerefMut;
+use core::fmt::Debug;
+use core::fmt::Result as FmtResult;
+use core::fmt::Formatter;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -60,7 +63,7 @@ pub struct Font {
 
 pub type RcFont = Arc<Mutex<Font>>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Unbreakable {
 	pub glyphs: Vec<RcNode>,
 	pub text: String,
@@ -77,7 +80,7 @@ impl Node for Unbreakable {
 	}
 
 	fn policy(&self) -> LengthPolicy {
-		LengthPolicy::WrapContent(0, u32::MAX)
+		LengthPolicy::WrapContent
 	}
 
 	fn container(&self) -> Option<(Axis, usize)> {
@@ -95,6 +98,15 @@ impl Node for Unbreakable {
 	fn set_spot(&mut self, spot: Spot) -> Void {
 		self.spot = spot;
 		None
+	}
+}
+
+impl Debug for Unbreakable {
+	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+		f.debug_struct("Unbreakable")
+			.field("text", &self.text)
+			.field("spot", &self.spot)
+			.finish()
 	}
 }
 
@@ -138,6 +150,7 @@ impl Node for GlyphNode {
 #[derive(Debug, Clone)]
 pub struct Placeholder {
 	pub ratio: f64,
+	pub spot: Spot,
 }
 
 impl Node for Placeholder {
@@ -151,6 +164,15 @@ impl Node for Placeholder {
 
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
 	}
 }
 
@@ -168,6 +190,7 @@ pub struct Paragraph {
 	pub space_width: usize,
 	pub policy: LengthPolicy,
 	pub previous_height: usize,
+	pub margin: Option<Margin>,
 	pub spot: Spot,
 }
 
@@ -208,7 +231,7 @@ impl Font {
 		let box_h = g_box.height().ceil() as isize;
 		let ratio = aspect_ratio(box_w as usize, box_h as usize);
 		if height.is_none() {
-			rc_node(Placeholder { ratio })
+			rc_node(Placeholder { ratio, spot: (Point::zero(), Size::zero()) })
 		} else if let Some(q) = font.outline_glyph(glyph) {
 			let outline_bounds = q.px_bounds();
 			let top = (outline_bounds.min.y - g_box.min.y).ceil() as isize;
@@ -234,7 +257,7 @@ impl Font {
 					let i = (y * bmpsz.w + x) * RGBA;
 					let a = (255.0 * c) as u8;
 					if let Some(slice) = bitmap.pixels.get_mut(i..(i + RGBA)) {
-						slice.copy_from_slice(&[a, a, a, 255]);
+						slice.copy_from_slice(&[255, 255, 255, a]);
 					}
 				});
 
@@ -247,7 +270,7 @@ impl Font {
 				spot: (Point::zero(), Size::zero()),
 			})
 		} else {
-			rc_node(Placeholder { ratio })
+			rc_node(Placeholder { ratio, spot: (Point::zero(), Size::zero()) })
 		}
 	}
 }
@@ -333,14 +356,28 @@ impl Node for Paragraph {
 		if let LengthPolicy::Chunks(_fs) = self.policy {
 			// everything is fine
 		} else {
-			let h = self.spot.1.h;
+			let mut h = self.spot.1.h;
 			if h != self.previous_height {
 				self.previous_height = h;
+				if let Some(margin) = self.margin {
+					h = h.checked_sub(margin.total_on(Axis::Vertical) as usize)?;
+				}
 				self.deploy(Some(h));
 				app.should_recompute = true;
 			}
 		}
+		// let (pos, size) = self.spot;
+		// let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
+		// let stop = start + (size.w * 4);
+		// app.output.pixels.get_mut(start..stop)?.fill(255);
+		// let start = start + (size.h * app.output.size.w * 4);
+		// let stop = start + (size.w * 4);
+		// app.output.pixels.get_mut(start..stop)?.fill(255);
 		None
+	}
+
+	fn margin(&self) -> Option<Margin> {
+		self.margin
 	}
 
 	fn attach(&mut self, app: &mut Application, _path: &NodePath) -> Void {
@@ -392,9 +429,19 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 	let mut text = Err(String::from("missing txt attribute"));
 	let mut font_size = app.default_font_size;
 	let mut font = None;
+	let mut margin = None;
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
+			"margin" => {
+				let m = value.parse().map_err(|_| format!("bad value: {}", value))?;
+				margin = Some(Margin {
+					left: m,
+					top: m,
+					bottom: m,
+					right: m,
+				});
+			},
 			"txt" => text = Ok(value.clone()),
 			"font" => font = Some(value.clone()),
 			"font-size" => font_size = value.parse().ok().ok_or(format!("bad font-size: {}", &value))?,
@@ -422,7 +469,7 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 
 		match parent_axis {
 			Axis::Vertical => LengthPolicy::Chunks(font_size),
-			Axis::Horizontal => LengthPolicy::WrapContent(0, u32::MAX),
+			Axis::Horizontal => LengthPolicy::WrapContent,
 		}
 	};
 
@@ -436,6 +483,7 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 		children: Vec::new(),
 		space_width: 10,
 		policy,
+		margin,
 		spot: (Point::zero(), Size::zero()),
 		previous_height: 0,
 	});
