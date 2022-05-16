@@ -10,9 +10,9 @@ use crate::lock;
 
 use core::ops::DerefMut;
 
-use std::println;
-#[cfg(not(feature = "std"))]
-use std::print;
+// use std::println;
+// #[cfg(not(feature = "std"))]
+// use std::print;
 
 /// This function will update the size and position of each
 /// node under `root` in a way that ressembles the CSS Flexible
