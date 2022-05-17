@@ -187,7 +187,7 @@ impl Application {
 				self.output = Bitmap::new(size, RGBA, None);
 				view.set_spot((position, size));
 			} else {
-				self.output.pixels.fill(0);
+				self.output.pixels.fill(127);
 			}
 			if self.should_recompute {
 				compute_tree(view.deref());

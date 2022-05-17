@@ -42,6 +42,8 @@ pub const BW:   Channels = 1;
 pub struct Bitmap {
 	/// The pixel array
 	pub pixels: Vec<u8>,
+	/// A resized copy cached for faster rendering
+	pub cache: Vec<u8>,
 	/// The number of channels; must be one of
 	/// BW, RGB or RGBA.
 	pub channels: Channels,
@@ -71,6 +73,7 @@ impl Bitmap {
 			size,
 			channels,
 			pixels: vec![0; channels * size.w * size.h],
+			cache: Vec::new(),
 			spot: (Point::zero(), Size::zero()),
 			margin,
 			ratio: {
@@ -83,38 +86,61 @@ impl Bitmap {
 		}
 	}
 
-	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
+	pub fn update_cache(&mut self, spot: Spot) -> Void {
 		assert!(self.channels == RGBA);
-		let (position, size) = self.get_content_spot_at(spot)?;
-		let dst = &mut app.output;
-		assert!(dst.channels == RGBA);
-		if size.w > 0 && size.h > 0 {
+		let (_, size) = self.get_content_spot_at(spot)?;
+		let len = size.w * size.h * RGBA;
+		if len != 0 && len != self.cache.len() {
+			self.cache.resize(len, 0);
 			let spot_factor = (size.w - 1) as f32;
 			let img_factor = (self.size.w - 1) as f32;
 			let ratio = img_factor / spot_factor;
-			let dst_x = 0..dst.size.w as isize;
-			let dst_y = 0..dst.size.h as isize;
-			for x in 0..size.w {
-				for y in 0..size.h {
-					let (ox, oy) = (position.x + x as isize, position.y + y as isize);
-					if dst_x.contains(&ox) && dst_y.contains(&oy) {
-						let (ox, oy) = (ox as usize, oy as usize);
-						let i = (oy * dst.size.w + ox) * RGBA;
-						let x = round((x as f32) * ratio);
-						let y = round((y as f32) * ratio);
-						let j = (y * self.size.w + x) * RGBA;
-						if let Some(src) = self.pixels.get(j..(j + RGBA)) {
-							if let Some(dst) = dst.pixels.get_mut(i..(i + RGBA)) {
-								for c in 0..RGBA {
-									dst[c] = dst[c].checked_add(src[c]).unwrap_or(255);
-								}
-							}
-						}
+			for y in 0..size.h {
+				for x in 0..size.w {
+					let i = (y * size.w + x) * RGBA;
+					let x = round((x as f32) * ratio);
+					let y = round((y as f32) * ratio);
+					let j = (y * self.size.w + x) * RGBA;
+					let src = self.pixels.get(j..(j + RGBA)).unwrap();
+					let dst = self.cache.get_mut(i..(i + RGBA)).unwrap();
+					let a = src[3] as u32;
+					for i in 0..3 {
+						dst[i] = ((src[i] as u32 * a) / 255) as u8;
 					}
+					dst[3] = a as u8;
 				}
 			}
 		}
-		None
+		Some(())
+	}
+
+	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
+		self.update_cache(spot)?;
+		let (position, size) = self.get_content_spot_at(spot)?;
+		let (x, y): (usize, usize) = (position.x.try_into().ok()?, position.y.try_into().ok()?);
+		let px_width = RGBA * size.w;
+		let pitch = RGBA * app.output.size.w;
+		let mut start = RGBA * x + pitch * y;
+		let mut stop = start + px_width;
+		let mut src = self.cache.chunks(px_width);
+		for _ in 0..size.h {
+			let dst = app.output.pixels.get_mut(start..stop)?;
+			let src = src.next()?;
+			let mut i = px_width as isize - 1;
+			let mut a = 0;
+			while i >= 0 {
+				let j = i as usize;
+				let (dst, src) = (&mut dst[j], &(src[j] as u32));
+				if (j & 0b11) == 3 {
+					a = (255 - *src) as u32;
+				}
+				*dst = (*src + (((*dst as u32) * a)>>8)) as u8;
+				i -= 1;
+			}
+			start += pitch;
+			stop += pitch;
+		}
+		Some(())
 	}
 }
 

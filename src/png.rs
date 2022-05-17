@@ -56,6 +56,7 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 		channels: RGBA,
 		spot: (Point::zero(), Size::zero()),
 		pixels,
+		cache: Vec::new(),
 		margin: None,
 		ratio: aspect_ratio(size.w, size.h),
 	}
