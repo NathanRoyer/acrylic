@@ -1,6 +1,7 @@
 use crate::node::Axis;
 use crate::node::Container;
 use crate::node::LengthPolicy;
+use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
 use crate::node::rc_node;
@@ -19,6 +20,7 @@ use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Range;
 use core::ops::Deref;
+use core::ops::DerefMut;
 
 use std::string::String;
 use std::vec::Vec;
@@ -36,7 +38,6 @@ use std::sync::Mutex;
 /// where you can store your application-specific model,
 /// and a vector of [`DataRequest`] where you can add
 /// you own data requests (which the platform will handle).
-#[derive(Debug)]
 pub struct Application {
 	pub view: RcNode,
 
@@ -61,6 +62,8 @@ pub struct Application {
 	/// This [`Bitmap`] is used to store the final frame of
 	/// the application, to be rendered by the platform.
 	pub output: Bitmap,
+
+	pub log_fn: &'static dyn Fn(&str),
 
 	pub should_recompute: bool,
 
@@ -100,6 +103,7 @@ impl Application {
 			output: Bitmap::new(Size::zero(), RGBA, None),
 			should_recompute: true,
 			debug_containers: false,
+			log_fn: &|_| (),
 		};
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{
@@ -177,6 +181,19 @@ impl Application {
 		Ok(())
 	}
 
+	fn set_cont_dirty(node: &mut dyn Node) -> Void {
+		let children = {
+			node.set_dirty();
+			node.children().to_vec()
+		};
+		for child in children {
+			let mut child = lock(&child)?;
+			let child = child.deref_mut();
+			Self::set_cont_dirty(child);
+		}
+		None
+	}
+
 	/// This method is called by the platform to request a refresh
 	/// of the output. It should be called for every frame.
 	pub fn render(&mut self) -> Void {
@@ -184,10 +201,12 @@ impl Application {
 			let mut view = lock(&self.view)?;
 			let (position, size) = view.get_spot();
 			if size != self.output.size {
-				self.output = Bitmap::new(size, RGBA, None);
-				view.set_spot((position, size));
-			} else {
 				self.output.pixels.fill(127);
+				self.output.pixels.resize(size.w * size.h * RGBA, 127);
+				self.output.size = size;
+				view.set_spot((position, size));
+				let view = view.deref_mut();
+				Self::set_cont_dirty(view);
 			}
 			if self.should_recompute {
 				compute_tree(view.deref());
@@ -210,5 +229,9 @@ impl Application {
 			path.pop();
 		}
 		None
+	}
+
+	pub fn log(&self, s: &str) {
+		(self.log_fn)(s)
 	}
 }

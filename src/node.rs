@@ -159,6 +159,10 @@ pub trait Node: Debug + Any + 'static {
 		LengthPolicy::Fixed(0)
 	}
 
+	fn set_dirty(&mut self) {
+		// do nothing by default
+	}
+
 	/// The `describe` method is called when the platform needs a
 	/// textual description of a node. This helps making
 	/// applications accessible to people with disabilities.

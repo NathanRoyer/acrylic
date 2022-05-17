@@ -53,6 +53,7 @@ pub struct Bitmap {
 	pub spot: Spot,
 	pub margin: Option<Margin>,
 	pub ratio: f64,
+	pub dirty: bool,
 }
 
 impl Debug for Bitmap {
@@ -76,6 +77,7 @@ impl Bitmap {
 			cache: Vec::new(),
 			spot: (Point::zero(), Size::zero()),
 			margin,
+			dirty: true,
 			ratio: {
 				let (add_w, add_h) = match margin {
 					Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
@@ -115,30 +117,34 @@ impl Bitmap {
 	}
 
 	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
-		self.update_cache(spot)?;
-		let (position, size) = self.get_content_spot_at(spot)?;
-		let (x, y): (usize, usize) = (position.x.try_into().ok()?, position.y.try_into().ok()?);
-		let px_width = RGBA * size.w;
-		let pitch = RGBA * app.output.size.w;
-		let mut start = RGBA * x + pitch * y;
-		let mut stop = start + px_width;
-		let mut src = self.cache.chunks(px_width);
-		for _ in 0..size.h {
-			let dst = app.output.pixels.get_mut(start..stop)?;
-			let src = src.next()?;
-			let mut i = px_width as isize - 1;
-			let mut a = 0;
-			while i >= 0 {
-				let j = i as usize;
-				let (dst, src) = (&mut dst[j], &(src[j] as u32));
-				if (j & 0b11) == 3 {
-					a = (255 - *src) as u32;
+		if self.dirty {
+			self.dirty = false;
+			app.log("hey");
+			self.update_cache(spot)?;
+			let (position, size) = self.get_content_spot_at(spot)?;
+			let (x, y): (usize, usize) = (position.x.try_into().ok()?, position.y.try_into().ok()?);
+			let px_width = RGBA * size.w;
+			let pitch = RGBA * app.output.size.w;
+			let mut start = RGBA * x + pitch * y;
+			let mut stop = start + px_width;
+			let mut src = self.cache.chunks(px_width);
+			for _ in 0..size.h {
+				let dst = app.output.pixels.get_mut(start..stop)?;
+				let src = src.next()?;
+				let mut i = px_width as isize - 1;
+				let mut a = 0;
+				while i >= 0 {
+					let j = i as usize;
+					let (dst, src) = (&mut dst[j], &(src[j] as u32));
+					if (j & 0b11) == 3 {
+						a = (255 - *src) as u32;
+					}
+					*dst = (*src + (((*dst as u32) * a)>>8)) as u8;
+					i -= 1;
 				}
-				*dst = (*src + (((*dst as u32) * a)>>8)) as u8;
-				i -= 1;
+				start += pitch;
+				stop += pitch;
 			}
-			start += pitch;
-			stop += pitch;
 		}
 		Some(())
 	}
@@ -153,6 +159,10 @@ impl Node for Bitmap {
 		LengthPolicy::AspectRatio(self.ratio)
 	}
 
+	fn set_dirty(&mut self) {
+		self.dirty = true;
+	}
+
 	fn margin(&self) -> Option<Margin> {
 		self.margin
 	}
@@ -162,6 +172,7 @@ impl Node for Bitmap {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.dirty = true;
 		self.spot = spot;
 		None
 	}

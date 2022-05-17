@@ -129,6 +129,11 @@ impl Node for GlyphNode {
 		bitmap.deref_mut().policy()
 	}
 
+	fn set_dirty(&mut self) {
+		let mut bitmap = lock(&self.bitmap).unwrap();
+		bitmap.deref_mut().set_dirty()
+	}
+
 	fn get_spot(&self) -> Spot {
 		self.spot
 	}
