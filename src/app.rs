@@ -5,6 +5,7 @@ use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
 use crate::node::rc_node;
+use crate::bitmap::RGBA;
 use crate::flexbox::compute_tree;
 use crate::PlatformBlit;
 use crate::PlatformLog;
@@ -64,6 +65,8 @@ pub struct Application {
 
 	pub platform_blit: PlatformBlit,
 
+	pub blit_hooks: Vec<(NodePath, Spot)>,
+
 	pub should_recompute: bool,
 
 	pub debug_containers: bool,
@@ -103,6 +106,7 @@ impl Application {
 			debug_containers: false,
 			platform_log: log,
 			platform_blit: blit,
+			blit_hooks: Vec::new(),
 		};
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{
@@ -133,7 +137,7 @@ impl Application {
 		}
 	}
 
-	pub fn get_node(&mut self, path: &NodePath) -> Option<RcNode> {
+	pub fn get_node(&self, path: &NodePath) -> Option<RcNode> {
 		let mut node = self.view.clone();
 		for i in path {
 			// todo: get rid of these locks
@@ -146,7 +150,7 @@ impl Application {
 		Some(node)
 	}
 
-	pub fn add_node(&mut self, path: &NodePath, child: RcNode) -> Result<usize, String> {
+	pub fn add_node(&mut self, path: &mut NodePath, child: RcNode) -> Result<usize, String> {
 		self.should_recompute = true;
 		let node = self.get_node(path).ok_or(String::from("No child at that path"))?;
 		let i = {
@@ -154,6 +158,7 @@ impl Application {
 			node.add_node(self, child.clone())?
 		};
 		let mut child = lock(&child).unwrap();
+		path.push(i);
 		child.attach(self, path);
 		Ok(i)
 	}
@@ -206,8 +211,16 @@ impl Application {
 	/// of the output. It should be called for every frame.
 	pub fn render(&mut self) {
 		if self.should_recompute {
-			let view = lock(&self.view).unwrap();
-			compute_tree(view.deref());
+			{
+				let view = lock(&self.view).unwrap();
+				compute_tree(view.deref());
+			}
+			for i in 0..self.blit_hooks.len() {
+				if let Some(node) = self.get_node(&self.blit_hooks[i].0) {
+					let node = lock(&node).unwrap();
+					self.blit_hooks[i].1 = node.get_spot();
+				}
+			}
 			self.should_recompute = false;
 		}
 		let mut path = Vec::new();
@@ -231,7 +244,20 @@ impl Application {
 		(self.platform_log)(message)
 	}
 
-	pub fn blit<'a>(&self, spot: &'a Spot, path: &'a NodePath) -> (&'a mut [u8], usize, bool) {
-		(self.platform_blit)(spot, path)
+	pub fn blit<'a>(&'a mut self, node_spot: &'a Spot, path: &'a NodePath) -> (&'a mut [u8], usize, bool) {
+		for (hook_path, hook_spot) in &self.blit_hooks {
+			if path.starts_with(hook_path) {
+				let (np, ns) = node_spot;
+				let (hp, hs) = hook_spot;
+				let (x, y) = ((np.x - hp.x) as usize, (np.y - hp.y) as usize);
+				let (slice, mut pitch, owned) = (self.platform_blit)(hook_spot, hook_path);
+				pitch += RGBA * (hs.w - ns.w);
+				let line = pitch + RGBA * ns.w;
+				let start = RGBA * x + y * line;
+				let stop = start + ns.h * line - pitch;
+				return (&mut slice[start..stop], pitch, owned);
+			}
+		}
+		(self.platform_blit)(node_spot, path)
 	}
 }

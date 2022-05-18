@@ -148,7 +148,7 @@ impl Bitmap {
 					i -= 1;
 				}
 			}
-			(_, dst) = dst_next.split_at_mut(pitch);
+			dst = dst_next.get_mut(pitch..)?;
 		}
 		Some(())
 	}

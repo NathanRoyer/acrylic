@@ -140,7 +140,7 @@ pub fn xml_handler(app: &mut Application, path: &mut NodePath, attributes: &[Att
 		}
 	}
 
-	path.push(app.add_node(path, rc_node(RailwayLoader))?);
+	app.add_node(path, rc_node(RailwayLoader))?;
 
 	app.data_requests.push(DataRequest {
 		node: path.clone(),

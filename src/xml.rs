@@ -167,14 +167,14 @@ fn container(app: &mut Application, axis: Axis, path: &mut NodePath, attributes:
 		// println!("adding {} to {}", gap, p_gap);
 	// }
 
-	path.push(app.add_node(path, rc_node(Container {
+	app.add_node(path, rc_node(Container {
 		children: Vec::new(),
 		policy: policy?,
 		spot: (Point::zero(), Size::zero()),
 		margin,
 		axis,
 		gap,
-	}))?);
+	}))?;
 
 	Ok(())
 }

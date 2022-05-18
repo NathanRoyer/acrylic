@@ -202,6 +202,7 @@ pub struct Paragraph {
 	pub previous_height: usize,
 	pub margin: Option<Margin>,
 	pub spot: Spot,
+	pub dirty: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -363,7 +364,7 @@ impl<'a> Iterator for ParagraphIter<'a> {
 }
 
 impl Node for Paragraph {
-	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
 		if let LengthPolicy::Chunks(_fs) = self.policy {
 			// everything is fine
 		} else {
@@ -375,6 +376,18 @@ impl Node for Paragraph {
 				}
 				self.deploy(Some(h));
 				app.should_recompute = true;
+			}
+		}
+		if self.dirty {
+			self.dirty = false;
+			let spot = self.get_content_spot_at(self.spot)?;
+			let (mut dst, pitch, _) = app.blit(&spot, path);
+			let (_, size) = spot;
+			let px_width = RGBA * size.w;
+			for _ in 0..size.h {
+				let (line_dst, dst_next) = dst.split_at_mut(px_width);
+				line_dst.fill(0);
+				dst = dst_next.get_mut(pitch..)?;
 			}
 		}
 		// let (pos, size) = self.spot;
@@ -391,12 +404,13 @@ impl Node for Paragraph {
 		self.margin
 	}
 
-	fn attach(&mut self, app: &mut Application, _path: &NodePath) -> Void {
+	fn attach(&mut self, app: &mut Application, path: &NodePath) -> Void {
 		self.deploy(match self.policy {
 			LengthPolicy::Chunks(l) => Some(l),
 			_ => None,
 		});
 		app.should_recompute = true;
+		app.blit_hooks.push((path.clone(), self.get_spot()));
 		None
 	}
 
@@ -429,6 +443,7 @@ impl Node for Paragraph {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.dirty = true;
 		self.spot = spot;
 		None
 	}
@@ -497,9 +512,10 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 		margin,
 		spot: (Point::zero(), Size::zero()),
 		previous_height: 0,
+		dirty: true,
 	});
 
-	path.push(app.add_node(path, paragraph)?);
+	app.add_node(path, paragraph)?;
 
 	Ok(())
 }
