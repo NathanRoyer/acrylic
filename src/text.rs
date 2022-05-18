@@ -114,13 +114,18 @@ impl Debug for Unbreakable {
 pub struct GlyphNode {
 	pub bitmap: RcNode,
 	pub spot: Spot,
+	pub dirty: bool,
 }
 
 impl Node for GlyphNode {
-	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
-		let mut bitmap = lock(&self.bitmap)?;
-		let bitmap = bitmap.deref_mut().as_any();
-		bitmap.downcast_mut::<Bitmap>()?.render_at(app, self.spot)
+	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+		if self.dirty {
+			self.dirty = false;
+			let mut bitmap = lock(&self.bitmap)?;
+			let bitmap = bitmap.deref_mut().as_any();
+			bitmap.downcast_mut::<Bitmap>()?.render_at(app, path, self.spot);
+		}
+		Some(())
 	}
 
 	fn policy(&self) -> LengthPolicy {
@@ -130,8 +135,7 @@ impl Node for GlyphNode {
 	}
 
 	fn set_dirty(&mut self) {
-		let mut bitmap = lock(&self.bitmap).unwrap();
-		bitmap.deref_mut().set_dirty()
+		self.dirty = true;
 	}
 
 	fn get_spot(&self) -> Spot {
@@ -139,6 +143,7 @@ impl Node for GlyphNode {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.dirty = true;
 		self.spot = spot;
 		None
 	}
@@ -273,6 +278,7 @@ impl Font {
 			rc_node(GlyphNode {
 				bitmap: rc_bitmap,
 				spot: (Point::zero(), Size::zero()),
+				dirty: true,
 			})
 		} else {
 			rc_node(Placeholder { ratio, spot: (Point::zero(), Size::zero()) })

@@ -244,19 +244,19 @@ pub struct Container {
 impl Node for Container {
 	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
 		if app.debug_containers {
-			let (pos, size) = self.spot;
-			let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
-			let stop = start + (size.w * 4);
-			app.output.pixels.get_mut(start..stop)?.fill(255);
-			for y in 0..size.h {
-				let start = start + (app.output.size.w * 4 * y);
-				app.output.pixels.get_mut(start..)?.get_mut(..4)?.fill(255);
-				let stop = stop + (app.output.size.w * 4 * y);
-				app.output.pixels.get_mut(stop..)?.get_mut(..4)?.fill(255);
-			}
-			let start = start + (size.h * app.output.size.w * 4);
-			let stop = start + (size.w * 4);
-			app.output.pixels.get_mut(start..stop)?.fill(255);
+			// let (pos, size) = self.spot;
+			// let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
+			// let stop = start + (size.w * 4);
+			// app.output.pixels.get_mut(start..stop)?.fill(255);
+			// for y in 0..size.h {
+				// let start = start + (app.output.size.w * 4 * y);
+				// app.output.pixels.get_mut(start..)?.get_mut(..4)?.fill(255);
+				// let stop = stop + (app.output.size.w * 4 * y);
+				// app.output.pixels.get_mut(stop..)?.get_mut(..4)?.fill(255);
+			// }
+			// let start = start + (size.h * app.output.size.w * 4);
+			// let stop = start + (size.w * 4);
+			// app.output.pixels.get_mut(start..stop)?.fill(255);
 		}
 		None
 	}

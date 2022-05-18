@@ -68,6 +68,8 @@ impl Debug for Bitmap {
 	}
 }
 
+const TRANSPARENT_PIXEL: [u8; 4] = [0; 4];
+
 impl Bitmap {
 	pub fn new(size: Size, channels: Channels, margin: Option<Margin>) -> Self {
 		Self {
@@ -88,71 +90,73 @@ impl Bitmap {
 		}
 	}
 
-	pub fn update_cache(&mut self, spot: Spot) -> Void {
+	pub fn update_cache(&mut self, spot: Spot, owned: bool) -> Void {
 		assert!(self.channels == RGBA);
-		let (_, size) = self.get_content_spot_at(spot)?;
+		let (_, size) = spot;
 		let len = size.w * size.h * RGBA;
 		if len != 0 && len != self.cache.len() {
 			self.cache.resize(len, 0);
-			let spot_factor = (size.w - 1) as f32;
-			let img_factor = (self.size.w - 1) as f32;
+			let spot_factor = (size.w - 1) as f64;
+			let img_factor = (self.size.w - 1) as f64;
 			let ratio = img_factor / spot_factor;
 			for y in 0..size.h {
 				for x in 0..size.w {
 					let i = (y * size.w + x) * RGBA;
-					let x = round((x as f32) * ratio);
-					let y = round((y as f32) * ratio);
+					let x = round((x as f64) * ratio);
+					let y = round((y as f64) * ratio);
 					let j = (y * self.size.w + x) * RGBA;
-					let src = self.pixels.get(j..(j + RGBA)).unwrap();
+					let src = self.pixels.get(j..(j + RGBA)).unwrap_or(&TRANSPARENT_PIXEL);
 					let dst = self.cache.get_mut(i..(i + RGBA)).unwrap();
-					let a = src[3] as u32;
-					for i in 0..3 {
-						dst[i] = ((src[i] as u32 * a) / 255) as u8;
+					if owned {
+						dst.copy_from_slice(src);
+					} else {
+						// premultiplied alpha
+						let a = src[3] as u32;
+						for i in 0..3 {
+							dst[i] = ((src[i] as u32 * a) / 255) as u8;
+						}
+						dst[3] = a as u8;
 					}
-					dst[3] = a as u8;
 				}
 			}
 		}
 		Some(())
 	}
 
-	pub fn render_at(&mut self, app: &mut Application, spot: Spot) -> Void {
-		if self.dirty {
-			self.dirty = false;
-			app.log("hey");
-			self.update_cache(spot)?;
-			let (position, size) = self.get_content_spot_at(spot)?;
-			let (x, y): (usize, usize) = (position.x.try_into().ok()?, position.y.try_into().ok()?);
-			let px_width = RGBA * size.w;
-			let pitch = RGBA * app.output.size.w;
-			let mut start = RGBA * x + pitch * y;
-			let mut stop = start + px_width;
-			let mut src = self.cache.chunks(px_width);
-			for _ in 0..size.h {
-				let dst = app.output.pixels.get_mut(start..stop)?;
-				let src = src.next()?;
+	pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Void {
+		let spot = self.get_content_spot_at(spot)?;
+		let (mut dst, pitch, owned) = app.blit(&spot, path);
+		self.update_cache(spot, owned)?;
+		let (_, size) = spot;
+		let px_width = RGBA * size.w;
+		let mut src = self.cache.chunks(px_width);
+		for _ in 0..size.h {
+			let (line_dst, dst_next) = dst.split_at_mut(px_width);
+			let line_src = src.next()?;
+			if owned {
+				line_dst.copy_from_slice(line_src);
+			} else {
 				let mut i = px_width as isize - 1;
 				let mut a = 0;
 				while i >= 0 {
 					let j = i as usize;
-					let (dst, src) = (&mut dst[j], &(src[j] as u32));
+					let (dst, src) = (&mut line_dst[j], &(line_src[j] as u32));
 					if (j & 0b11) == 3 {
 						a = (255 - *src) as u32;
 					}
-					*dst = (*src + (((*dst as u32) * a)>>8)) as u8;
+					*dst = (*src + (((*dst as u32) * a) / 255)) as u8;
 					i -= 1;
 				}
-				start += pitch;
-				stop += pitch;
 			}
+			(_, dst) = dst_next.split_at_mut(pitch);
 		}
 		Some(())
 	}
 }
 
 impl Node for Bitmap {
-	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
-		self.render_at(app, self.spot)
+	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+		self.render_at(app, path, self.spot)
 	}
 
 	fn policy(&self) -> LengthPolicy {
@@ -188,16 +192,16 @@ impl Node for Bitmap {
 
 #[cfg(feature = "std")]
 #[inline(always)]
-fn round(float: f32) -> usize {
+fn round(float: f64) -> usize {
 	float.round() as usize
 }
 
 #[cfg(not(feature = "std"))]
 #[inline(always)]
-fn round(mut float: f32) -> usize {
+fn round(mut float: f64) -> usize {
 	// given float > 0
 	let integer = float as usize;
-	float -= integer as f32;
+	float -= integer as f64;
 	match float > 0.5 {
 		true => integer + 1,
 		false => integer,

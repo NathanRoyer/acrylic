@@ -33,7 +33,7 @@ Create a basic layout for your user interface:
 
 <x pol:rem="1">
 	<x pol:rem="1" />
-	<y pol:fixed="100" gap="10">
+	<y pol:fixed="300" gap="10">
 		<y pol:rem="1" />
 		<png src="ferris.png" />
 		<x pol:fixed="40" gap="10">

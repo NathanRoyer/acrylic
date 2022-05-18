@@ -38,8 +38,7 @@ pub struct Railway {
 	pub(crate) size_arg: Address,
 	pub(crate) time_arg: Option<Address>,
 	pub(crate) mask: Vec<u8>,
-	pub(crate) node_size: Size,
-	pub(crate) position: Point,
+	pub(crate) spot: Spot,
 	// TODO later: theming
 }
 
@@ -64,8 +63,7 @@ impl Railway {
 			size_arg,
 			time_arg,
 			mask: Vec::new(),
-			position: Point::zero(),
-			node_size: Size::zero(),
+			spot: (Point::zero(), Size::zero()),
 		})
 	}
 }
@@ -84,24 +82,22 @@ impl Node for Railway {
 	}
 
 	fn get_spot(&self) -> Spot {
-		(self.position, self.node_size)
+		self.spot
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
-		self.position = spot.0;
-		self.node_size = spot.1;
+		self.spot = spot;
 		None
 	}
 
-	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+		let (dst, pitch, _) = app.blit(&self.spot, path);
+		let (_, size) = self.spot;
 		let _ = self.time_arg;
-		self.mask.resize(self.node_size.w * self.node_size.h, 0);
-		self.stack[self.size_arg as usize] = Couple::new(self.node_size.w as f32, self.node_size.h as f32);
+		self.mask.resize(size.w * size.h, 0);
+		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
 		self.program.compute(&mut self.stack);
-		let offset = 4 * ((self.position.y as usize) * app.output.size.w + (self.position.x as usize));
-		let pitch = 4 * (app.output.size.w - self.node_size.w);
-		let dst = &mut app.output.pixels[offset..];
-		self.program.render(&self.stack, dst, &mut self.mask, self.node_size.w, self.node_size.h, pitch);
+		self.program.render(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
 		None
 	}
 }

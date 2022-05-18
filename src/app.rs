@@ -5,10 +5,11 @@ use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
 use crate::node::rc_node;
-use crate::bitmap::Bitmap;
-use crate::bitmap::RGBA;
 use crate::flexbox::compute_tree;
+use crate::PlatformBlit;
+use crate::PlatformLog;
 use crate::Point;
+use crate::Spot;
 use crate::Size;
 use crate::Void;
 use crate::lock;
@@ -59,11 +60,9 @@ pub struct Application {
 	/// application.
 	pub model: Box<dyn Any>,
 
-	/// This [`Bitmap`] is used to store the final frame of
-	/// the application, to be rendered by the platform.
-	pub output: Bitmap,
+	pub platform_log: PlatformLog,
 
-	pub log_fn: &'static dyn Fn(&str),
+	pub platform_blit: PlatformBlit,
 
 	pub should_recompute: bool,
 
@@ -83,7 +82,7 @@ pub struct DataRequest {
 impl Application {
 	/// The Application constructor. If you omit the `tree`
 	/// argument, it will be initialized to an empty tree.
-	pub fn new<M: Any + 'static>(model: M) -> Self {
+	pub fn new<M: Any + 'static>(log: PlatformLog, blit: PlatformBlit, model: M) -> Self {
 		#[allow(unused_mut)]
 		let mut app = Self {
 			view: rc_node(Container {
@@ -100,10 +99,10 @@ impl Application {
 			default_font_size: 30,
 			data_requests: Vec::new(),
 			model: Box::new(model),
-			output: Bitmap::new(Size::zero(), RGBA, None),
 			should_recompute: true,
 			debug_containers: false,
-			log_fn: &|_| (),
+			platform_log: log,
+			platform_blit: blit,
 		};
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{
@@ -194,32 +193,30 @@ impl Application {
 		None
 	}
 
-	/// This method is called by the platform to request a refresh
-	/// of the output. It should be called for every frame.
-	pub fn render(&mut self) -> Void {
-		{
-			let mut view = lock(&self.view)?;
-			let (position, size) = view.get_spot();
-			if size != self.output.size {
-				self.output.pixels.fill(127);
-				self.output.pixels.resize(size.w * size.h * RGBA, 127);
-				self.output.size = size;
-				view.set_spot((position, size));
-				let view = view.deref_mut();
-				Self::set_cont_dirty(view);
-			}
-			if self.should_recompute {
-				compute_tree(view.deref());
-				self.should_recompute = false;
-			}
-		}
-		let mut path = Vec::new();
-		self.render_node(self.view.clone(), &mut path)
+	pub fn resize(&mut self, size: Size) {
+		let mut view = lock(&self.view).unwrap();
+		let view = view.deref_mut();
+		let (position, _) = view.get_spot();
+		view.set_spot((position, size));
+		self.should_recompute = true;
+		Self::set_cont_dirty(view);
 	}
 
-	fn render_node(&mut self, node: RcNode, path: &mut NodePath) -> Void {
+	/// This method is called by the platform to request a refresh
+	/// of the output. It should be called for every frame.
+	pub fn render(&mut self) {
+		if self.should_recompute {
+			let view = lock(&self.view).unwrap();
+			compute_tree(view.deref());
+			self.should_recompute = false;
+		}
+		let mut path = Vec::new();
+		self.render_node(self.view.clone(), &mut path);
+	}
+
+	fn render_node(&mut self, node: RcNode, path: &mut NodePath) {
 		let children = {
-			let mut node = lock(&node)?;
+			let mut node = lock(&node).unwrap();
 			node.render(self, path);
 			node.children().to_vec()
 		};
@@ -228,10 +225,13 @@ impl Application {
 			self.render_node(children[i].clone(), path);
 			path.pop();
 		}
-		None
 	}
 
-	pub fn log(&self, s: &str) {
-		(self.log_fn)(s)
+	pub fn log(&self, message: &str) {
+		(self.platform_log)(message)
+	}
+
+	pub fn blit<'a>(&self, spot: &'a Spot, path: &'a NodePath) -> (&'a mut [u8], usize, bool) {
+		(self.platform_blit)(spot, path)
 	}
 }
