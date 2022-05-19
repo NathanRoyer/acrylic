@@ -20,6 +20,7 @@ use crate::app::DataRequest;
 use railway::Program;
 use railway::Address;
 use railway::Couple;
+use railway::RWY_PXF_RGBA8888;
 
 use core::any::Any;
 
@@ -66,6 +67,17 @@ impl Railway {
 			spot: (Point::zero(), Size::zero()),
 		})
 	}
+
+	pub fn render<const RWY_PXF: u8>(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+		let (dst, pitch, _) = app.blit(&self.spot, path);
+		let (_, size) = self.spot;
+		let _ = self.time_arg;
+		self.mask.resize(size.w * size.h, 0);
+		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
+		self.program.compute(&mut self.stack);
+		self.program.render::<RWY_PXF>(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
+		None
+	}
 }
 
 impl Node for Railway {
@@ -91,14 +103,7 @@ impl Node for Railway {
 	}
 
 	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		let (dst, pitch, _) = app.blit(&self.spot, path);
-		let (_, size) = self.spot;
-		let _ = self.time_arg;
-		self.mask.resize(size.w * size.h, 0);
-		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
-		self.program.compute(&mut self.stack);
-		self.program.render(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
-		None
+		self.render::<RWY_PXF_RGBA8888>(app, path)
 	}
 }
 
