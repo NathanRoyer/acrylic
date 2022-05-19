@@ -11,7 +11,7 @@ This is a work-in-progress, cross-platform, small, web-inspired user interface t
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
 | web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ |  |
-| wayland |  |  |  |  |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | glitchy | ☑ |  |
 | x11 |  |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
@@ -33,7 +33,7 @@ Create a basic layout for your user interface:
 
 <x pol:rem="1">
 	<x pol:rem="1" />
-	<y pol:fixed="300" gap="10">
+	<y pol:fixed="400" gap="10">
 		<y pol:rem="1" />
 		<png src="ferris.png" />
 		<x pol:fixed="40" gap="10">
@@ -55,11 +55,13 @@ Create a rust file which will start our application:
 // my-app/src/app.rs
 
 use platform::app;
+use platform::log;
+use platform::blit;
 use acrylic::app::Application;
 use acrylic::xml::TreeParser;
 
 app!("assets/", {
-	let mut app = Application::new(());
+	let mut app = Application::new(&log, &blit, ());
 
 	TreeParser::new()
 		.with_builtin_tags()
@@ -77,7 +79,7 @@ Download a sample PNG image:
 $ curl https://rustacean.net/assets/rustacean-flat-happy.png > assets/ferris.png
 ```
 
-As the web is the only functional platform at the moment, we are going to build for it.
+As our most functional platform is acrylic-web, we are going to build for it.
 Install the corresponding rustc target, a minimal http server and a page which will start our app.
 
 ```sh
@@ -101,8 +103,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.22"
-platform = { package = "acrylic-web", version = "0.1.22" }
+acrylic = "0.1.23"
+platform = { package = "acrylic-web", version = "0.1.23" }
 ```
 
 Build:
@@ -113,7 +115,7 @@ $ cargo build -r --target wasm32-unknown-unknown
 
 Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.1.23/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
