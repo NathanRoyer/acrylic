@@ -180,6 +180,9 @@ fn compute_fixed_size(cont_axis: Axis, fixed: &mut dyn Node, mut cross: Option<u
 			if length > 0 {
 				length -= gap;
 			}
+			if let Some(margin) = fixed.margin() {
+				length += margin.total_on(fixed_axis) as usize;
+			}
 			cross = Some(length);
 		}
 	}
