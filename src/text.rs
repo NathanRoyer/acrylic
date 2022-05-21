@@ -408,13 +408,6 @@ impl Node for Paragraph {
 				dst = dst_next.get_mut(pitch..)?;
 			}
 		}
-		// let (pos, size) = self.spot;
-		// let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
-		// let stop = start + (size.w * 4);
-		// app.output.pixels.get_mut(start..stop)?.fill(255);
-		// let start = start + (size.h * app.output.size.w * 4);
-		// let stop = start + (size.w * 4);
-		// app.output.pixels.get_mut(start..stop)?.fill(255);
 		None
 	}
 
