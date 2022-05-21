@@ -11,6 +11,7 @@ use crate::node::Container;
 use crate::Point;
 use crate::Size;
 use crate::Void;
+use crate::Spot;
 use crate::format;
 use crate::lock;
 
@@ -280,7 +281,9 @@ pub fn import(parser: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 }
 
 #[derive(Debug)]
-pub struct Spacer;
+pub struct Spacer {
+	pub spot: Spot,
+}
 
 impl Node for Spacer {
 	fn as_any(&mut self) -> &mut dyn Any {
@@ -293,6 +296,15 @@ impl Node for Spacer {
 
 	fn policy(&self) -> LengthPolicy {
 		LengthPolicy::Remaining(1.0)
+	}
+
+	fn get_spot(&self) -> Spot {
+		self.spot
+	}
+
+	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.spot = spot;
+		None
 	}
 }
 
@@ -311,7 +323,9 @@ pub fn spacer(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcN
 		Err(format!("unexpected attribute: {}", name))?;
 	}
 
-	Ok(Some(rc_node(Spacer)))
+	Ok(Some(rc_node(Spacer {
+		spot: (Point::zero(), Size::zero())
+	})))
 }
 
 fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
@@ -347,6 +361,7 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 		margin,
 		axis,
 		gap,
+		debug_dirty: true,
 	});
 
 	Ok(Some(container))

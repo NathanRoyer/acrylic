@@ -5,6 +5,7 @@ use crate::Size;
 use crate::Spot;
 use crate::Void;
 use crate::app::Application;
+use crate::bitmap::RGBA;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -238,24 +239,26 @@ pub struct Container {
 	pub axis: Axis,
 	pub gap: usize,
 	pub margin: Option<Margin>,
+	pub debug_dirty: bool,
 }
 
 impl Node for Container {
-	fn render(&mut self, app: &mut Application, _path: &mut NodePath) -> Void {
-		if app.debug_containers {
-			// let (pos, size) = self.spot;
-			// let start = (pos.x as usize + pos.y as usize * app.output.size.w) * 4;
-			// let stop = start + (size.w * 4);
-			// app.output.pixels.get_mut(start..stop)?.fill(255);
-			// for y in 0..size.h {
-				// let start = start + (app.output.size.w * 4 * y);
-				// app.output.pixels.get_mut(start..)?.get_mut(..4)?.fill(255);
-				// let stop = stop + (app.output.size.w * 4 * y);
-				// app.output.pixels.get_mut(stop..)?.get_mut(..4)?.fill(255);
-			// }
-			// let start = start + (size.h * app.output.size.w * 4);
-			// let stop = start + (size.w * 4);
-			// app.output.pixels.get_mut(start..stop)?.fill(255);
+	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+		if app.debug_containers && self.debug_dirty {
+			self.debug_dirty = false;
+			let (mut dst, pitch, _) = app.blit(&self.spot, path);
+			let (_, size) = self.spot;
+			let px_width = RGBA * size.w;
+			for i in 0..size.h {
+				let (line_dst, dst_next) = dst.split_at_mut(px_width);
+				if i == 0 {
+					line_dst.fill(255);
+				} else {
+					line_dst[RGBA..].fill(0);
+					line_dst[..RGBA].fill(255);
+				}
+				dst = dst_next.get_mut(pitch..)?;
+			}
 		}
 		None
 	}
@@ -295,6 +298,7 @@ impl Node for Container {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
+		self.debug_dirty = true;
 		self.spot = spot;
 		None
 	}
