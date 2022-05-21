@@ -312,8 +312,7 @@ fn get_max_length_on(axis: Axis, cont: &dyn Node, cross: Option<usize>) -> Optio
 		}
 	}
 	if let (Some(margin), Some(max)) = (cont.margin(), max.as_mut()) {
-		let to_add = margin.total_on(axis);
-		*max += to_add as usize;
+		*max += margin.total_on(axis) as usize;
 	}
 	max
 }

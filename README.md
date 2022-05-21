@@ -31,19 +31,19 @@ Create a basic layout for your user interface:
 ```xml
 <!-- my-app/src/layout.xml -->
 
-<x pol:rem="1">
-	<x pol:rem="1" />
-	<y pol:fixed="400" gap="10">
-		<y pol:rem="1" />
+<x rem="1">
+	<inflate />
+	<y fixed="400" gap="10">
+		<inflate />
 		<png src="ferris.png" />
-		<x pol:fixed="40" gap="10">
-			<x pol:rem="1" />
+		<x fixed="40" gap="10">
+			<inflate />
 			<p txt="Rust rocks!" />
-			<x pol:rem="1" />
+			<inflate />
 		</x>
-		<y pol:rem="1" />
+		<inflate />
 	</y>
-	<x pol:rem="1" />
+	<inflate />
 </x>
 ```
 
@@ -103,8 +103,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.23"
-platform = { package = "acrylic-web", version = "0.1.23" }
+acrylic = "0.1.24"
+platform = { package = "acrylic-web", version = "0.1.24" }
 ```
 
 Build:

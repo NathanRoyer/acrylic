@@ -70,6 +70,7 @@ impl TreeParser {
 		self.with("rwy", &crate::railway::xml_handler);
 		self.with("x", &h_container)
 			.with("y", &v_container)
+			.with("inflate", &spacer)
 	}
 
 	/// Add a tag handler to the parser
@@ -126,15 +127,32 @@ impl TreeParser {
 
 /// tag parser for a vertical container.
 pub fn v_container(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
-	container(app, Axis::Vertical, path, attributes)
+	container(app, Some(Axis::Vertical), path, attributes)
 }
 
 /// tag parser for an horizontal container.
 pub fn h_container(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
-	container(app, Axis::Horizontal, path, attributes)
+	container(app, Some(Axis::Horizontal), path, attributes)
 }
 
-fn container(app: &mut Application, axis: Axis, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+pub fn spacer(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+	for Attribute { name, .. } in attributes {
+		Err(format!("unexpected attribute: {}", name))?;
+	}
+
+	app.add_node(path, rc_node(Container {
+		children: Vec::new(),
+		policy: LengthPolicy::Remaining(1.0),
+		spot: (Point::zero(), Size::zero()),
+		margin: None,
+		axis: None,
+		gap: 0,
+	}))?;
+
+	Ok(())
+}
+
+fn container(app: &mut Application, axis: Option<Axis>, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
 	let mut policy = Err(String::from("missing policy attribute"));
 	let mut margin = None;
 	let mut gap = 0;
@@ -151,21 +169,14 @@ fn container(app: &mut Application, axis: Axis, path: &mut NodePath, attributes:
 				});
 			},
 			"gap"         => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
-			"pol:fixed"   => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:rem"     => policy = Ok(LengthPolicy::Remaining  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:chunks"  => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:ratio"   => policy = Ok(LengthPolicy::AspectRatio(value.parse().map_err(|_| format!("bad value: {}", value))?)),
-			"pol:wrap"    => policy = Ok(LengthPolicy::WrapContent),
+			"fixed"   => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"rem"     => policy = Ok(LengthPolicy::Remaining  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"chunks"  => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"ratio"   => policy = Ok(LengthPolicy::AspectRatio(value.parse().map_err(|_| format!("bad value: {}", value))?)),
+			"wrap"    => policy = Ok(LengthPolicy::WrapContent),
 			_ => Err(format!("unexpected attribute: {}", name))?,
 		}
 	}
-
-	// {
-		// let parent = app.get_node(path).unwrap();
-		// let parent = crate::lock(&parent).unwrap();
-		// let (_, p_gap) = parent.container().unwrap();
-		// println!("adding {} to {}", gap, p_gap);
-	// }
 
 	app.add_node(path, rc_node(Container {
 		children: Vec::new(),

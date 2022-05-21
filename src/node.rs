@@ -236,7 +236,7 @@ pub struct Container {
 	pub children: Vec<RcNode>,
 	pub policy: LengthPolicy,
 	pub spot: Spot,
-	pub axis: Axis,
+	pub axis: Option<Axis>,
 	pub gap: usize,
 	pub margin: Option<Margin>,
 }
@@ -278,6 +278,7 @@ impl Node for Container {
 	}
 
 	fn add_node(&mut self, _app: &mut Application, child: RcNode) -> Result<usize, String> {
+		self.axis.ok_or(String::from("Not a container"))?;
 		let index = self.children.len();
 		self.children.push(child);
 		Ok(index)
@@ -301,13 +302,14 @@ impl Node for Container {
 	}
 
 	fn container(&self) -> Option<(Axis, usize)> {
-		Some((self.axis, self.gap))
+		Some((self.axis?, self.gap))
 	}
 
 	fn describe(&self) -> String {
 		String::from(match self.axis {
-			Axis::Vertical   => "Vertical Container",
-			Axis::Horizontal => "Horizontal Container",
+			Some(Axis::Vertical  ) => "Vertical Container",
+			Some(Axis::Horizontal) => "Horizontal Container",
+			None => "Spacer",
 		})
 	}
 }

@@ -92,7 +92,7 @@ impl Application {
 				children: Vec::new(),
 				policy: LengthPolicy::Remaining(1.0),
 				spot: (Point::zero(), Size::zero()),
-				axis: Axis::Horizontal,
+				axis: Some(Axis::Horizontal),
 				margin: None,
 				gap: 0,
 			}),
