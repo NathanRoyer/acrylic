@@ -58,17 +58,11 @@ use platform::app;
 use platform::log;
 use platform::blit;
 use acrylic::app::Application;
-use acrylic::xml::TreeParser;
+use acrylic::xml::ViewLoader;
 
 app!("assets/", {
-	let mut app = Application::new(&log, &blit, ());
-
-	TreeParser::new()
-		.with_builtin_tags()
-		.parse(&mut app, &mut Vec::new(), include_str!("layout.xml"))
-		.unwrap();
-
-	app
+	let loader = ViewLoader::new("default.xml");
+	Application::new(&log, &blit, (), loader)
 });
 
 ```

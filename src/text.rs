@@ -21,6 +21,8 @@ use crate::Point;
 use crate::lock;
 
 #[cfg(feature = "xml")]
+use crate::xml::TreeParser;
+#[cfg(feature = "xml")]
 use crate::xml::Attribute;
 #[cfg(feature = "xml")]
 use crate::xml::unexpected_attr;
@@ -186,6 +188,21 @@ impl Node for Placeholder {
 	}
 }
 
+#[derive(Debug, Clone)]
+pub enum FontState {
+	Available(Arc<Mutex<Font>>),
+	Pending(Option<String>),
+}
+
+impl FontState {
+	pub fn unwrap(&self) -> &Arc<Mutex<Font>> {
+		match self {
+			FontState::Available(arc) => arc,
+			_ => panic!("unwrap called on a FontState::Pending"),
+		}
+	}
+}
+
 /// A Paragraph represent a block of text. It can be
 /// made of multiple parts which may have different
 /// configurations: some might be underlined, some
@@ -195,12 +212,13 @@ impl Node for Placeholder {
 #[derive(Debug, Clone)]
 pub struct Paragraph {
 	pub parts: Vec<(FontConfig, String)>,
-	pub font: Arc<Mutex<Font>>,
+	pub font: FontState,
 	pub children: Vec<RcNode>,
 	pub space_width: usize,
-	pub policy: LengthPolicy,
+	pub policy: Option<LengthPolicy>,
 	pub previous_height: usize,
 	pub margin: Option<Margin>,
+	pub font_size: Option<usize>,
 	pub spot: Spot,
 	pub dirty: bool,
 }
@@ -312,7 +330,7 @@ impl Paragraph {
 			spot: (Point::zero(), Size::zero()),
 		};
 		let mut unbreakable = default_unbreakable.clone();
-		let mut font = lock(&self.font).unwrap();
+		let mut font = lock(&self.font.unwrap()).unwrap();
 
 		let mut next;
 		let mut iter = self.into_iter();
@@ -365,7 +383,7 @@ impl<'a> Iterator for ParagraphIter<'a> {
 
 impl Node for Paragraph {
 	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		if let LengthPolicy::Chunks(_fs) = self.policy {
+		if let LengthPolicy::Chunks(_fs) = self.policy.unwrap() {
 			// everything is fine
 		} else {
 			let mut h = self.spot.1.h;
@@ -404,14 +422,37 @@ impl Node for Paragraph {
 		self.margin
 	}
 
-	fn attach(&mut self, app: &mut Application, path: &NodePath) -> Void {
-		self.deploy(match self.policy {
+	fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+		if let FontState::Pending(name) = &self.font {
+			if let Some(font) = app.fonts.get(&name) {
+				self.font = FontState::Available(font.clone());
+			} else {
+				let msg = format!("<app-default>");
+				let name = name.as_ref().unwrap_or(&msg);
+				Err(format!("unknown font: \"{}\"", name))?;
+			}
+		}
+		self.font_size = Some(self.font_size.unwrap_or(app.default_font_size));
+		self.policy = {
+			let err_msg = format!("paragraph must be in a container");
+			let max = path.len() - 1;
+			let parent = app.get_node(&path[..max].to_vec()).ok_or(err_msg.clone())?;
+			let parent = parent.lock().unwrap();
+			let (parent_axis, _) = parent.container().ok_or(err_msg)?;
+
+			Some(match parent_axis {
+				Axis::Vertical => LengthPolicy::Chunks(self.font_size.unwrap()),
+				Axis::Horizontal => LengthPolicy::WrapContent,
+			})
+		};
+
+		self.deploy(match self.policy.unwrap() {
 			LengthPolicy::Chunks(l) => Some(l),
 			_ => None,
 		});
 		app.should_recompute = true;
 		app.blit_hooks.push((path.clone(), self.get_spot()));
-		None
+		Ok(())
 	}
 
 	fn as_any(&mut self) -> &mut dyn Any {
@@ -431,7 +472,7 @@ impl Node for Paragraph {
 	}
 
 	fn policy(&self) -> LengthPolicy {
-		self.policy
+		self.policy.unwrap()
 	}
 
 	fn children(&self) -> &[RcNode] {
@@ -451,9 +492,9 @@ impl Node for Paragraph {
 
 /// This function is to be used in [`crate::xml::TreeParser::with`].
 #[cfg(feature = "xml")]
-pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+pub fn paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut text = Err(String::from("missing txt attribute"));
-	let mut font_size = app.default_font_size;
+	let mut font_size = None;
 	let mut font = None;
 	let mut margin = None;
 
@@ -470,13 +511,10 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 			},
 			"txt" => text = Ok(value.clone()),
 			"font" => font = Some(value.clone()),
-			"font-size" => font_size = value.parse().ok().ok_or(format!("bad font-size: {}", &value))?,
+			"font-size" => font_size = Some(value.parse().ok().ok_or(format!("bad font-size: {}", &value))?),
 			_ => unexpected_attr(&name)?,
 		}
 	}
-
-	let err_msg = format!("unknown font: \"{}\"", font.as_ref().unwrap_or(&format!("<none>")));
-	let font = app.fonts.get(&font).ok_or(err_msg)?.clone();
 
 	let font_config = FontConfig {
 		weight: 0,
@@ -487,35 +525,22 @@ pub fn paragraph(app: &mut Application, path: &mut NodePath, attributes: &[Attri
 		serif_rise: 0,
 	};
 
-	let policy = {
-		let err_msg = format!("paragraph must be in a container");
-		let parent = app.get_node(path).ok_or(err_msg.clone())?;
-		let parent = parent.lock().unwrap();
-		let (parent_axis, _) = parent.container().ok_or(err_msg)?;
-
-		match parent_axis {
-			Axis::Vertical => LengthPolicy::Chunks(font_size),
-			Axis::Horizontal => LengthPolicy::WrapContent,
-		}
-	};
-
 	let paragraph = rc_node(Paragraph {
 		parts: {
 			let mut vec = Vec::new();
 			vec.push((font_config, text?));
 			vec
 		},
-		font,
+		font: FontState::Pending(font),
 		children: Vec::new(),
 		space_width: 10,
-		policy,
+		policy: None,
+		font_size,
 		margin,
 		spot: (Point::zero(), Size::zero()),
 		previous_height: 0,
 		dirty: true,
 	});
 
-	app.add_node(path, paragraph)?;
-
-	Ok(())
+	Ok(Some(paragraph))
 }

@@ -136,21 +136,20 @@ pub trait Node: Debug + Any + 'static {
 	}
 
 	#[allow(unused)]
-	fn attach(&mut self, app: &mut Application, path: &NodePath) -> Void {
-		None
+	fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+		Ok(())
 	}
 
 	#[allow(unused)]
-	fn add_node(&mut self, app: &mut Application, child: RcNode) -> Result<usize, String> {
+	fn add_node(&mut self, child: RcNode) -> Result<usize, String> {
 		Err(String::from("Not a container"))
 	}
 
 	#[allow(unused)]
-	fn replace_node(&mut self, app: &mut Application, index: usize, child: RcNode) -> Result<(), String> {
+	fn replace_node(&mut self, index: usize, child: RcNode) -> Result<(), String> {
 		Err(String::from("Not a container"))
 	}
 
-	#[allow(unused)]
 	fn margin(&self) -> Option<Margin> {
 		None
 	}
@@ -236,7 +235,7 @@ pub struct Container {
 	pub children: Vec<RcNode>,
 	pub policy: LengthPolicy,
 	pub spot: Spot,
-	pub axis: Option<Axis>,
+	pub axis: Axis,
 	pub gap: usize,
 	pub margin: Option<Margin>,
 }
@@ -277,14 +276,13 @@ impl Node for Container {
 		self.policy
 	}
 
-	fn add_node(&mut self, _app: &mut Application, child: RcNode) -> Result<usize, String> {
-		self.axis.ok_or(String::from("Not a container"))?;
+	fn add_node(&mut self, child: RcNode) -> Result<usize, String> {
 		let index = self.children.len();
 		self.children.push(child);
 		Ok(index)
 	}
 
-	fn replace_node(&mut self, _app: &mut Application, index: usize, child: RcNode) -> Result<(), String> {
+	fn replace_node(&mut self, index: usize, child: RcNode) -> Result<(), String> {
 		match self.children.get_mut(index) {
 			Some(addr) => *addr = child,
 			None => Err(String::from("No such child :|"))?,
@@ -302,14 +300,13 @@ impl Node for Container {
 	}
 
 	fn container(&self) -> Option<(Axis, usize)> {
-		Some((self.axis?, self.gap))
+		Some((self.axis, self.gap))
 	}
 
 	fn describe(&self) -> String {
 		String::from(match self.axis {
-			Some(Axis::Vertical  ) => "Vertical Container",
-			Some(Axis::Horizontal) => "Horizontal Container",
-			None => "Spacer",
+			Axis::Vertical   => "Vertical Container",
+			Axis::Horizontal => "Horizontal Container",
 		})
 	}
 }

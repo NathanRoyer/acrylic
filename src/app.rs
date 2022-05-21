@@ -1,6 +1,3 @@
-use crate::node::Axis;
-use crate::node::Container;
-use crate::node::LengthPolicy;
 use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
@@ -42,6 +39,8 @@ use std::sync::Mutex;
 /// you own data requests (which the platform will handle).
 pub struct Application {
 	pub view: RcNode,
+
+	pub view_spot: Spot,
 
 	/// Fonts that can be used by widgets to draw glyphs
 	#[cfg(feature = "text")]
@@ -85,17 +84,11 @@ pub struct DataRequest {
 impl Application {
 	/// The Application constructor. If you omit the `tree`
 	/// argument, it will be initialized to an empty tree.
-	pub fn new<M: Any + 'static>(log: PlatformLog, blit: PlatformBlit, model: M) -> Self {
+	pub fn new<M: Any + 'static>(log: PlatformLog, blit: PlatformBlit, model: M, view: impl Node) -> Self {
 		#[allow(unused_mut)]
 		let mut app = Self {
-			view: rc_node(Container {
-				children: Vec::new(),
-				policy: LengthPolicy::Remaining(1.0),
-				spot: (Point::zero(), Size::zero()),
-				axis: Some(Axis::Horizontal),
-				margin: None,
-				gap: 0,
-			}),
+			view: rc_node(view),
+			view_spot: (Point::zero(), Size::zero()),
 			#[cfg(feature = "text")]
 			fonts: HashMap::new(),
 			#[cfg(feature = "text")]
@@ -108,6 +101,7 @@ impl Application {
 			platform_blit: blit,
 			blit_hooks: Vec::new(),
 		};
+		app.initialize_node(app.view.clone(), &mut Vec::new()).unwrap();
 		#[cfg(all(feature = "text", feature = "noto-default-font"))]
 		{
 			let font = Font::from_bytes(include_bytes!("noto-sans-regular.ttf").to_vec());
@@ -150,19 +144,6 @@ impl Application {
 		Some(node)
 	}
 
-	pub fn add_node(&mut self, path: &mut NodePath, child: RcNode) -> Result<usize, String> {
-		self.should_recompute = true;
-		let node = self.get_node(path).ok_or(String::from("No child at that path"))?;
-		let i = {
-			let mut node = lock(&node).unwrap();
-			node.add_node(self, child.clone())?
-		};
-		let mut child = lock(&child).unwrap();
-		path.push(i);
-		child.attach(self, path);
-		Ok(i)
-	}
-
 	pub fn replace_node(&mut self, path: &NodePath, new_node: RcNode) -> Result<(), String> {
 		self.should_recompute = true;
 		if let Some(j) = path.last() {
@@ -176,13 +157,14 @@ impl Application {
 				node = child;
 			}
 			let mut tmp = lock(&node).unwrap();
-			tmp.replace_node(self, *j, new_node.clone())?;
+			tmp.replace_node(*j, new_node.clone())?;
 		} else {
 			self.view = new_node.clone();
+			let mut view = lock(&self.view).unwrap();
+			view.set_spot(self.view_spot);
 		}
-		let mut new_node = lock(&new_node).unwrap();
-		new_node.attach(self, path);
-		Ok(())
+		let mut path = path.clone();
+		self.initialize_node(new_node, &mut path)
 	}
 
 	fn set_cont_dirty(node: &mut dyn Node) -> Void {
@@ -198,11 +180,11 @@ impl Application {
 		None
 	}
 
-	pub fn resize(&mut self, size: Size) {
+	pub fn update_spot(&mut self, spot: Spot) {
+		self.view_spot = spot;
 		let mut view = lock(&self.view).unwrap();
 		let view = view.deref_mut();
-		let (position, _) = view.get_spot();
-		view.set_spot((position, size));
+		view.set_spot(spot);
 		self.should_recompute = true;
 		Self::set_cont_dirty(view);
 	}
@@ -230,7 +212,10 @@ impl Application {
 	fn render_node(&mut self, node: RcNode, path: &mut NodePath) {
 		let children = {
 			let mut node = lock(&node).unwrap();
-			node.render(self, path);
+			let (_, size) = node.get_spot();
+			if size.w > 0 && size.h > 0 {
+				node.render(self, path);
+			}
 			node.children().to_vec()
 		};
 		for i in 0..children.len() {
@@ -238,6 +223,20 @@ impl Application {
 			self.render_node(children[i].clone(), path);
 			path.pop();
 		}
+	}
+
+	fn initialize_node(&mut self, node: RcNode, path: &mut NodePath) -> Result<(), String> {
+		let children = {
+			let mut node = lock(&node).unwrap();
+			node.initialize(self, path)?;
+			node.children().to_vec()
+		};
+		for i in 0..children.len() {
+			path.push(i);
+			self.initialize_node(children[i].clone(), path)?;
+			path.pop();
+		}
+		Ok(())
 	}
 
 	pub fn log(&self, message: &str) {

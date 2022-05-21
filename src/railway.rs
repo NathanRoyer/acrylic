@@ -2,6 +2,7 @@ use crate::app::Application;
 use crate::geometry::aspect_ratio;
 use crate::node::rc_node;
 use crate::node::NodePath;
+use crate::node::RcNode;
 use crate::node::Node;
 use crate::node::LengthPolicy;
 use crate::Spot;
@@ -10,6 +11,8 @@ use crate::Size;
 use crate::Void;
 use crate::format;
 
+#[cfg(feature = "xml")]
+use crate::xml::TreeParser;
 #[cfg(feature = "xml")]
 use crate::xml::Attribute;
 #[cfg(feature = "xml")]
@@ -107,8 +110,10 @@ impl Node for Railway {
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct RailwayLoader;
+#[derive(Debug, Clone)]
+pub struct RailwayLoader {
+	source: String,
+}
 
 impl Node for RailwayLoader {
 	fn as_any(&mut self) -> &mut dyn Any {
@@ -117,6 +122,15 @@ impl Node for RailwayLoader {
 
 	fn describe(&self) -> String {
 		String::from("Loading railway file...")
+	}
+
+	fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+		app.data_requests.push(DataRequest {
+			node: path.clone(),
+			name: self.source.clone(),
+			range: None,
+		});
+		Ok(())
 	}
 
 	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
@@ -135,7 +149,7 @@ impl Node for RailwayLoader {
 /// instance parses the png image and replaces itself with a [`Bitmap`]
 /// containing the decoded image.
 #[cfg(feature = "xml")]
-pub fn xml_handler(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
+pub fn xml_handler(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut source = Err(String::from("missing src attribute"));
 
 	for Attribute { name, value } in attributes {
@@ -145,13 +159,7 @@ pub fn xml_handler(app: &mut Application, path: &mut NodePath, attributes: &[Att
 		}
 	}
 
-	app.add_node(path, rc_node(RailwayLoader))?;
-
-	app.data_requests.push(DataRequest {
-		node: path.clone(),
-		name: source?,
-		range: None,
-	});
-
-	Ok(())
+	Ok(Some(rc_node(RailwayLoader {
+		source: source?,
+	})))
 }

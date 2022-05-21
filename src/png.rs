@@ -1,6 +1,7 @@
 use crate::app::Application;
 use crate::node::rc_node;
 use crate::node::NodePath;
+use crate::node::RcNode;
 use crate::node::Node;
 use crate::geometry::aspect_ratio;
 use crate::bitmap::Bitmap;
@@ -9,6 +10,8 @@ use crate::Point;
 use crate::Size;
 use crate::Void;
 
+#[cfg(feature = "xml")]
+use crate::xml::TreeParser;
 #[cfg(feature = "xml")]
 use crate::xml::Attribute;
 #[cfg(feature = "xml")]
@@ -26,7 +29,9 @@ use std::vec::Vec;
 
 /// See [`xml_handler`]
 #[derive(Debug, Clone)]
-pub struct PngLoader;
+pub struct PngLoader {
+	source: String,
+}
 
 fn read_png(bytes: &[u8]) -> Bitmap {
 	let decoder = Decoder::new(bytes);
@@ -63,33 +68,6 @@ fn read_png(bytes: &[u8]) -> Bitmap {
 	}
 }
 
-/// This function is to be used in [`crate::xml::TreeParser::with`].
-/// It parses xml attributes to find an image source, and installs
-/// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
-/// instance parses the png image and replaces itself with a [`Bitmap`]
-/// containing the decoded image.
-#[cfg(feature = "xml")]
-pub fn xml_handler(app: &mut Application, path: &mut NodePath, attributes: &[Attribute]) -> Result<(), String> {
-	let mut source = Err(String::from("missing src attribute"));
-
-	for Attribute { name, value } in attributes {
-		match name.as_str() {
-			"src" => source = Ok(value.clone()),
-			_ => unexpected_attr(&name)?,
-		}
-	}
-
-	app.add_node(path, rc_node(PngLoader))?;
-
-	app.data_requests.push(DataRequest {
-		node: path.clone(),
-		name: source?,
-		range: None,
-	});
-
-	Ok(())
-}
-
 impl Node for PngLoader {
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
@@ -99,8 +77,38 @@ impl Node for PngLoader {
 		String::from("Loading PNG image...")
 	}
 
+	fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+		app.data_requests.push(DataRequest {
+			node: path.clone(),
+			name: self.source.clone(),
+			range: None,
+		});
+		Ok(())
+	}
+
 	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
 		app.replace_node(path, rc_node(read_png(data))).unwrap();
 		None
 	}
+}
+
+/// This function is to be used in [`crate::xml::TreeParser::with`].
+/// It parses xml attributes to find an image source, and installs
+/// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
+/// instance parses the png image and replaces itself with a [`Bitmap`]
+/// containing the decoded image.
+#[cfg(feature = "xml")]
+pub fn xml_handler(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
+	let mut source = Err(String::from("missing src attribute"));
+
+	for Attribute { name, value } in attributes {
+		match name.as_str() {
+			"src" => source = Ok(value.clone()),
+			_ => unexpected_attr(&name)?,
+		}
+	}
+
+	Ok(Some(rc_node(PngLoader {
+		source: source?,
+	})))
 }
