@@ -1,0 +1,14 @@
+[package]
+name = "acrylic-web"
+version = "0.1.26"
+edition = "2021"
+authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
+description = "acrylic apps as webapps"
+license = "MIT"
+keywords = [ "acrylic", "platform" ]
+categories = [ "web-programming" ]
+repository = "https://github.com/NathanRoyer/acrylic-web"
+readme = "README.md"
+
+[dependencies]
+acrylic = { path = "../acrylic" }

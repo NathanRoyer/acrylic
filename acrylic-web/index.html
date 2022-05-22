@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="icon" href="https://emojipedia-us.s3.amazonaws.com/source/skype/289/woman-cartwheeling_1f938-200d-2640-fe0f.png" type="image/x-icon">
+		<title>[acrylic demo]</title>
+		<style>
+html, body {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	left: 0;
+	top: 0;
+	overflow: hidden;
+}
+
+canvas {
+	position: absolute;
+}
+
+#bg-canvas {
+	left: 0;
+	top: 0;
+	z-index: -9999999;
+	background-color: black;
+}
+		</style>
+	</head>
+	<body onload="onLoad();">
+		<canvas id="bg-canvas"></canvas>
+		<script>
+let bgCanvas;
+let bgCanvasSlice;
+let wasm;
+let app;
+let w, h;
+let pendingRequest = null;
+let pendingRequestUrl;
+let urlPrefix = null;
+let timeout = null;
+let previousFrame = performance.now();
+const targetFPS = 40;
+const targetFrameTime = parseInt(1000 / targetFPS);
+let lastFrameTime;
+let assets = {};
+
+let blits = {};
+
+function getString(ptr, len) {
+	let mem = wasm.exports.memory;
+	let slice = new Uint8Array(mem.buffer, ptr, len);
+	return String.fromCharCode.apply(null, slice);
+}
+
+function raw_set_blit_dirty(n, l) {
+	let name = getString(n, l);
+	blits[name].dirty = true;
+}
+
+function raw_update_blit(x, y, w, h, pixels, depth, n, l) {
+	let name = getString(n, l);
+	let canvas, ctx;
+	if (name in blits) {
+		let blit = blits[name];
+		canvas = blit.canvas;
+		ctx = blit.ctx;
+	} else {
+		canvas = document.createElement('canvas');
+		ctx = canvas.getContext('2d');
+		document.body.appendChild(canvas);
+	}
+	canvas.style.left = x + 'px';
+	canvas.style.top = y + 'px';
+	canvas.style.zIndex = '-' + depth;
+	canvas.width = w;
+	canvas.height = h;
+	blits[name] = { x, y, w, h, canvas, ctx, pixels, dirty: true };
+}
+
+function raw_log(s, l) {
+	console.log(getString(s, l));
+}
+
+function raw_is_request_pending() {
+	return pendingRequest === null ? 0 : 1;
+}
+
+function onRequestLoad(event) {
+	let len = pendingRequest.response.byteLength;
+	let addr = wasm.exports.alloc_response_bytes(len);
+	let mem = wasm.exports.memory;
+	let dst = new Uint8Array(mem.buffer, addr, len);
+	let src = new Uint8Array(pendingRequest.response);
+	for (let i = 0; i < len; i++) dst[i] = src[i];
+	wasm.exports.process_response(app);
+	wasm.exports.drop_response_bytes();
+	pendingRequest = null;
+	needsSliceRefresh = true;
+	assets[pendingRequestUrl] = src;
+	// todo: check for next requests
+}
+
+function raw_set_request_url_prefix(s, l) {
+	urlPrefix = getString(s, l);
+}
+
+function raw_set_request_url(s, l) {
+	let url = getString(s, l);
+	if (url in assets) {
+		console.log("using cached "  + url);
+		let src = assets[url];
+		let len = src.length;
+		let addr = wasm.exports.alloc_response_bytes(len);
+		let mem = wasm.exports.memory;
+		let dst = new Uint8Array(mem.buffer, addr, len);
+		for (let i = 0; i < len; i++) dst[i] = src[i];
+		wasm.exports.process_response(app);
+		wasm.exports.drop_response_bytes();
+		pendingRequest = null;
+		needsSliceRefresh = true;
+		// todo: check for next requests
+	} else {
+		pendingRequestUrl = url;
+		pendingRequest = new XMLHttpRequest();
+		pendingRequest.responseType = "arraybuffer";
+		pendingRequest.addEventListener("load", onRequestLoad);
+		// todo: call discard_request on error
+		pendingRequest.open("GET", urlPrefix + url);
+		pendingRequest.send();
+	}
+}
+
+function frame() {
+	let printLastFrameTime = false;
+	if (w != window.innerWidth || h != window.innerHeight) {
+		w = window.innerWidth;
+		h = window.innerHeight;
+		bgCanvas.width = w;
+		bgCanvas.height = h;
+		bgCanvasSlice = wasm.exports.set_output_size(app, w, h);
+		printLastFrameTime = true;
+	}
+
+	let bgDirty = wasm.exports.frame(app);
+	if (bgDirty) {
+		let ctx = bgCanvas.getContext('2d');
+		let len = w * h * 4;
+		let mem = wasm.exports.memory;
+		let slice = new Uint8ClampedArray(mem.buffer, bgCanvasSlice, len);
+		ctx.putImageData(new ImageData(slice, w, h), 0, 0);
+	}
+	for (let i in blits) {
+		let blit = blits[i];
+		if (blit.dirty) {
+			let len = blit.w * blit.h * 4;
+			let mem = wasm.exports.memory;
+			let slice = new Uint8ClampedArray(mem.buffer, blit.pixels, len);
+			blit.ctx.putImageData(new ImageData(slice, blit.w, blit.h), 0, 0);
+			blit.dirty = false;
+		}
+	}
+
+	let now = performance.now();
+	lastFrameTime = now - previousFrame;
+	if (printLastFrameTime) console.log(lastFrameTime);
+	previousFrame = now;
+	let delay = (lastFrameTime > targetFrameTime) ? 0 : (targetFrameTime - lastFrameTime);
+	timeout = setTimeout(frame, delay);
+}
+
+const env = {
+	raw_log,
+	raw_update_blit,
+	raw_set_blit_dirty,
+	raw_is_request_pending,
+	raw_set_request_url_prefix,
+	raw_set_request_url,
+};
+
+function startWasm(file, debug) {
+	let path = 'target/wasm32-unknown-unknown/';
+	fetch( path + (debug ? 'debug/' : 'release/') + file + '.wasm').then(response => {
+		response.arrayBuffer().then(buffer => {
+			WebAssembly.compile(buffer).then(module => {
+				WebAssembly.instantiate(module, { env }).then(mod => {
+					wasm = mod;
+					app = wasm.exports.init();
+					frame();
+				});
+			});
+		});
+	});
+}
+
+function findWasm(debug) {
+	fetch('Cargo.toml').then(response => {
+		response.text().then(text => {
+			text.split('\n').map(line => {
+				let tokens = line.split('"');
+				if (tokens[0] == 'name = ') {
+					let file = tokens[1].replaceAll('-', '_');
+					startWasm(file, debug);
+				}
+			});
+		});
+	});
+}
+
+function onLoad() {
+	bgCanvas = document.getElementById('bg-canvas');
+	let hash = document.location.hash;
+	let debug;
+	if (hash == '#debug') {
+		debug = true;
+	} else if (hash == '#release') {
+		debug = false;
+	} else {
+		if (confirm('Use release build?')) {
+			document.location = '#release';
+			debug = false;
+		} else if (confirm('Use debug build?')) {
+			document.location = '#debug';
+			debug = true;
+		} else {
+			document.location = '';
+		}
+	}
+	findWasm(debug);
+}
+
+// setTimeout(() => clearTimeout(timeout), 10000);
+		</script>
+	</body>
+</html>
