@@ -21,7 +21,7 @@ This is a work-in-progress, cross-platform, small, web-inspired user interface t
 
 We will first create directories for our application:
 
-```sh
+```shell
 $ mkdir -p my-app/src my-app/assets
 $ cd my-app
 ```
@@ -51,7 +51,7 @@ The XML tags are not documented yet.
 
 Create a rust file which will start our application:
 
-```xml
+```rust
 // my-app/src/app.rs
 
 use platform::app;
@@ -69,14 +69,14 @@ app!("assets/", {
 
 Download a sample PNG image:
 
-```sh
+```shell
 $ curl https://rustacean.net/assets/rustacean-flat-happy.png > assets/ferris.png
 ```
 
 As our most functional platform is acrylic-web, we are going to build for it.
 Install the corresponding rustc target, a minimal http server and a page which will start our app.
 
-```sh
+```shell
 $ rustup target add wasm32-unknown-unknown
 $ cargo install httpserv
 $ curl https://raw.githubusercontent.com/NathanRoyer/acrylic-web/main/index.html > index.html
@@ -103,7 +103,7 @@ platform = { package = "acrylic-web", version = "0.1.25" }
 
 Build:
 
-```sh
+```shell
 $ cargo build -r --target wasm32-unknown-unknown
 ```
 
