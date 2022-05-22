@@ -32,7 +32,7 @@ pub type PlatformLog = &'static dyn Fn(&str);
 use node::NodePath;
 
 /// PlatformBlit(spot, node_hash, depth) -> (pixels, pitch, buffer_owned_by_node)
-pub type PlatformBlit = &'static dyn for<'a> Fn(&'a Spot, &'a NodePath) -> (&'a mut [u8], usize, bool);
+pub type PlatformBlit = &'static dyn for<'a> Fn(&'a Spot, Option<&'a NodePath>) -> (&'a mut [u8], usize, bool);
 
 use std::sync::Mutex;
 use std::sync::MutexGuard;

@@ -66,6 +66,8 @@ pub struct Application {
 
 	pub blit_hooks: Vec<(NodePath, Spot)>,
 
+	pub styles: Vec<Style>,
+
 	pub should_recompute: bool,
 
 	pub debug_containers: bool,
@@ -79,6 +81,15 @@ pub struct DataRequest {
 	pub node: NodePath,
 	pub name: String,
 	pub range: Option<Range<usize>>,
+}
+
+pub type Color = [u8; RGBA];
+
+#[derive(Debug, Copy, Clone)]
+pub struct Style {
+	pub background: Color,
+	pub foreground: Color,
+	pub border: Color,
 }
 
 impl Application {
@@ -97,6 +108,7 @@ impl Application {
 			model: Box::new(model),
 			should_recompute: true,
 			debug_containers: false,
+			styles: Vec::new(),
 			platform_log: log,
 			platform_blit: blit,
 			blit_hooks: Vec::new(),
@@ -129,6 +141,10 @@ impl Application {
 		if default {
 			self.fonts.insert(None, font);
 		}
+	}
+
+	pub fn set_styles(&mut self, styles: Vec<Style>) {
+		self.styles = styles;
 	}
 
 	pub fn get_node(&self, path: &NodePath) -> Option<RcNode> {
@@ -167,60 +183,71 @@ impl Application {
 		self.initialize_node(new_node, &mut path)
 	}
 
-	fn set_cont_dirty(node: &mut dyn Node) -> Void {
+	fn set_cont_dirty(node: &mut dyn Node, validate_only: bool) -> Void {
 		let children = {
-			node.set_dirty();
+			if validate_only {
+				node.validate_spot();
+			} else {
+				node.set_dirty();
+			}
 			node.children().to_vec()
 		};
 		for child in children {
 			let mut child = lock(&child)?;
 			let child = child.deref_mut();
-			Self::set_cont_dirty(child);
+			Self::set_cont_dirty(child, validate_only);
 		}
 		None
 	}
 
-	pub fn update_spot(&mut self, spot: Spot) {
-		self.view_spot = spot;
-		let mut view = lock(&self.view).unwrap();
-		let view = view.deref_mut();
-		view.set_spot(spot);
-		self.should_recompute = true;
-		Self::set_cont_dirty(view);
+	pub fn set_spot(&mut self, spot: Spot) {
+		if self.view_spot != spot {
+			self.view_spot = spot;
+			let mut view = lock(&self.view).unwrap();
+			let view = view.deref_mut();
+			view.set_spot(spot);
+			self.should_recompute = true;
+			Self::set_cont_dirty(view, false);
+		}
 	}
 
 	/// This method is called by the platform to request a refresh
 	/// of the output. It should be called for every frame.
 	pub fn render(&mut self) {
 		if self.should_recompute {
+			self.log("recomputing layout");
 			{
-				let view = lock(&self.view).unwrap();
+				let mut view = lock(&self.view).unwrap();
 				compute_tree(view.deref());
+				Self::set_cont_dirty(view.deref_mut(), true);
 			}
 			for i in 0..self.blit_hooks.len() {
 				if let Some(node) = self.get_node(&self.blit_hooks[i].0) {
 					let node = lock(&node).unwrap();
-					self.blit_hooks[i].1 = node.get_spot();
+					let spot = node.get_content_spot();
+					let spot = spot.unwrap_or((Point::zero(), Size::zero()));
+					self.blit_hooks[i].1 = spot;
 				}
 			}
 			self.should_recompute = false;
 		}
 		let mut path = Vec::new();
-		self.render_node(self.view.clone(), &mut path);
+		self.render_node(self.view.clone(), &mut path, 0);
 	}
 
-	fn render_node(&mut self, node: RcNode, path: &mut NodePath) {
-		let children = {
+	fn render_node(&mut self, node: RcNode, path: &mut NodePath, style: usize) {
+		let (children, style) = {
 			let mut node = lock(&node).unwrap();
 			let (_, size) = node.get_spot();
+			let mut style = style;
 			if size.w > 0 && size.h > 0 {
-				node.render(self, path);
+				style = node.render(self, path, style).unwrap_or(style);
 			}
-			node.children().to_vec()
+			(node.children().to_vec(), style)
 		};
 		for i in 0..children.len() {
 			path.push(i);
-			self.render_node(children[i].clone(), path);
+			self.render_node(children[i].clone(), path, style);
 			path.pop();
 		}
 	}
@@ -243,20 +270,26 @@ impl Application {
 		(self.platform_log)(message)
 	}
 
-	pub fn blit<'a>(&'a mut self, node_spot: &'a Spot, path: &'a NodePath) -> (&'a mut [u8], usize, bool) {
-		for (hook_path, hook_spot) in &self.blit_hooks {
-			if path.starts_with(hook_path) {
-				let (np, ns) = node_spot;
-				let (hp, hs) = hook_spot;
-				let (x, y) = ((np.x - hp.x) as usize, (np.y - hp.y) as usize);
-				let (slice, mut pitch, owned) = (self.platform_blit)(hook_spot, hook_path);
-				pitch += RGBA * (hs.w - ns.w);
-				let line = pitch + RGBA * ns.w;
-				let start = RGBA * x + y * line;
-				let stop = start + ns.h * line - pitch;
-				return (&mut slice[start..stop], pitch, owned);
+	pub fn blit<'a>(&'a mut self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> (&'a mut [u8], usize, bool) {
+		if let Some(path) = path {
+			for (hook_path, hook_spot) in &self.blit_hooks {
+				if path.starts_with(hook_path) {
+					let (slice, pitch, owned) = (self.platform_blit)(hook_spot, Some(hook_path));
+					let (slice, pitch) = sub_spot(slice, pitch, [hook_spot, node_spot]);
+					return (slice, pitch, owned);
+				}
 			}
 		}
 		(self.platform_blit)(node_spot, path)
 	}
+}
+
+pub fn sub_spot<'a>(slice: &'a mut [u8], mut pitch: usize, spots: [&Spot; 2]) -> (&'a mut [u8], usize) {
+	let [(hp, hs), (np, ns)] = spots;
+	let (x, y) = ((np.x - hp.x) as usize, (np.y - hp.y) as usize);
+	pitch += RGBA * (hs.w - ns.w);
+	let line = pitch + RGBA * ns.w;
+	let start = RGBA * x + y * line;
+	let stop = start + ns.h * line;
+	(&mut slice[start..stop], pitch)
 }

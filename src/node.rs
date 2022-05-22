@@ -7,6 +7,15 @@ use crate::Void;
 use crate::app::Application;
 use crate::bitmap::RGBA;
 
+#[cfg(feature = "railway")]
+use railway::Program;
+#[cfg(feature = "railway")]
+use railway::Couple;
+#[cfg(feature = "railway")]
+use railway::RWY_PXF_RGBA8888;
+#[cfg(feature = "railway")]
+use lazy_static::lazy_static;
+
 use core::any::Any;
 use core::fmt::Debug;
 
@@ -109,11 +118,8 @@ pub trait Node: Debug + Any + 'static {
 	/// `as_any` is required for as long as upcasting coercion is unstable
 	fn as_any(&mut self) -> &mut dyn Any;
 
-	/// The `render` method is called when the platform
-	/// needs to refresh the screen. Using `app.tree`, one
-	/// can manipulate the node identified by the `node` argument.
 	#[allow(unused)]
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Option<usize> {
 		None
 	}
 
@@ -200,6 +206,10 @@ pub trait Node: Debug + Any + 'static {
 		None
 	}
 
+	fn validate_spot(&mut self) {
+		// do nothing
+	}
+
 	#[allow(unused)]
 	fn container(&self) -> Option<(Axis, usize)> {
 		None
@@ -231,6 +241,44 @@ impl Node for DummyNode {
 	}
 }
 
+#[cfg(feature = "railway")]
+lazy_static! {
+	static ref CONTAINER_RWY: StyleRwy = {
+		let program = Program::parse(include_bytes!("container.rwy")).unwrap();
+		let stack = program.create_stack();
+		program.valid().unwrap();
+		let (size, margin_radius, parent_rg, parent_ba);
+		{
+			let arg = |s| program.argument(s).unwrap() as usize;
+			size = arg("size");
+			margin_radius = arg("margin-radius");
+			parent_rg = arg("background-color-red-green");
+			parent_ba = arg("background-color-blue-alpha");
+		}
+		StyleRwy {
+			program,
+			stack,
+			mask: Vec::new(),
+			size,
+			margin_radius,
+			parent_rg,
+			parent_ba,
+		}
+	};
+}
+
+#[cfg(feature = "railway")]
+#[derive(Debug, Clone)]
+pub struct StyleRwy {
+	program: Program,
+	stack: Vec<Couple>,
+	mask: Vec<u8>,
+	size: usize,
+	margin_radius: usize,
+	parent_rg: usize,
+	parent_ba: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct Container {
 	pub children: Vec<RcNode>,
@@ -238,29 +286,75 @@ pub struct Container {
 	pub spot: Spot,
 	pub axis: Axis,
 	pub gap: usize,
-	pub margin: Option<Margin>,
-	pub debug_dirty: bool,
+	pub margin: Option<usize>,
+	pub radius: Option<usize>,
+	pub dirty: bool,
+	pub style: Option<usize>,
+	#[cfg(feature = "railway")]
+	pub style_rwy: Option<StyleRwy>,
 }
 
 impl Node for Container {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		if app.debug_containers && self.debug_dirty {
-			self.debug_dirty = false;
-			let (mut dst, pitch, _) = app.blit(&self.spot, path);
+	#[cfg(feature = "railway")]
+	fn initialize(&mut self, _: &mut Application, _: &NodePath) -> Result<(), String> {
+		if let Some(_) = self.style {
+			self.style_rwy = Some(CONTAINER_RWY.clone());
+		}
+		Ok(())
+	}
+
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Option<usize> {
+		if self.dirty {
+			self.dirty = false;
 			let (_, size) = self.spot;
-			let px_width = RGBA * size.w;
-			for i in 0..size.h {
-				let (line_dst, dst_next) = dst.split_at_mut(px_width);
-				if i == 0 {
-					line_dst.fill(255);
-				} else {
-					line_dst[RGBA..].fill(0);
-					line_dst[..RGBA].fill(255);
+			if let Some(i) = self.style {
+				#[cfg(feature = "railway")]
+				if let Some(rwy) = &mut self.style_rwy {
+					if self.margin.is_some() || self.radius.is_some() {
+						let parent_bg = app.styles[style].background;
+						let c = |i| parent_bg[i] as f32 / 255.0;
+						let margin = self.margin.unwrap_or(1);
+						let radius = self.radius.unwrap_or(1);
+						rwy.stack[rwy.size] = Couple::new(size.w as f32, size.h as f32);
+						rwy.stack[rwy.margin_radius] = Couple::new(margin as f32, radius as f32);
+						rwy.stack[rwy.parent_rg] = Couple::new(c(0), c(1));
+						rwy.stack[rwy.parent_ba] = Couple::new(c(2), c(3));
+						rwy.mask.resize(size.w * size.h, 0);
+						rwy.program.compute(&mut rwy.stack);
+						let (dst, pitch, _) = app.blit(&self.spot, Some(path));
+						rwy.program.render::<RWY_PXF_RGBA8888>(&rwy.stack, dst, &mut rwy.mask, size.w, size.h, pitch);
+					}
 				}
-				dst = dst_next.get_mut(pitch..)?;
+				let this_bg = app.styles[i].background;
+				let (mut dst, pitch, _) = app.blit(&self.spot, None);
+				let px_width = RGBA * size.w;
+				for _ in 0..size.h {
+					let (line_dst, dst_next) = dst.split_at_mut(px_width);
+					for i in 0..px_width {
+						line_dst[i] = this_bg[i % RGBA];
+					}
+					dst = match dst_next.get_mut(pitch..) {
+						Some(dst) => dst,
+						None => break,
+					};
+				}
+			}
+			if app.debug_containers {
+				let (mut dst, pitch, _) = app.blit(&self.spot, Some(path));
+				let px_width = RGBA * size.w;
+				for i in 0..size.h {
+					let (line_dst, dst_next) = dst.split_at_mut(px_width);
+					if i == 0 {
+						line_dst.fill(255);
+					} else {
+						line_dst[RGBA..].fill(0);
+						line_dst[..RGBA].fill(255);
+					}
+					dst = dst_next.get_mut(pitch..)?;
+				}
 			}
 		}
-		None
+		Some(self.style.unwrap_or(style))
 	}
 
 	fn as_any(&mut self) -> &mut dyn Any {
@@ -268,7 +362,7 @@ impl Node for Container {
 	}
 
 	fn margin(&self) -> Option<Margin> {
-		self.margin
+		self.margin.map(|l| Margin::quad(l as isize))
 	}
 
 	fn children(&self) -> &[RcNode] {
@@ -298,9 +392,13 @@ impl Node for Container {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
-		self.debug_dirty = true;
+		self.dirty = true;
 		self.spot = spot;
 		None
+	}
+
+	fn set_dirty(&mut self) {
+		self.dirty = true;
 	}
 
 	fn container(&self) -> Option<(Axis, usize)> {
@@ -322,6 +420,15 @@ impl Margin {
 			bottom,
 			left,
 			right,
+		}
+	}
+
+	pub fn quad(value: isize) -> Self {
+		Self {
+			top: value,
+			bottom: value,
+			left: value,
+			right: value,
 		}
 	}
 

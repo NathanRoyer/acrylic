@@ -4,6 +4,7 @@ use ab_glyph::FontVec;
 use ab_glyph::Font as AbGlyphFont;
 
 use crate::app::Application;
+use crate::app::Color;
 use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
@@ -60,7 +61,7 @@ pub struct FontConfig {
 #[derive(Debug)]
 pub struct Font {
 	pub(crate) ab_glyph_font: FontVec,
-	pub(crate) glyphs: HashMap<(usize, FontConfig, GlyphId), RcNode>,
+	pub(crate) glyphs: HashMap<(usize, Color, FontConfig, GlyphId), RcNode>,
 }
 
 pub type RcFont = Arc<Mutex<Font>>;
@@ -120,14 +121,14 @@ pub struct GlyphNode {
 }
 
 impl Node for GlyphNode {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
 		if self.dirty {
 			self.dirty = false;
 			let mut bitmap = lock(&self.bitmap)?;
 			let bitmap = bitmap.deref_mut().as_any();
 			bitmap.downcast_mut::<Bitmap>()?.render_at(app, path, self.spot);
 		}
-		Some(())
+		Some(0)
 	}
 
 	fn policy(&self) -> LengthPolicy {
@@ -216,7 +217,7 @@ pub struct Paragraph {
 	pub children: Vec<RcNode>,
 	pub space_width: usize,
 	pub policy: Option<LengthPolicy>,
-	pub previous_height: usize,
+	pub prev_spot: Spot,
 	pub margin: Option<Margin>,
 	pub font_size: Option<usize>,
 	pub spot: Spot,
@@ -244,9 +245,9 @@ impl Font {
 	/// from the font, which is then kept in cache.
 	///
 	/// TODO: handle font size changes properly.
-	pub fn get(&mut self, c: char, next: Option<char>, height: Option<usize>, cfg: FontConfig) -> RcNode {
-		let font = self.ab_glyph_font.as_scaled(match height {
-			Some(h) => h as f32,
+	pub fn get(&mut self, c: char, next: Option<char>, rdr_cfg: Option<(usize, Color)>, char_cfg: FontConfig) -> RcNode {
+		let font = self.ab_glyph_font.as_scaled(match rdr_cfg {
+			Some((h, _)) => h as f32,
 			None => 200.0,
 		});
 		let c1 = font.glyph_id(c);
@@ -259,7 +260,7 @@ impl Font {
 		let box_w = (g_box.width() + kern).ceil() as isize;
 		let box_h = g_box.height().ceil() as isize;
 		let ratio = aspect_ratio(box_w as usize, box_h as usize);
-		if height.is_none() {
+		if rdr_cfg.is_none() {
 			rc_node(Placeholder { ratio, spot: (Point::zero(), Size::zero()) })
 		} else if let Some(q) = font.outline_glyph(glyph) {
 			let outline_bounds = q.px_bounds();
@@ -274,8 +275,8 @@ impl Font {
 				bottom: box_h - (top + glyph_h),
 			};
 
-			let h = height.unwrap();
-			let rc_bitmap = if let Some(rc_bitmap) = self.glyphs.get(&(h, cfg, c1)) {
+			let (h, color) = rdr_cfg.unwrap();
+			let rc_bitmap = if let Some(rc_bitmap) = self.glyphs.get(&(h, color, char_cfg, c1)) {
 				rc_bitmap.clone()
 			} else {
 				let bmpsz = Size::new(glyph_w as usize, glyph_h as usize);
@@ -284,14 +285,15 @@ impl Font {
 				q.draw(|x, y, c| {
 					let (x, y) = (x as usize, y as usize);
 					let i = (y * bmpsz.w + x) * RGBA;
-					let a = (255.0 * c) as u8;
+					let mut pixel = color;
+					pixel[3] = (color[3] as f32 * c) as u8;
 					if let Some(slice) = bitmap.pixels.get_mut(i..(i + RGBA)) {
-						slice.copy_from_slice(&[255, 255, 255, a]);
+						slice.copy_from_slice(&pixel);
 					}
 				});
 
 				let rc_bitmap = rc_node(bitmap);
-				self.glyphs.insert((h, cfg, c1), rc_bitmap.clone());
+				self.glyphs.insert((h, color, char_cfg, c1), rc_bitmap.clone());
 				rc_bitmap
 			};
 			rc_node(GlyphNode {
@@ -322,7 +324,7 @@ impl Paragraph {
 		}
 	}
 
-	fn deploy(&mut self, line_height: Option<usize>) {
+	fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>) {
 		let mut children = Vec::with_capacity(self.children.len());
 		let default_unbreakable = Unbreakable {
 			glyphs: Vec::new(),
@@ -335,7 +337,7 @@ impl Paragraph {
 		let mut next;
 		let mut iter = self.into_iter();
 		let mut current = iter.next();
-		while let Some((cfg, c1)) = current {
+		while let Some((char_cfg, c1)) = current {
 			next = iter.next();
 			if c1 == ' ' {
 				let mut prev = default_unbreakable.clone();
@@ -349,7 +351,7 @@ impl Paragraph {
 					},
 					None => None,
 				};
-				unbreakable.glyphs.push(font.get(c1, c2, line_height, cfg));
+				unbreakable.glyphs.push(font.get(c1, c2, rdr_cfg, char_cfg));
 				unbreakable.text.push(c1);
 				if let None = next {
 					let mut prev = default_unbreakable.clone();
@@ -382,24 +384,17 @@ impl<'a> Iterator for ParagraphIter<'a> {
 }
 
 impl Node for Paragraph {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		if let LengthPolicy::Chunks(_fs) = self.policy.unwrap() {
-			// everything is fine
-		} else {
-			let mut h = self.spot.1.h;
-			if h != self.previous_height {
-				self.previous_height = h;
-				if let Some(margin) = self.margin {
-					h = h.checked_sub(margin.total_on(Axis::Vertical) as usize)?;
-				}
-				self.deploy(Some(h));
-				app.should_recompute = true;
-			}
-		}
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, s: usize) -> Option<usize> {
 		if self.dirty {
 			self.dirty = false;
 			let spot = self.get_content_spot_at(self.spot)?;
-			let (mut dst, pitch, _) = app.blit(&spot, path);
+			let color = app.styles[s].foreground;
+			self.deploy(Some((match self.policy {
+				Some(LengthPolicy::Chunks(h)) => h,
+				_ => spot.1.h,
+			}, color)));
+			app.should_recompute = true;
+			let (mut dst, pitch, _) = app.blit(&spot, Some(path));
 			let (_, size) = spot;
 			let px_width = RGBA * size.w;
 			for _ in 0..size.h {
@@ -408,7 +403,7 @@ impl Node for Paragraph {
 				dst = dst_next.get_mut(pitch..)?;
 			}
 		}
-		None
+		Some(s)
 	}
 
 	fn margin(&self) -> Option<Margin> {
@@ -439,12 +434,9 @@ impl Node for Paragraph {
 			})
 		};
 
-		self.deploy(match self.policy.unwrap() {
-			LengthPolicy::Chunks(l) => Some(l),
-			_ => None,
-		});
+		self.deploy(None);
 		app.should_recompute = true;
-		app.blit_hooks.push((path.clone(), self.get_spot()));
+		app.blit_hooks.push((path.clone(), (Point::zero(), Size::zero())));
 		Ok(())
 	}
 
@@ -477,9 +469,13 @@ impl Node for Paragraph {
 	}
 
 	fn set_spot(&mut self, spot: Spot) -> Void {
-		self.dirty = true;
 		self.spot = spot;
 		None
+	}
+
+	fn validate_spot(&mut self) {
+		self.dirty = self.spot != self.prev_spot;
+		self.prev_spot = self.spot;
 	}
 }
 
@@ -518,6 +514,7 @@ pub fn paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<
 		serif_rise: 0,
 	};
 
+	let spot = (Point::zero(), Size::zero());
 	let paragraph = rc_node(Paragraph {
 		parts: {
 			let mut vec = Vec::new();
@@ -530,8 +527,8 @@ pub fn paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<
 		policy: None,
 		font_size,
 		margin,
-		spot: (Point::zero(), Size::zero()),
-		previous_height: 0,
+		spot,
+		prev_spot: spot,
 		dirty: true,
 	});
 

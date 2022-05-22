@@ -2,7 +2,6 @@ use crate::app::Application;
 use crate::app::DataRequest;
 use crate::node::LengthPolicy;
 use crate::node::Axis;
-use crate::node::Margin;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
@@ -331,27 +330,27 @@ pub fn spacer(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcN
 fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut policy = Err(String::from("missing policy attribute"));
 	let mut margin = None;
+	let mut radius = None;
+	let mut style = None;
 	let mut gap = 0;
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
-			"margin"        => {
-				let m = value.parse().map_err(|_| format!("bad value: {}", value))?;
-				margin = Some(Margin {
-					left: m,
-					top: m,
-					bottom: m,
-					right: m,
-				});
-			},
-			"gap"         => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
+			"margin"  => margin = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
+			"radius"  => radius = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
+			"gap"     => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
 			"fixed"   => policy = Ok(LengthPolicy::Fixed      (value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"rem"     => policy = Ok(LengthPolicy::Remaining  (value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"chunks"  => policy = Ok(LengthPolicy::Chunks     (value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"ratio"   => policy = Ok(LengthPolicy::AspectRatio(value.parse().map_err(|_| format!("bad value: {}", value))?)),
 			"wrap"    => policy = Ok(LengthPolicy::WrapContent),
+			"style"   => style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
 			_ => Err(format!("unexpected attribute: {}", name))?,
 		}
+	}
+
+	if style.is_none() && radius.is_some() {
+		return Err(String::from("radius without style is invalid"));
 	}
 
 	let container = rc_node(Container {
@@ -359,9 +358,13 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 		policy: policy?,
 		spot: (Point::zero(), Size::zero()),
 		margin,
+		radius,
 		axis,
 		gap,
-		debug_dirty: true,
+		style,
+		dirty: true,
+		#[cfg(feature = "railway")]
+		style_rwy: None,
 	});
 
 	Ok(Some(container))

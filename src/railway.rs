@@ -72,7 +72,7 @@ impl Railway {
 	}
 
 	pub fn render<const RWY_PXF: u8>(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		let (dst, pitch, _) = app.blit(&self.spot, path);
+		let (dst, pitch, _) = app.blit(&self.spot, Some(path));
 		let (_, size) = self.spot;
 		let _ = self.time_arg;
 		self.mask.resize(size.w * size.h, 0);
@@ -105,8 +105,9 @@ impl Node for Railway {
 		None
 	}
 
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		self.render::<RWY_PXF_RGBA8888>(app, path)
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
+		self.render::<RWY_PXF_RGBA8888>(app, path)?;
+		Some(0)
 	}
 }
 

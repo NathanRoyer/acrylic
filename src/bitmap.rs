@@ -125,14 +125,14 @@ impl Bitmap {
 
 	pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Void {
 		let spot = self.get_content_spot_at(spot)?;
-		let (mut dst, pitch, owned) = app.blit(&spot, path);
+		let (mut dst, pitch, owned) = app.blit(&spot, Some(path));
 		self.update_cache(spot, owned)?;
 		let (_, size) = spot;
 		let px_width = RGBA * size.w;
 		let mut src = self.cache.chunks(px_width);
 		for _ in 0..size.h {
 			let (line_dst, dst_next) = dst.split_at_mut(px_width);
-			let line_src = src.next()?;
+			let line_src = src.next().unwrap();
 			if owned {
 				line_dst.copy_from_slice(line_src);
 			} else {
@@ -148,15 +148,19 @@ impl Bitmap {
 					i -= 1;
 				}
 			}
-			dst = dst_next.get_mut(pitch..)?;
+			dst = dst_next.get_mut(pitch..).unwrap();
 		}
 		Some(())
 	}
 }
 
 impl Node for Bitmap {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
-		self.render_at(app, path, self.spot)
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
+		if self.dirty {
+			self.dirty = false;
+			self.render_at(app, path, self.spot)?;
+		}
+		Some(0)
 	}
 
 	fn policy(&self) -> LengthPolicy {
