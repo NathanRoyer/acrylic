@@ -4,6 +4,7 @@ use ab_glyph::FontVec;
 use ab_glyph::Font as AbGlyphFont;
 
 use crate::app::Application;
+use crate::app::for_each_line;
 use crate::app::Color;
 use crate::node::Node;
 use crate::node::RcNode;
@@ -123,10 +124,10 @@ pub struct GlyphNode {
 impl Node for GlyphNode {
 	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
 		if self.dirty {
-			self.dirty = false;
 			let mut bitmap = lock(&self.bitmap)?;
 			let bitmap = bitmap.deref_mut().as_any();
-			bitmap.downcast_mut::<Bitmap>()?.render_at(app, path, self.spot);
+			bitmap.downcast_mut::<Bitmap>()?.render_at(app, path, self.spot)?;
+			self.dirty = false;
 		}
 		Some(0)
 	}
@@ -386,22 +387,19 @@ impl<'a> Iterator for ParagraphIter<'a> {
 impl Node for Paragraph {
 	fn render(&mut self, app: &mut Application, path: &mut NodePath, s: usize) -> Option<usize> {
 		if self.dirty {
-			self.dirty = false;
-			let spot = self.get_content_spot_at(self.spot)?;
 			let color = app.styles[s].foreground;
+			let spot = self.get_content_spot_at(self.spot)?;
+			let (dst, pitch, _) = app.blit(&spot, Some(path))?;
+			let (_, size) = spot;
+			for_each_line(dst, size, pitch, |_, line_dst| {
+				line_dst.fill(0);
+			});
+			app.should_recompute = true;
+			self.dirty = false;
 			self.deploy(Some((match self.policy {
 				Some(LengthPolicy::Chunks(h)) => h,
-				_ => spot.1.h,
+				_ => size.h,
 			}, color)));
-			app.should_recompute = true;
-			let (mut dst, pitch, _) = app.blit(&spot, Some(path));
-			let (_, size) = spot;
-			let px_width = RGBA * size.w;
-			for _ in 0..size.h {
-				let (line_dst, dst_next) = dst.split_at_mut(px_width);
-				line_dst.fill(0);
-				dst = dst_next.get_mut(pitch..)?;
-			}
 		}
 		Some(s)
 	}

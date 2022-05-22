@@ -5,6 +5,7 @@ use crate::Size;
 use crate::Spot;
 use crate::Void;
 use crate::app::Application;
+use crate::app::for_each_line;
 use crate::bitmap::RGBA;
 
 #[cfg(feature = "railway")]
@@ -307,6 +308,7 @@ impl Node for Container {
 		if self.dirty {
 			self.dirty = false;
 			let (_, size) = self.spot;
+			let px_width = RGBA * size.w;
 			if let Some(i) = self.style {
 				#[cfg(feature = "railway")]
 				if let Some(rwy) = &mut self.style_rwy {
@@ -321,37 +323,28 @@ impl Node for Container {
 						rwy.stack[rwy.parent_ba] = Couple::new(c(2), c(3));
 						rwy.mask.resize(size.w * size.h, 0);
 						rwy.program.compute(&mut rwy.stack);
-						let (dst, pitch, _) = app.blit(&self.spot, Some(path));
+						let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
 						rwy.program.render::<RWY_PXF_RGBA8888>(&rwy.stack, dst, &mut rwy.mask, size.w, size.h, pitch);
 					}
 				}
 				let this_bg = app.styles[i].background;
-				let (mut dst, pitch, _) = app.blit(&self.spot, None);
-				let px_width = RGBA * size.w;
-				for _ in 0..size.h {
-					let (line_dst, dst_next) = dst.split_at_mut(px_width);
+				let (dst, pitch, _) = app.blit(&self.spot, None)?;
+				for_each_line(dst, size, pitch, |_, line_dst| {
 					for i in 0..px_width {
 						line_dst[i] = this_bg[i % RGBA];
 					}
-					dst = match dst_next.get_mut(pitch..) {
-						Some(dst) => dst,
-						None => break,
-					};
-				}
+				});
 			}
 			if app.debug_containers {
-				let (mut dst, pitch, _) = app.blit(&self.spot, Some(path));
-				let px_width = RGBA * size.w;
-				for i in 0..size.h {
-					let (line_dst, dst_next) = dst.split_at_mut(px_width);
+				let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+				for_each_line(dst, size, pitch, |i, line_dst| {
 					if i == 0 {
 						line_dst.fill(255);
 					} else {
 						line_dst[RGBA..].fill(0);
 						line_dst[..RGBA].fill(255);
 					}
-					dst = dst_next.get_mut(pitch..)?;
-				}
+				});
 			}
 		}
 		Some(self.style.unwrap_or(style))

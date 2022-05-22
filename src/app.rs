@@ -270,13 +270,13 @@ impl Application {
 		(self.platform_log)(message)
 	}
 
-	pub fn blit<'a>(&'a mut self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> (&'a mut [u8], usize, bool) {
+	pub fn blit<'a>(&'a self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)> {
 		if let Some(path) = path {
 			for (hook_path, hook_spot) in &self.blit_hooks {
 				if path.starts_with(hook_path) {
-					let (slice, pitch, owned) = (self.platform_blit)(hook_spot, Some(hook_path));
-					let (slice, pitch) = sub_spot(slice, pitch, [hook_spot, node_spot]);
-					return (slice, pitch, owned);
+					let (slice, pitch, owned) = (self.platform_blit)(hook_spot, Some(hook_path))?;
+					let (slice, pitch) = sub_spot(slice, pitch, [hook_spot, node_spot])?;
+					return Some((slice, pitch, owned));
 				}
 			}
 		}
@@ -284,12 +284,33 @@ impl Application {
 	}
 }
 
-pub fn sub_spot<'a>(slice: &'a mut [u8], mut pitch: usize, spots: [&Spot; 2]) -> (&'a mut [u8], usize) {
+pub fn sub_spot<'a>(slice: &'a mut [u8], mut pitch: usize, spots: [&Spot; 2]) -> Option<(&'a mut [u8], usize)> {
 	let [(hp, hs), (np, ns)] = spots;
-	let (x, y) = ((np.x - hp.x) as usize, (np.y - hp.y) as usize);
-	pitch += RGBA * (hs.w - ns.w);
-	let line = pitch + RGBA * ns.w;
-	let start = RGBA * x + y * line;
-	let stop = start + ns.h * line;
-	(&mut slice[start..stop], pitch)
+	if ns.w != 0 && ns.h != 0 {
+		if ns.w <= hs.w && ns.h <= hs.h {
+			let x: usize = (np.x - hp.x).try_into().ok()?;
+			let y: usize = (np.y - hp.y).try_into().ok()?;
+			pitch += RGBA * (hs.w - ns.w);
+			let line = pitch + RGBA * ns.w;
+			let start = RGBA * x + y * line;
+			let stop = start + ns.h * line - pitch;
+			Some((slice.get_mut(start..stop)?, pitch))
+		} else {
+			None
+		}
+	} else {
+		Some((&mut [], 0))
+	}
+}
+
+pub fn for_each_line(slice: &mut [u8], size: Size, pitch: usize, mut f: impl FnMut(usize, &mut [u8])) {
+	let px_width = size.w * RGBA;
+	let mut start = 0;
+	let mut stop = px_width;
+	let advance = px_width + pitch;
+	for i in 0..size.h {
+		f(i, &mut slice[start..stop]);
+		start += advance;
+		stop += advance;
+	}
 }
