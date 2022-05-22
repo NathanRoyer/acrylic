@@ -97,8 +97,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.24"
-platform = { package = "acrylic-web", version = "0.1.24" }
+acrylic = "0.1.25"
+platform = { package = "acrylic-web", version = "0.1.25" }
 ```
 
 Build:
@@ -109,7 +109,7 @@ $ cargo build -r --target wasm32-unknown-unknown
 
 Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.23/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.1.25/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
