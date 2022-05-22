@@ -349,10 +349,6 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 		}
 	}
 
-	if style.is_none() && radius.is_some() {
-		return Err(String::from("radius without style is invalid"));
-	}
-
 	let container = rc_node(Container {
 		children: Vec::new(),
 		policy: policy?,

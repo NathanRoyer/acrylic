@@ -296,37 +296,32 @@ pub struct Container {
 }
 
 impl Node for Container {
-	#[cfg(feature = "railway")]
-	fn initialize(&mut self, _: &mut Application, _: &NodePath) -> Result<(), String> {
-		if let Some(_) = self.style {
-			self.style_rwy = Some(CONTAINER_RWY.clone());
-		}
-		Ok(())
-	}
-
 	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Option<usize> {
 		if self.dirty {
 			self.dirty = false;
 			let (_, size) = self.spot;
 			let px_width = RGBA * size.w;
-			if let Some(i) = self.style {
-				#[cfg(feature = "railway")]
-				if let Some(rwy) = &mut self.style_rwy {
-					if self.margin.is_some() || self.radius.is_some() {
-						let parent_bg = app.styles[style].background;
-						let c = |i| parent_bg[i] as f32 / 255.0;
-						let margin = self.margin.unwrap_or(1);
-						let radius = self.radius.unwrap_or(1);
-						rwy.stack[rwy.size] = Couple::new(size.w as f32, size.h as f32);
-						rwy.stack[rwy.margin_radius] = Couple::new(margin as f32, radius as f32);
-						rwy.stack[rwy.parent_rg] = Couple::new(c(0), c(1));
-						rwy.stack[rwy.parent_ba] = Couple::new(c(2), c(3));
-						rwy.mask.resize(size.w * size.h, 0);
-						rwy.program.compute(&mut rwy.stack);
-						let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
-						rwy.program.render::<RWY_PXF_RGBA8888>(&rwy.stack, dst, &mut rwy.mask, size.w, size.h, pitch);
-					}
+			#[cfg(feature = "railway")]
+			if self.margin.is_some() || self.radius.is_some() {
+				if self.style_rwy.is_none() {
+					self.style_rwy = Some(CONTAINER_RWY.clone());
 				}
+				if let Some(rwy) = &mut self.style_rwy {
+					let parent_bg = app.styles[style].background;
+					let c = |i| parent_bg[i] as f32 / 255.0;
+					let margin = self.margin.unwrap_or(1);
+					let radius = self.radius.unwrap_or(1);
+					rwy.stack[rwy.size] = Couple::new(size.w as f32, size.h as f32);
+					rwy.stack[rwy.margin_radius] = Couple::new(margin as f32, radius as f32);
+					rwy.stack[rwy.parent_rg] = Couple::new(c(0), c(1));
+					rwy.stack[rwy.parent_ba] = Couple::new(c(2), c(3));
+					rwy.mask.resize(size.w * size.h, 0);
+					rwy.program.compute(&mut rwy.stack);
+					let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+					rwy.program.render::<RWY_PXF_RGBA8888>(&rwy.stack, dst, &mut rwy.mask, size.w, size.h, pitch);
+				}
+			}
+			if let Some(i) = self.style {
 				let this_bg = app.styles[i].background;
 				let (dst, pitch, _) = app.blit(&self.spot, None)?;
 				for_each_line(dst, size, pitch, |_, line_dst| {
