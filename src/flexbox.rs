@@ -131,24 +131,27 @@ fn compute_remaining_children_sizes(container: &dyn Node, cross: usize) -> Void 
 
 fn compute_wrapper_size(cont_axis: Axis, wrapper: &mut dyn Node, mut cross: Option<usize>) -> Void {
 	let (wrapper_axis, gap) = wrapper.container()?;
+	let mut length = 0;
 	if wrapper_axis != cont_axis {
+		length = cross.unwrap_or(0);
 		// pass 1 for cross length
 		cross = get_max_length_on(cont_axis, wrapper, None);
 	}
 	let apparent_cross = adjust_cross(wrapper, cross?)?;
 	// pass 2
 	compute_children_sizes(wrapper, apparent_cross);
-	let mut length = 0;
-	for child in wrapper.children() {
-		let child = lock(child).unwrap();
-		let (_, size) = child.get_spot();
-		length += size.get_for_axis(wrapper_axis) + gap;
-	}
-	if length > 0 {
-		length -= gap;
-	}
-	if let Some(margin) = wrapper.margin() {
-		length += margin.total_on(cont_axis) as usize;
+	if length == 0 {
+		for child in wrapper.children() {
+			let child = lock(child).unwrap();
+			let (_, size) = child.get_spot();
+			length += size.get_for_axis(wrapper_axis) + gap;
+		}
+		if length > 0 {
+			length -= gap;
+		}
+		if let Some(margin) = wrapper.margin() {
+			length += margin.total_on(cont_axis) as usize;
+		}
 	}
 	let size = match wrapper_axis {
 		Horizontal => Size::new(length, cross?),
