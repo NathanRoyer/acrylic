@@ -7,7 +7,7 @@ description = "compile acrylic apps for wayland environments"
 license = "MIT"
 keywords = [ "acrylic", "platform" ]
 categories = [ "rendering::graphics-api", "gui" ]
-repository = "https://github.com/NathanRoyer/acrylic-wayland"
+repository = "https://github.com/NathanRoyer/acrylic"
 readme = "README.md"
 
 [dependencies]
