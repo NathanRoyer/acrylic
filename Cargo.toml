@@ -2,3 +2,4 @@
 members = [ "acrylic", "acrylic-web", "acrylic-wayland", "acrylic-png" ]
 default-members = [ "acrylic", "acrylic-web", "acrylic-wayland", "acrylic-png" ]
 resolver = "2"
+readme = "README.md"

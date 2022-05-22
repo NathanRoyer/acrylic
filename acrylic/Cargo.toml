@@ -8,7 +8,7 @@ license = "MIT"
 categories = [ "gui" ]
 keywords = [ "toolkit", "gui", "ui", "xml" ]
 repository = "https://github.com/NathanRoyer/acrylic"
-readme = "README.md"
+readme = "../README.md"
 
 [dependencies]
 ab_glyph = { version = "0.2", optional = true }
