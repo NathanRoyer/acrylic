@@ -1,6 +1,6 @@
 [package]
 name = "acrylic-png"
-version = "0.1.27"
+version = "0.1.28"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "debug acrylic apps by rendering to a PNG image"
@@ -11,5 +11,5 @@ repository = "https://github.com/NathanRoyer/acrylic"
 readme = "../README.md"
 
 [dependencies]
-acrylic = { version = "0.1.27", path = "../acrylic" }
+acrylic = { version = "0.1.28", path = "../acrylic" }
 png = "0.17"
