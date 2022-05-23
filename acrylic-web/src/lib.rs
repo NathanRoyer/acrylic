@@ -120,7 +120,7 @@ pub extern fn process_response(app: &mut Application) {
 	let data = unsafe {
 		RESPONSE_BYTES.as_ref().unwrap()
 	};
-	node.loaded(app, &request.node, &request.name, 0, data);
+	let _ = node.loaded(app, &request.node, &request.name, 0, data);
 }
 
 #[export_name = "drop_response_bytes"]

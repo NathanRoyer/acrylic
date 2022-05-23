@@ -9,7 +9,8 @@ use crate::PlatformLog;
 use crate::Point;
 use crate::Spot;
 use crate::Size;
-use crate::Void;
+use crate::Status;
+use crate::status;
 use crate::lock;
 
 #[cfg(feature = "text")]
@@ -183,7 +184,7 @@ impl Application {
 		self.initialize_node(new_node, &mut path)
 	}
 
-	fn set_cont_dirty(node: &mut dyn Node, validate_only: bool) -> Void {
+	fn set_cont_dirty(node: &mut dyn Node, validate_only: bool) -> Status {
 		let children = {
 			if validate_only {
 				node.validate_spot();
@@ -192,12 +193,15 @@ impl Application {
 			}
 			node.children().to_vec()
 		};
+		let mut res = Ok(());
 		for child in children {
-			let mut child = lock(&child)?;
+			let mut child = status(lock(&child))?;
 			let child = child.deref_mut();
-			Self::set_cont_dirty(child, validate_only);
+			if let Err(_) = Self::set_cont_dirty(child, validate_only) {
+				res = Err(());
+			}
 		}
-		None
+		res
 	}
 
 	pub fn set_spot(&mut self, spot: Spot) {
@@ -207,7 +211,7 @@ impl Application {
 			let view = view.deref_mut();
 			view.set_spot(spot);
 			self.should_recompute = true;
-			Self::set_cont_dirty(view, false);
+			let _ = Self::set_cont_dirty(view, false);
 		}
 	}
 
@@ -218,8 +222,8 @@ impl Application {
 			self.log("recomputing layout");
 			{
 				let mut view = lock(&self.view).unwrap();
-				compute_tree(view.deref());
-				Self::set_cont_dirty(view.deref_mut(), true);
+				let _ = compute_tree(view.deref());
+				let _ = Self::set_cont_dirty(view.deref_mut(), true);
 			}
 			for i in 0..self.blit_hooks.len() {
 				if let Some(node) = self.get_node(&self.blit_hooks[i].0) {
@@ -270,17 +274,17 @@ impl Application {
 		(self.platform_log)(message)
 	}
 
-	pub fn blit<'a>(&'a self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)> {
+	pub fn blit<'a>(&'a self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> Result<(&'a mut [u8], usize, bool), ()> {
 		if let Some(path) = path {
 			for (hook_path, hook_spot) in &self.blit_hooks {
 				if path.starts_with(hook_path) {
-					let (slice, pitch, owned) = (self.platform_blit)(hook_spot, Some(hook_path))?;
-					let (slice, pitch) = sub_spot(slice, pitch, [hook_spot, node_spot])?;
-					return Some((slice, pitch, owned));
+					let (slice, pitch, owned) = status((self.platform_blit)(hook_spot, Some(hook_path)))?;
+					let (slice, pitch) = status(sub_spot(slice, pitch, [hook_spot, node_spot]))?;
+					return Ok((slice, pitch, owned));
 				}
 			}
 		}
-		(self.platform_blit)(node_spot, path)
+		status((self.platform_blit)(node_spot, path))
 	}
 }
 

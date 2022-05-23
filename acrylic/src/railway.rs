@@ -8,7 +8,7 @@ use crate::node::LengthPolicy;
 use crate::Spot;
 use crate::Point;
 use crate::Size;
-use crate::Void;
+use crate::Status;
 use crate::format;
 
 #[cfg(feature = "xml")]
@@ -29,9 +29,6 @@ use core::any::Any;
 
 use std::string::String;
 use std::vec::Vec;
-use std::println;
-#[cfg(not(feature = "std"))]
-use std::print;
 
 /// See [`xml_handler`]
 #[derive(Debug, Clone)]
@@ -71,15 +68,15 @@ impl Railway {
 		})
 	}
 
-	pub fn render<const RWY_PXF: u8>(&mut self, app: &mut Application, path: &mut NodePath) -> Void {
+	pub fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Status {
 		let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
 		let (_, size) = self.spot;
 		let _ = self.time_arg;
 		self.mask.resize(size.w * size.h, 0);
 		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
 		self.program.compute(&mut self.stack);
-		self.program.render::<RWY_PXF>(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
-		None
+		self.program.render::<RWY_PXF_RGBA8888>(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
+		Ok(())
 	}
 }
 
@@ -100,14 +97,13 @@ impl Node for Railway {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.spot = spot;
-		None
 	}
 
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
-		self.render::<RWY_PXF_RGBA8888>(app, path)?;
-		Some(0)
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
+		self.render(app, path)?;
+		Ok(0)
 	}
 }
 
@@ -134,13 +130,16 @@ impl Node for RailwayLoader {
 		Ok(())
 	}
 
-	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
+	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Status {
 		let railway = match Railway::new(data) {
-			Err(s) => (println!("{}", s), None).1?,
+			Err(s) => {
+				app.log(&format!("[rwy] loading error: {}", s));
+				return Err(());
+			},
 			Ok(r) => r,
 		};
 		app.replace_node(path, rc_node(railway)).unwrap();
-		None
+		Ok(())
 	}
 }
 

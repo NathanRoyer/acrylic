@@ -16,8 +16,8 @@ use crate::node::Margin;
 use crate::node::Axis;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
+use crate::status;
 use crate::Spot;
-use crate::Void;
 use crate::Size;
 use crate::Point;
 use crate::lock;
@@ -99,9 +99,8 @@ impl Node for Unbreakable {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.spot = spot;
-		None
 	}
 }
 
@@ -122,14 +121,15 @@ pub struct GlyphNode {
 }
 
 impl Node for GlyphNode {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
 		if self.dirty {
-			let mut bitmap = lock(&self.bitmap)?;
+			let mut bitmap = status(lock(&self.bitmap))?;
 			let bitmap = bitmap.deref_mut().as_any();
-			bitmap.downcast_mut::<Bitmap>()?.render_at(app, path, self.spot)?;
+			let bitmap = status(bitmap.downcast_mut::<Bitmap>())?;
+			bitmap.render_at(app, path, self.spot)?;
 			self.dirty = false;
 		}
-		Some(0)
+		Ok(0)
 	}
 
 	fn policy(&self) -> LengthPolicy {
@@ -146,10 +146,9 @@ impl Node for GlyphNode {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.dirty = true;
 		self.spot = spot;
-		None
 	}
 
 	fn describe(&self) -> String {
@@ -184,9 +183,8 @@ impl Node for Placeholder {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.spot = spot;
-		None
 	}
 }
 
@@ -385,10 +383,10 @@ impl<'a> Iterator for ParagraphIter<'a> {
 }
 
 impl Node for Paragraph {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, s: usize) -> Option<usize> {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, s: usize) -> Result<usize, ()> {
 		if self.dirty {
 			let color = app.styles[s].foreground;
-			let spot = self.get_content_spot_at(self.spot)?;
+			let spot = status(self.get_content_spot_at(self.spot))?;
 			let (dst, pitch, _) = app.blit(&spot, Some(path))?;
 			let (_, size) = spot;
 			for_each_line(dst, size, pitch, |_, line_dst| {
@@ -401,7 +399,7 @@ impl Node for Paragraph {
 				_ => size.h,
 			}, color)));
 		}
-		Some(s)
+		Ok(s)
 	}
 
 	fn margin(&self) -> Option<Margin> {
@@ -466,9 +464,8 @@ impl Node for Paragraph {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.spot = spot;
-		None
 	}
 
 	fn validate_spot(&mut self) {

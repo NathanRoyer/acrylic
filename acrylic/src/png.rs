@@ -8,7 +8,7 @@ use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
 use crate::Point;
 use crate::Size;
-use crate::Void;
+use crate::Status;
 
 #[cfg(feature = "xml")]
 use crate::xml::TreeParser;
@@ -86,9 +86,9 @@ impl Node for PngLoader {
 		Ok(())
 	}
 
-	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
+	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Status {
 		app.replace_node(path, rc_node(read_png(data))).unwrap();
-		None
+		Ok(())
 	}
 }
 

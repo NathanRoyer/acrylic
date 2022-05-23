@@ -3,7 +3,7 @@ use bitflags::bitflags;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
-use crate::Void;
+use crate::Status;
 use crate::app::Application;
 use crate::app::for_each_line;
 use crate::bitmap::RGBA;
@@ -120,8 +120,8 @@ pub trait Node: Debug + Any + 'static {
 	fn as_any(&mut self) -> &mut dyn Any;
 
 	#[allow(unused)]
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Option<usize> {
-		None
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Result<usize, ()> {
+		Err(())
 	}
 
 	/// The `handle` method is called when the platform forwards an event
@@ -131,16 +131,16 @@ pub trait Node: Debug + Any + 'static {
 	/// To receive events via this interface, you must first initialize
 	/// the node using [`Tree::set_node_handler`].
 	#[allow(unused)]
-	fn handle(&mut self, app: &mut Application, path: &NodePath, event: Event) -> Void {
-		None
+	fn handle(&mut self, app: &mut Application, path: &NodePath, event: Event) -> Status {
+		Err(())
 	}
 
 	/// Once you add [`DataRequest`]s to `app.data_requests`, the platform
 	/// should fetch the data you requested. Once it has fetched the data,
 	/// It will call the `loaded` method.
 	#[allow(unused)]
-	fn loaded(&mut self, app: &mut Application, path: &NodePath, name: &str, offset: usize, data: &[u8]) -> Void {
-		None
+	fn loaded(&mut self, app: &mut Application, path: &NodePath, name: &str, offset: usize, data: &[u8]) -> Status {
+		Err(())
 	}
 
 	#[allow(unused)]
@@ -203,8 +203,8 @@ pub trait Node: Debug + Any + 'static {
 	}
 
 	#[allow(unused)]
-	fn set_spot(&mut self, spot: Spot) -> Void {
-		None
+	fn set_spot(&mut self, spot: Spot) {
+		// do nothing
 	}
 
 	fn validate_spot(&mut self) {
@@ -296,7 +296,7 @@ pub struct Container {
 }
 
 impl Node for Container {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Option<usize> {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Result<usize, ()> {
 		if self.dirty {
 			self.dirty = false;
 			let (_, size) = self.spot;
@@ -342,7 +342,7 @@ impl Node for Container {
 				});
 			}
 		}
-		Some(self.style.unwrap_or(style))
+		Ok(self.style.unwrap_or(style))
 	}
 
 	fn as_any(&mut self) -> &mut dyn Any {
@@ -379,10 +379,9 @@ impl Node for Container {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.dirty = true;
 		self.spot = spot;
-		None
 	}
 
 	fn set_dirty(&mut self) {
@@ -429,7 +428,7 @@ impl Margin {
 }
 
 impl Axis {
-	pub fn is(self, other: Self) -> Void {
+	pub fn is(self, other: Self) -> Option<()> {
 		if other == self {
 			Some(())
 		} else {

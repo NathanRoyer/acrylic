@@ -24,7 +24,7 @@ pub type Point = geometry::Point;
 pub type Size = geometry::Size;
 pub type Spot = geometry::Spot;
 
-pub type Void = Option<()>;
+pub type Status = Result<(), ()>;
 
 /// PlatformLog(message)
 pub type PlatformLog = &'static dyn Fn(&str);
@@ -44,6 +44,10 @@ pub fn lock<T: ?Sized>(mutex: &Mutex<T>) -> Option<MutexGuard<T>> {
 	#[cfg(not(feature = "std"))]
 	let result = Some(mutex.lock());
 	result
+}
+
+pub fn status<T>(option: Option<T>) -> Result<T, ()> {
+	option.ok_or(())
 }
 
 #[macro_export]

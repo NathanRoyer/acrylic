@@ -1,7 +1,8 @@
 use crate::Size;
 use crate::Point;
 use crate::Spot;
-use crate::Void;
+use crate::Status;
+use crate::status;
 use crate::app::Application;
 use crate::app::for_each_line;
 use crate::node::Axis::Vertical;
@@ -13,7 +14,7 @@ use crate::node::LengthPolicy;
 use crate::geometry::aspect_ratio;
 
 use core::fmt::Debug;
-use core::fmt::Result;
+use core::fmt::Result as FmtResult;
 use core::fmt::Formatter;
 use core::any::Any;
 
@@ -58,7 +59,7 @@ pub struct Bitmap {
 }
 
 impl Debug for Bitmap {
-	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+	fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
 		f.debug_struct("Bitmap")
 			.field("channels", &self.channels)
 			.field("size", &self.size)
@@ -91,7 +92,7 @@ impl Bitmap {
 		}
 	}
 
-	pub fn update_cache(&mut self, spot: Spot, owned: bool) -> Void {
+	pub fn update_cache(&mut self, spot: Spot, owned: bool) -> Status {
 		assert!(self.channels == RGBA);
 		let (_, size) = spot;
 		let len = size.w * size.h * RGBA;
@@ -121,11 +122,11 @@ impl Bitmap {
 				}
 			}
 		}
-		Some(())
+		Ok(())
 	}
 
-	pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Void {
-		let spot = self.get_content_spot_at(spot)?;
+	pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Status {
+		let spot = status(self.get_content_spot_at(spot))?;
 		let (dst, pitch, owned) = app.blit(&spot, Some(path))?;
 		self.update_cache(spot, owned)?;
 		let (_, size) = spot;
@@ -149,17 +150,17 @@ impl Bitmap {
 				}
 			}
 		});
-		Some(())
+		Ok(())
 	}
 }
 
 impl Node for Bitmap {
-	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Option<usize> {
+	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
 		if self.dirty {
 			self.render_at(app, path, self.spot)?;
 			self.dirty = false;
 		}
-		Some(0)
+		Ok(0)
 	}
 
 	fn policy(&self) -> LengthPolicy {
@@ -178,10 +179,9 @@ impl Node for Bitmap {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.dirty = true;
 		self.spot = spot;
-		None
 	}
 
 	fn describe(&self) -> String {

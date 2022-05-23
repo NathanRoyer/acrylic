@@ -9,7 +9,7 @@ use crate::node::rc_node;
 use crate::node::Container;
 use crate::Point;
 use crate::Size;
-use crate::Void;
+use crate::Status;
 use crate::Spot;
 use crate::format;
 use crate::lock;
@@ -233,7 +233,7 @@ impl Node for ViewLoader {
 	}
 
 	#[allow(unused)]
-	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Void {
+	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Status {
 		let xml = String::from_utf8(data.to_vec());
 
 		let mut parameters = Vec::new();
@@ -251,7 +251,7 @@ impl Node for ViewLoader {
 			app.log(&format!("TemplateLoader: {}", msg));
 		}
 
-		Some(())
+		Ok(())
 	}
 }
 
@@ -301,9 +301,8 @@ impl Node for Spacer {
 		self.spot
 	}
 
-	fn set_spot(&mut self, spot: Spot) -> Void {
+	fn set_spot(&mut self, spot: Spot) {
 		self.spot = spot;
-		None
 	}
 }
 
