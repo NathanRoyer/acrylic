@@ -17,6 +17,8 @@ This is a work-in-progress, cross-platform, small, web-inspired user interface t
 | fbdev |  |  |  |  |
 | drmkms |  |  |  |  |
 
+There is also [acrylic-png](https://lib.rs/acrylic-png) for debugging purposes.
+
 ## ⚡️ Quickstart
 
 We will first create directories for our application:
@@ -47,7 +49,8 @@ Create a basic layout for your user interface:
 </x>
 ```
 
-The XML tags are not documented yet.
+See [this](https://docs.rs/acrylic/latest/acrylic/xml/struct.TreeParser.html#method.with_builtin_tags)
+for documentation on these tags and attributes.
 
 Create a rust file which will start our application:
 
@@ -79,7 +82,7 @@ Install the corresponding rustc target, a minimal http server and a page which w
 ```shell
 $ rustup target add wasm32-unknown-unknown
 $ cargo install httpserv
-$ curl https://raw.githubusercontent.com/NathanRoyer/acrylic-web/main/index.html > index.html
+$ curl https://raw.githubusercontent.com/NathanRoyer/acrylic/main/acrylic-web/index.html > index.html
 $ httpserv > /dev/null &
 ```
 
@@ -97,8 +100,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.25"
-platform = { package = "acrylic-web", version = "0.1.25" }
+acrylic = "0.1.27"
+platform = { package = "acrylic-web", version = "0.1.27" }
 ```
 
 Build:
@@ -109,7 +112,7 @@ $ cargo build -r --target wasm32-unknown-unknown
 
 Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.25/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.1.27/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
@@ -136,4 +139,5 @@ merging your PR.
 
 ## 🕯️ License
 
-MIT
+* MIT for the code
+* SIL Open Font License for the embedded Noto Font

@@ -3,10 +3,10 @@ name = "acrylic-png"
 version = "0.1.27"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
-description = "acrylic apps as webapps"
+description = "debug acrylic apps by rendering to a PNG image"
 license = "MIT"
-keywords = [ "acrylic", "platform" ]
-categories = [ "web-programming" ]
+keywords = [ "acrylic", "debugging" ]
+categories = [ "debugging" ]
 repository = "https://github.com/NathanRoyer/acrylic"
 readme = "../README.md"
 
