@@ -66,7 +66,7 @@ pub fn run(assets: &str, mut app: Application) {
 			let data = read(&format!("{}{}", assets, request.name)).unwrap();
 			let node = app.get_node(&request.node).unwrap();
 			let mut node = node.lock().unwrap();
-			node.loaded(&mut app, &request.node, &request.name, 0, &data);
+			let _ = node.loaded(&mut app, &request.node, &request.name, 0, &data);
 		}
 	}
 
@@ -82,7 +82,7 @@ pub fn run(assets: &str, mut app: Application) {
 			let data = read(&format!("{}{}", assets, request.name)).unwrap();
 			let node = app.get_node(&request.node).unwrap();
 			let mut node = node.lock().unwrap();
-			node.loaded(&mut app, &request.node, &request.name, 0, &data);
+			let _ = node.loaded(&mut app, &request.node, &request.name, 0, &data);
 		}
 		let now = Instant::now();
 		let elapsed = (now - then).as_millis() as u64;

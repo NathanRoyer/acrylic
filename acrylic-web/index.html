@@ -210,8 +210,15 @@ function findWasm(debug) {
 	});
 }
 
+function onClick(event) {
+	let x = event.clientX;
+	let y = event.clientY;
+	wasm.exports.quick_action(app, x, y, 1);
+}
+
 function onLoad() {
 	bgCanvas = document.getElementById('bg-canvas');
+	document.body.addEventListener('click', onClick);
 	let hash = document.location.hash;
 	let debug;
 	if (hash == '#debug') {

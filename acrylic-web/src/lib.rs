@@ -2,6 +2,8 @@ use acrylic::app::Application;
 use acrylic::app::Style;
 use acrylic::app::sub_spot;
 use acrylic::node::NodePath;
+use acrylic::node::Event;
+use acrylic::node::EventType;
 use acrylic::bitmap::RGBA;
 use acrylic::Spot;
 use acrylic::Size;
@@ -146,6 +148,23 @@ pub extern fn set_output_size(app: &mut Application, w: usize, h: usize) -> *con
 	};
 	app.set_spot(spot);
 	bg_pixels
+}
+
+#[export_name = "quick_action"]
+pub extern fn quick_action(app: &mut Application, x: isize, y: isize, action: usize) {
+	let (event, t) = match action {
+		1 => (Event::QuickAction1, EventType::QUICK_ACTION_1),
+		2 => (Event::QuickAction2, EventType::QUICK_ACTION_2),
+		3 => (Event::QuickAction3, EventType::QUICK_ACTION_3),
+		4 => (Event::QuickAction4, EventType::QUICK_ACTION_4),
+		5 => (Event::QuickAction5, EventType::QUICK_ACTION_5),
+		6 => (Event::QuickAction6, EventType::QUICK_ACTION_6),
+		_ => unreachable!(),
+	};
+	let p = Point::new(x, y);
+	if let Some(path) = app.hit_test(p, t) {
+		let _ = app.call_handler(&path, event);
+	}
 }
 
 #[export_name = "frame"]

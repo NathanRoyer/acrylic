@@ -82,7 +82,7 @@ pub struct Margin {
 bitflags! {
 	/// This is a bit field of events supported
 	/// by this toolkit.
-	pub struct EventMask: u32 {
+	pub struct EventType: u32 {
 		const QUICK_ACTION_1 = 0b0000000000000001;
 		const QUICK_ACTION_2 = 0b0000000000000010;
 		const QUICK_ACTION_3 = 0b0000000000000100;
@@ -208,9 +208,11 @@ pub trait Node: Debug + Any + 'static {
 	/// to the application. You can implement this method to receive these
 	/// events and maybe react to them.
 	///
-	/// Note: At this moment, no platform has implemented event handling.
+	/// Note: You have to report supported events via
+	/// [`Node::supported_events`] and [`Node::describe_supported_events`]
+	/// to actually receive calls to this method.
 	#[allow(unused)]
-	fn handle(&mut self, app: &mut Application, path: &NodePath, event: Event) -> Status {
+	fn handle(&mut self, app: &mut Application, path: &NodePath, event: &Event) -> Result<Option<String>, ()> {
 		Err(())
 	}
 
@@ -339,10 +341,21 @@ pub trait Node: Debug + Any + 'static {
 		None
 	}
 
-	/// todo: doc
+	/// The `supported_events` method is called during hit
+	/// testing, for platforms with absolute input devices
+	/// like mice.
 	#[allow(unused)]
-	fn event_mask(&self) -> EventMask {
-		EventMask::empty()
+	fn supported_events(&self) -> EventType {
+		EventType::empty()
+	}
+
+	/// The `describe_supported_events` method is called when
+	/// the platform needs a textual description of events
+	/// supported by a node. This helps making applications
+	/// accessible to people with disabilities.
+	#[allow(unused)]
+	fn describe_supported_events(&self) -> Vec<(EventType, String)> {
+		Vec::new()
 	}
 }
 
@@ -383,6 +396,7 @@ lazy_static! {
 pub struct Container {
 	pub children: Vec<RcNode>,
 	pub policy: LengthPolicy,
+	pub on_click: Option<String>,
 	pub spot: Spot,
 	pub axis: Axis,
 	pub gap: usize,
@@ -501,6 +515,22 @@ impl Node for Container {
 			Axis::Vertical   => "Vertical Container",
 			Axis::Horizontal => "Horizontal Container",
 		})
+	}
+
+	fn handle(&mut self, _: &mut Application, _: &NodePath, _: &Event) -> Result<Option<String>, ()> {
+		Ok(self.on_click.clone())
+	}
+
+	fn supported_events(&self) -> EventType {
+		EventType::QUICK_ACTION_1
+	}
+
+	fn describe_supported_events(&self) -> Vec<(EventType, String)> {
+		let mut events = Vec::new();
+		if self.on_click.is_some() {
+			events.push((EventType::QUICK_ACTION_1, String::from("Some action")));
+		}
+		events
 	}
 }
 

@@ -361,7 +361,7 @@ impl Node for Spacer {
 /// Results in a [`Container`] node.
 ///
 /// ```xml
-/// <x rem="1" style="0" gap="10" margin="10" radius="10">
+/// <x rem="1" style="0" gap="10" margin="10" radius="10" onclick="my_handler">
 ///     ...
 /// </x>
 /// ```
@@ -385,6 +385,11 @@ impl Node for Spacer {
 ///
 /// The `radius` attribute is optional and specify that the
 /// container should have round corners of such a radius.
+///
+/// The `on_click` attribute is optional and specifies an
+/// event handler to call when the node receives an
+/// [`Event::QuickAction1`](`crate::node::Event::QuickAction1`).
+/// See [`Application::add_handler`] to set event handlers up.
 ///
 pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	container(Axis::Vertical, attributes)
@@ -397,9 +402,9 @@ pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 /// Results in a [`Container`] node.
 ///
 /// ```xml
-/// <x rem="1" style="0" gap="10" margin="10" radius="10">
+/// <y rem="1" style="0" gap="10" margin="10" radius="10" onclick="my_handler">
 ///     ...
-/// </x>
+/// </y>
 /// ```
 ///
 /// One of these attributes must be present:
@@ -419,8 +424,13 @@ pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 /// The `margin` attribute is optional and specifies an empty
 /// space around the content.
 ///
-/// The `radius` attribute is optional and specify that the
+/// The `radius` attribute is optional and specifies that the
 /// container should have round corners of such a radius.
+///
+/// The `onclick` attribute is optional and specifies an
+/// event handler to call when the node receives an
+/// [`Event::QuickAction1`](`crate::node::Event::QuickAction1`).
+/// See [`Application::add_handler`] to set event handlers up.
 ///
 pub fn h_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	container(Axis::Horizontal, attributes)
@@ -453,10 +463,12 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 	let mut margin = None;
 	let mut radius = None;
 	let mut style = None;
+	let mut on_click = None;
 	let mut gap = 0;
 
 	for Attribute { name, value } in attributes {
 		match name.as_str() {
+			"onclick"  => on_click = Some(value.clone()),
 			"margin"  => margin = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
 			"radius"  => radius = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
 			"gap"     => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
@@ -473,6 +485,7 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 	let container = rc_node(Container {
 		children: Vec::new(),
 		policy: policy?,
+		on_click,
 		spot: (Point::zero(), Size::zero()),
 		margin,
 		radius,

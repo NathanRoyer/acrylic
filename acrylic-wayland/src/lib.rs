@@ -203,7 +203,7 @@ impl WaylandApp {
 			let data = read(&format!("{}{}", assets, request.name)).unwrap();
 			let node = self.acrylic_app.get_node(&request.node).unwrap();
 			let mut node = node.lock().unwrap();
-			node.loaded(&mut self.acrylic_app, &request.node, &request.name, 0, &data);
+			let _ = node.loaded(&mut self.acrylic_app, &request.node, &request.name, 0, &data);
 		}
 		let blits = unsafe { BLITS_PIXELS.as_ref().unwrap() };
 		let mut paths = blits.keys().collect::<Vec<&NodePath>>();

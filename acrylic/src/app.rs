@@ -2,6 +2,8 @@ use crate::node::Node;
 use crate::node::RcNode;
 use crate::node::NodePath;
 use crate::node::rc_node;
+use crate::node::Event;
+use crate::node::EventType;
 use crate::bitmap::RGBA;
 use crate::flexbox::compute_tree;
 use crate::PlatformBlit;
@@ -33,6 +35,11 @@ use std::sync::Arc;
 #[cfg(feature = "text")]
 use std::sync::Mutex;
 
+/// Event Handlers added to the app via
+/// [`Application::add_handler`] must
+/// have this signature.
+pub type EventHandler = Box<dyn FnMut(&mut Application, &NodePath, &Event) -> Status>;
+
 /// The Application structure represents your application.
 ///
 /// It stores the currently displayed view, your model and
@@ -48,6 +55,11 @@ pub struct Application {
 	/// Fonts that can be used by nodes to draw glyphs
 	#[cfg(feature = "text")]
 	pub fonts: HashMap<Option<String>, Arc<Mutex<Font>>>,
+
+	/// Some nodes support custom event handlers; when
+	/// they need to call the handler, they will use this
+	/// field.
+	pub event_handlers: HashMap<String, EventHandler>,
 
 	/// Default font size used by textual nodes
 	#[cfg(feature = "text")]
@@ -151,6 +163,7 @@ impl Application {
 		let mut app = Self {
 			view: rc_node(view),
 			view_spot: (Point::zero(), Size::zero()),
+			event_handlers: HashMap::new(),
 			#[cfg(feature = "text")]
 			fonts: HashMap::new(),
 			#[cfg(feature = "text")]
@@ -192,6 +205,65 @@ impl Application {
 		if default {
 			self.fonts.insert(None, font);
 		}
+	}
+
+	/// Adds an event handler to the application.
+	/// Once added, it can be called by nodes supporting
+	/// custom event handlers.
+	pub fn add_handler(&mut self, name: String, handler: EventHandler) {
+		self.event_handlers.insert(name, handler);
+	}
+
+	/// The platforms should use this method to pass events to
+	/// nodes of the application.
+	pub fn call_handler(&mut self, path: &NodePath, event: Event) -> Status {
+		let mut result = Err(());
+		if let Some(node) = self.get_node(path) {
+			let handler_name = {
+				let mut node = lock(&node).unwrap();
+				node.handle(self, path, &event)?
+			};
+			if let Some(name) = handler_name {
+				let handler = self.event_handlers.remove(&name);
+				if let Some(mut handler) = handler {
+					result = (handler)(self, path, &event);
+					self.event_handlers.insert(name, handler);
+				}
+			}
+		}
+		result
+	}
+
+	/// The platforms should use this method to find the node at
+	/// a specific point on the screen.
+	pub fn hit_test(&mut self, point: Point, e: EventType) -> Option<NodePath> {
+		let mut path = NodePath::new();
+		if Self::hit_test_for(self.view.clone(), point, &mut path, e) {
+			Some(path)
+		} else {
+			None
+		}
+	}
+
+	fn hit_test_for(node: RcNode, p: Point, path: &mut NodePath, e: EventType) -> bool {
+		let ((min, size), children, sup) = {
+			let node = lock(&node).unwrap();
+			let sup = node.supported_events();
+			(node.get_spot(), node.children().to_vec(), sup)
+		};
+		let max_x = min.x + size.w as isize;
+		let max_y = min.y + size.h as isize;
+		if (min.x..max_x).contains(&p.x) && (min.y..max_y).contains(&p.y) {
+			for i in 0..children.len() {
+				path.push(i);
+				if Self::hit_test_for(children[i].clone(), p, path, e) {
+					return true;
+				}
+				path.pop();
+			}
+			return sup.contains(e);
+		}
+		return false;
 	}
 
 	/// The platforms should use this method to add styles
