@@ -13,7 +13,9 @@ use railway::Program;
 #[cfg(feature = "railway")]
 use railway::Couple;
 #[cfg(feature = "railway")]
-use railway::RWY_PXF_RGBA8888;
+use crate::railway::LoadedRailwayProgram;
+#[cfg(feature = "railway")]
+use crate::railway::arg;
 #[cfg(feature = "railway")]
 use lazy_static::lazy_static;
 
@@ -244,40 +246,25 @@ impl Node for DummyNode {
 
 #[cfg(feature = "railway")]
 lazy_static! {
-	static ref CONTAINER_RWY: StyleRwy = {
+	static ref CONTAINER_RWY: LoadedRailwayProgram<4> = {
 		let program = Program::parse(include_bytes!("container.rwy")).unwrap();
 		let stack = program.create_stack();
 		program.valid().unwrap();
-		let (size, margin_radius, parent_rg, parent_ba);
+		let mut addresses = [0; 4];
 		{
-			let arg = |s| program.argument(s).unwrap() as usize;
-			size = arg("size");
-			margin_radius = arg("margin-radius");
-			parent_rg = arg("background-color-red-green");
-			parent_ba = arg("background-color-blue-alpha");
+			let arg = |s| arg(&program, s, true).unwrap();
+			addresses[0] = arg("size");
+			addresses[1] = arg("margin-radius");
+			addresses[2] = arg("background-color-red-green");
+			addresses[3] = arg("background-color-blue-alpha");
 		}
-		StyleRwy {
+		LoadedRailwayProgram {
 			program,
 			stack,
 			mask: Vec::new(),
-			size,
-			margin_radius,
-			parent_rg,
-			parent_ba,
+			addresses,
 		}
 	};
-}
-
-#[cfg(feature = "railway")]
-#[derive(Debug, Clone)]
-pub struct StyleRwy {
-	program: Program,
-	stack: Vec<Couple>,
-	mask: Vec<u8>,
-	size: usize,
-	margin_radius: usize,
-	parent_rg: usize,
-	parent_ba: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -292,7 +279,7 @@ pub struct Container {
 	pub dirty: bool,
 	pub style: Option<usize>,
 	#[cfg(feature = "railway")]
-	pub style_rwy: Option<StyleRwy>,
+	pub style_rwy: Option<LoadedRailwayProgram<4>>,
 }
 
 impl Node for Container {
@@ -311,14 +298,15 @@ impl Node for Container {
 					let c = |i| parent_bg[i] as f32 / 255.0;
 					let margin = self.margin.unwrap_or(1);
 					let radius = self.radius.unwrap_or(1);
-					rwy.stack[rwy.size] = Couple::new(size.w as f32, size.h as f32);
-					rwy.stack[rwy.margin_radius] = Couple::new(margin as f32, radius as f32);
-					rwy.stack[rwy.parent_rg] = Couple::new(c(0), c(1));
-					rwy.stack[rwy.parent_ba] = Couple::new(c(2), c(3));
-					rwy.mask.resize(size.w * size.h, 0);
-					rwy.program.compute(&mut rwy.stack);
+					// size
+					rwy.stack[rwy.addresses[0]] = Couple::new(size.w as f32, size.h as f32);
+					// margin and radius
+					rwy.stack[rwy.addresses[1]] = Couple::new(margin as f32, radius as f32);
+					// parent RG and BA
+					rwy.stack[rwy.addresses[2]] = Couple::new(c(0), c(1));
+					rwy.stack[rwy.addresses[3]] = Couple::new(c(2), c(3));
 					let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
-					rwy.program.render::<RWY_PXF_RGBA8888>(&rwy.stack, dst, &mut rwy.mask, size.w, size.h, pitch);
+					rwy.render(dst, pitch, size)?;
 				}
 			}
 			if let Some(i) = self.style {

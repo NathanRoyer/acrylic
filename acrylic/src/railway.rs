@@ -21,7 +21,6 @@ use crate::xml::unexpected_attr;
 use crate::app::DataRequest;
 
 use railway::Program;
-use railway::Address;
 use railway::Couple;
 use railway::RWY_PXF_RGBA8888;
 
@@ -30,20 +29,47 @@ use core::any::Any;
 use std::string::String;
 use std::vec::Vec;
 
-/// See [`xml_handler`]
-#[derive(Debug, Clone)]
-pub struct Railway {
-	pub(crate) program: Program,
-	pub(crate) stack: Vec<Couple>,
-	pub(crate) ratio: f64,
-	pub(crate) size_arg: Address,
-	pub(crate) time_arg: Option<Address>,
-	pub(crate) mask: Vec<u8>,
-	pub(crate) spot: Spot,
-	// TODO later: theming
+pub fn arg(program: &Program, name: &str, mandatory: bool) -> Result<usize, Option<String>> {
+	match program.argument(name) {
+		Some(addr) => Ok(addr as usize),
+		None => Err(match mandatory {
+			true => Some("Missing {} in railway file".into()),
+			false => None,
+		}),
+	}
 }
 
-impl Railway {
+#[derive(Debug, Clone)]
+pub struct LoadedRailwayProgram<const A: usize> {
+	pub program: Program,
+	pub stack: Vec<Couple>,
+	pub mask: Vec<u8>,
+	pub addresses: [usize; A],
+}
+
+/// See [`xml_handler`]
+#[derive(Debug, Clone)]
+pub struct RailwayNode {
+	pub(crate) lrp: LoadedRailwayProgram<1>,
+	pub(crate) time_arg: Option<usize>,
+	pub(crate) ratio: f64,
+	pub(crate) spot: Spot,
+}
+
+const PXF: u8 = RWY_PXF_RGBA8888;
+
+impl<const A: usize> LoadedRailwayProgram<A> {
+	pub fn render(&mut self, dst: &mut [u8], pitch: usize, size: Size) -> Status {
+		self.mask.resize(size.w * size.h, 0);
+		self.program.compute(&mut self.stack);
+		let stack = &self.stack;
+		let mask = &mut self.mask;
+		self.program.render::<PXF>(stack, dst, mask, size.w, size.h, pitch);
+		Ok(())
+	}
+}
+
+impl RailwayNode {
 	pub fn new(bytes: &[u8]) -> Result<Self, String> {
 		let program = match Program::parse(bytes) {
 			Ok(p) => p,
@@ -51,19 +77,19 @@ impl Railway {
 		};
 		let stack = program.create_stack();
 		program.valid().ok_or(format!("Invalid railway file"))?;
-		let size_arg = program
-			.argument("size")
-			.ok_or(String::from("Missing size in railway file"))?;
-		let size = stack[size_arg as usize];
+		let size_arg = arg(&program, "size", true).map_err(|o| o.unwrap())?;
+		let time_arg = arg(&program, "time", false).ok();
+		let size = stack[size_arg];
 		let ratio = aspect_ratio(size.x as usize, size.y as usize);
-		let time_arg = program.argument("time");
 		Ok(Self {
-			program,
-			stack,
-			ratio,
-			size_arg,
+			lrp: LoadedRailwayProgram {
+				program,
+				stack,
+				mask: Vec::new(),
+				addresses: [size_arg],
+			},
 			time_arg,
-			mask: Vec::new(),
+			ratio,
 			spot: (Point::zero(), Size::zero()),
 		})
 	}
@@ -72,15 +98,13 @@ impl Railway {
 		let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
 		let (_, size) = self.spot;
 		let _ = self.time_arg;
-		self.mask.resize(size.w * size.h, 0);
-		self.stack[self.size_arg as usize] = Couple::new(size.w as f32, size.h as f32);
-		self.program.compute(&mut self.stack);
-		self.program.render::<RWY_PXF_RGBA8888>(&self.stack, dst, &mut self.mask, size.w, size.h, pitch);
-		Ok(())
+		let c_size = Couple::new(size.w as f32, size.h as f32);
+		self.lrp.stack[self.lrp.addresses[0]] = c_size;
+		self.lrp.render(dst, pitch, size)
 	}
 }
 
-impl Node for Railway {
+impl Node for RailwayNode {
 	fn as_any(&mut self) -> &mut dyn Any {
 		self
 	}
@@ -131,7 +155,7 @@ impl Node for RailwayLoader {
 	}
 
 	fn loaded(&mut self, app: &mut Application, path: &NodePath, _: &str, _: usize, data: &[u8]) -> Status {
-		let railway = match Railway::new(data) {
+		let railway = match RailwayNode::new(data) {
 			Err(s) => {
 				app.log(&format!("[rwy] loading error: {}", s));
 				return Err(());
