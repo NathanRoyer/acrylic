@@ -11,18 +11,18 @@ use crate::lock;
 
 use core::ops::DerefMut;
 
-// use std::println;
-// #[cfg(not(feature = "std"))]
-// use std::print;
-
 /// This function will update the size and position of each
 /// node under `root` in a way that ressembles the CSS Flexible
 /// Box Layout aglorithm. For each node it encounters, it lays
-/// it out according to the [`crate::tree::LengthPolicy`] setting of the node.
+/// it out according to the [`LengthPolicy`](`crate::node::LengthPolicy`)
+/// setting of the node.
 ///
-/// Note: This function must never add properties to nodes, so
-/// nodes which do not already have size and position settings
-/// (whatever their value) are skipped.
+/// Note: The [`LengthPolicy`](`crate::node::LengthPolicy`)
+/// of the root node has no effect, as its size is set
+/// by the platform.
+///
+/// Prefer setting `app.should_recompute` to true
+/// instead of calling this directly, when possible.
 pub fn compute_tree(root: &dyn Node) -> Status {
 	let (_, size) = status(root.get_content_spot())?;
 	let (axis, _) = status(root.container())?;
@@ -30,7 +30,6 @@ pub fn compute_tree(root: &dyn Node) -> Status {
 	let _ = compute_children_sizes(root, cross);
 	let _ = compute_remaining_children_sizes(root, cross);
 	let _ = compute_children_positions(root);
-	// println!("{:#?}", root);
 	Ok(())
 }
 

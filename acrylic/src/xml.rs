@@ -30,28 +30,29 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use std::string::String;
 use std::vec::Vec;
-use std::println;
-#[cfg(not(feature = "std"))]
-use std::print;
 
 /// An XML Attribute
+///
+/// Note: During parsing, prefixes (namespaces) are
+/// stripped from attributes before these structures
+/// are created.
 #[derive(Debug, Clone)]
 pub struct Attribute {
-	/// If a namespace was specified in the xml file,
-	/// `name` will contain both namespace and local
-	/// name as in: `"[namespace]:[local name]"`.
 	pub name: String,
 	pub value: String,
 }
 
+/// Utility function to react to unexpected attributes.
 pub fn unexpected_attr(attr: &str) -> Result<(), String> {
 	let mut errmsg = String::from("unexpected attribute: ");
 	errmsg += attr;
 	Err(errmsg)
 }
 
-type RcHandler = Arc<Mutex<dyn Fn(&mut TreeParser, &[Attribute]) -> Result<Option<RcNode>, String>>>;
+/// Handle to a node-creating tag handler.
+pub type RcHandler = Arc<Mutex<dyn Fn(&mut TreeParser, &[Attribute]) -> Result<Option<RcNode>, String>>>;
 
+/// Wraps a function in a [`RcHandler`]
 pub fn rc_handler<H: 'static + Fn(&mut TreeParser, &[Attribute]) -> Result<Option<RcNode>, String>>(handler: H) -> RcHandler {
 	Arc::new(Mutex::new(handler))
 }
@@ -83,6 +84,11 @@ fn err(msg: &str, arg: &str, xml: &str, span: StrSpan) -> Result<RcNode, String>
 }
 
 impl TreeParser {
+	/// Create a parser for an xml view.
+	///
+	/// `params` is used when tags of this view
+	/// reference a parameter in their attribute.
+	/// This allows for simple templating.
 	pub fn new(params: Vec<Attribute>) -> Self {
 		let mut parameters = HashMap::new();
 		for Attribute { name, value } in params {
@@ -94,13 +100,25 @@ impl TreeParser {
 		}
 	}
 
+	/// Add all tags built in this toolkit to the parser.
+	///
+	/// This includes:
+	/// * `p` → [`xml_paragraph`](`crate::text::xml_paragraph`)
+	/// * `png` → [`xml_load_png`](`crate::png::xml_load_png`)
+	/// * `rwy` → [`xml_load_railway`](`crate::railway::xml_load_railway`)
+	/// * `x` → [`h_container`]
+	/// * `y` → [`v_container`]
+	/// * `import` → [`import`]
+	/// * `inflate` → [`spacer`]
+	///
+	/// See their documentation for a list of respective attributes.
 	pub fn with_builtin_tags(&mut self) -> &mut Self {
 		#[cfg(feature = "text")]
-		self.with("p", rc_handler(crate::text::paragraph));
+		self.with("p", rc_handler(crate::text::xml_paragraph));
 		#[cfg(feature = "png")]
-		self.with("png", rc_handler(crate::png::xml_handler));
+		self.with("png", rc_handler(crate::png::xml_load_png));
 		#[cfg(feature = "railway")]
-		self.with("rwy", rc_handler(crate::railway::xml_handler));
+		self.with("rwy", rc_handler(crate::railway::xml_load_railway));
 		self.with("x", rc_handler(h_container))
 			.with("y", rc_handler(v_container))
 			.with("import", rc_handler(import))
@@ -189,7 +207,7 @@ impl TreeParser {
 						stack.pop().unwrap();
 					}
 				}
-				_ => println!("[xml] ignoring {:?}", token.unwrap()),
+				_ => (/* do nothing */),
 			}
 		}
 		match root {
@@ -199,6 +217,9 @@ impl TreeParser {
 	}
 }
 
+/// [`Node`] implementor which makes a request to
+/// the contained source, parses the response then
+/// replaces itself with the parsed node.
 #[derive(Debug, Clone)]
 pub struct ViewLoader {
 	pub source: String,
@@ -206,6 +227,7 @@ pub struct ViewLoader {
 }
 
 impl ViewLoader {
+	/// Create a new [`ViewLoader`] with no parameters
 	pub fn new(source: &str) -> Self {
 		Self {
 			source: String::from(source),
@@ -255,6 +277,29 @@ impl Node for ViewLoader {
 	}
 }
 
+/// XML tag for template import.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// For example, if `templates/fake-button.xml` contains this:
+/// ```xml
+/// <p margin="10" param:txt="button-text" />
+/// ```
+///
+/// You would import the template like so:
+///
+/// ```xml
+/// <import tag="fake-button" src="templates/fake-button.xml" />
+/// ...
+/// <fake-button button-text="can't click me!" />
+/// ```
+///
+/// Notice how the template mapped the `button-text` parameter
+/// to the `txt` attribute.
+///
+/// The `tag` attribute is mandatory and will be a valid tag name after this line.
+///
+/// The `src` attribute is mandatory and must point to an xml view.
 pub fn import(parser: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut tag = Err(String::from("missing tag attribute"));
 	let mut source = Err(String::from("missing source attribute"));
@@ -279,6 +324,9 @@ pub fn import(parser: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 	Ok(None)
 }
 
+/// An invisible [`Node`] implementor which
+/// a length policy of Remaining(1.0), making
+/// it take available space.
 #[derive(Debug)]
 pub struct Spacer {
 	pub spot: Spot,
@@ -306,16 +354,90 @@ impl Node for Spacer {
 	}
 }
 
-/// tag parser for a vertical container.
+/// XML tag for vertical containers.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`Container`] node.
+///
+/// ```xml
+/// <x rem="1" style="0" gap="10" margin="10" radius="10">
+///     ...
+/// </x>
+/// ```
+///
+/// One of these attributes must be present:
+/// * `fixed="N"` → maps to [`LengthPolicy::Fixed`]
+/// * `  rem="N"` → maps to [`LengthPolicy::Remaining`]
+/// * `hunks="N"` → maps to [`LengthPolicy::Chunks`]
+/// * `ratio="N"` → maps to [`LengthPolicy::AspectRatio`]
+/// * ` wrap="" ` → maps to [`LengthPolicy::WrapContent`]
+///
+/// The `style` attribute is optional and references a style.
+/// Note: This is in early state of development, it is not defined
+/// how much is the maximum for this attribute.
+///
+/// The `gap` attribute is optional and defines the space
+/// between consecutive children of this container.
+///
+/// The `margin` attribute is optional and specifies an empty
+/// space around the content.
+///
+/// The `radius` attribute is optional and specify that the
+/// container should have round corners of such a radius.
+///
 pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	container(Axis::Vertical, attributes)
 }
 
-/// tag parser for an horizontal container.
+/// XML tag for horizontal containers.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`Container`] node.
+///
+/// ```xml
+/// <x rem="1" style="0" gap="10" margin="10" radius="10">
+///     ...
+/// </x>
+/// ```
+///
+/// One of these attributes must be present:
+/// * `fixed="N"` → maps to [`LengthPolicy::Fixed`]
+/// * `  rem="N"` → maps to [`LengthPolicy::Remaining`]
+/// * `hunks="N"` → maps to [`LengthPolicy::Chunks`]
+/// * `ratio="N"` → maps to [`LengthPolicy::AspectRatio`]
+/// * ` wrap="" ` → maps to [`LengthPolicy::WrapContent`]
+///
+/// The `style` attribute is optional and references a style.
+/// Note: This is in early state of development, it is not defined
+/// how much is the maximum for this attribute.
+///
+/// The `gap` attribute is optional and defines the space
+/// between consecutive children of this container.
+///
+/// The `margin` attribute is optional and specifies an empty
+/// space around the content.
+///
+/// The `radius` attribute is optional and specify that the
+/// container should have round corners of such a radius.
+///
 pub fn h_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	container(Axis::Horizontal, attributes)
 }
 
+/// XML tag for a spacer.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`Spacer`] node.
+///
+/// ```xml
+/// <inflate />
+/// ```
+///
+/// These tags allow no attributes.
+///
 pub fn spacer(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	for Attribute { name, .. } in attributes {
 		Err(format!("unexpected attribute: {}", name))?;

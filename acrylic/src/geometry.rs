@@ -1,5 +1,6 @@
 use crate::node::Axis;
 
+/// General-purpose position structure
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
 	pub x: isize,
@@ -26,9 +27,12 @@ impl Point {
 	}
 }
 
+/// General-purpose size structure
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Size {
+	/// Width
 	pub w: usize,
+	/// Height
 	pub h: usize,
 }
 
@@ -52,8 +56,10 @@ impl Size {
 	}
 }
 
+/// Type representing a rectangle
 pub type Spot = (Point, Size);
 
+/// Utility to compute an aspect-ratio
 pub fn aspect_ratio(w: usize, h: usize) -> f64 {
 	(w as f64) / (h as f64)
 }

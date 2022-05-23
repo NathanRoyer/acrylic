@@ -27,7 +27,9 @@ use core::any::Any;
 use std::string::String;
 use std::vec::Vec;
 
-/// See [`xml_handler`]
+/// [`Node`] implementor which makes a request to
+/// the contained source then replaces itself with
+/// a [`Bitmap`] once data has been loaded and parsed.
 #[derive(Debug, Clone)]
 pub struct PngLoader {
 	source: String,
@@ -92,13 +94,19 @@ impl Node for PngLoader {
 	}
 }
 
-/// This function is to be used in [`crate::xml::TreeParser::with`].
-/// It parses xml attributes to find an image source, and installs
-/// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
-/// instance parses the png image and replaces itself with a [`Bitmap`]
-/// containing the decoded image.
+/// XML tag for PNG Images.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`PngLoader`] node.
+///
+/// ```xml
+/// <png src="img/image0.png" />
+/// ```
+///
+/// The `src` attribute is mandatory and must point to a PNG image asset.
 #[cfg(feature = "xml")]
-pub fn xml_handler(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
+pub fn xml_load_png(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut source = Err(String::from("missing src attribute"));
 
 	for Attribute { name, value } in attributes {

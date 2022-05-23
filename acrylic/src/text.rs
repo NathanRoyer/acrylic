@@ -45,8 +45,10 @@ use std::sync::Mutex;
 use std::string::String;
 use std::vec::Vec;
 
+/// 1/100 of a value
 pub type Cents = usize;
 
+/// Specifies a font variant
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct FontConfig {
 	pub weight: Cents,
@@ -65,8 +67,11 @@ pub struct Font {
 	pub(crate) glyphs: HashMap<(usize, Color, FontConfig, GlyphId), RcNode>,
 }
 
+/// A handle to a [`Font`].
 pub type RcFont = Arc<Mutex<Font>>;
 
+/// A wrapping container for glyphs which should
+/// not be separated.
 #[derive(Clone)]
 pub struct Unbreakable {
 	pub glyphs: Vec<RcNode>,
@@ -113,6 +118,8 @@ impl Debug for Unbreakable {
 	}
 }
 
+/// A single glyph. The underlying bitmap is shared
+/// among all instances of that glyph.
 #[derive(Debug, Clone)]
 pub struct GlyphNode {
 	pub bitmap: RcNode,
@@ -160,6 +167,9 @@ impl Node for GlyphNode {
 	}
 }
 
+/// An empty, invisible node which has the size
+/// of a specific glyph. Used to occupy space
+/// when it is too early to produce bitmaps of glyphs.
 #[derive(Debug, Clone)]
 pub struct Placeholder {
 	pub ratio: f64,
@@ -188,6 +198,9 @@ impl Node for Placeholder {
 	}
 }
 
+/// Initially a font name, which is replaced
+/// by a handle to the font once the font is
+/// resolved.
 #[derive(Debug, Clone)]
 pub enum FontState {
 	Available(Arc<Mutex<Font>>),
@@ -207,8 +220,6 @@ impl FontState {
 /// made of multiple parts which may have different
 /// configurations: some might be underlined, some
 /// might be bold, others can be both, etc.
-///
-/// TODO: handle font size changes properly.
 #[derive(Debug, Clone)]
 pub struct Paragraph {
 	pub parts: Vec<(FontConfig, String)>,
@@ -216,15 +227,18 @@ pub struct Paragraph {
 	pub children: Vec<RcNode>,
 	pub space_width: usize,
 	pub policy: Option<LengthPolicy>,
+	/// Used in [`Paragraph::validate_spot`]
 	pub prev_spot: Spot,
 	pub margin: Option<Margin>,
+	/// Ignored when `policy` is WrapContent.
 	pub font_size: Option<usize>,
 	pub spot: Spot,
+	/// Initialize to `true`
 	pub dirty: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct ParagraphIter<'a> {
+struct ParagraphIter<'a> {
 	pub paragraph: &'a Paragraph,
 	pub i: usize,
 	pub cfg: FontConfig,
@@ -242,8 +256,6 @@ impl Font {
 
 	/// Used internally to obtain a rendered glyph
 	/// from the font, which is then kept in cache.
-	///
-	/// TODO: handle font size changes properly.
 	pub fn get(&mut self, c: char, next: Option<char>, rdr_cfg: Option<(usize, Color)>, char_cfg: FontConfig) -> RcNode {
 		let font = self.ab_glyph_font.as_scaled(match rdr_cfg {
 			Some((h, _)) => h as f32,
@@ -474,9 +486,31 @@ impl Node for Paragraph {
 	}
 }
 
-/// This function is to be used in [`crate::xml::TreeParser::with`].
+/// XML tag for paragraphs of text.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`Paragraph`] node.
+///
+/// A font's name is the one you specified in [`Application::add_font`].
+///
+/// ```xml
+/// <p txt="Hello World!" font="some-font-name" font-size="20" margin="10" />
+/// ```
+///
+/// The `txt` attribute is mandatory and must contain valid UTF-8.
+///
+/// The `font` attribute is optional and must point to a loaded font.
+///
+/// The `font-size` attribute is optional.
+/// It is ignored if the paragraph ends up in an horizontal container.
+///
+/// The `margin` attribute is optional and specifies a margin around the paragraph.
+///
+/// It is impossible at the moment to use this for rich text, but it is
+/// a planned feature.
 #[cfg(feature = "xml")]
-pub fn paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
+pub fn xml_paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut text = Err(String::from("missing txt attribute"));
 	let mut font_size = None;
 	let mut font = None;
@@ -486,12 +520,7 @@ pub fn paragraph(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<
 		match name.as_str() {
 			"margin" => {
 				let m = value.parse().map_err(|_| format!("bad value: {}", value))?;
-				margin = Some(Margin {
-					left: m,
-					top: m,
-					bottom: m,
-					right: m,
-				});
+				margin = Some(Margin::quad(m));
 			},
 			"txt" => text = Ok(value.clone()),
 			"font" => font = Some(value.clone()),

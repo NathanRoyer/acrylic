@@ -27,11 +27,8 @@ use std::sync::Mutex;
 use std::string::String;
 use std::vec::Vec;
 
-/// This allows nodes to be layed out in various ways
-/// by our flexbox-like algorithm. This structure
-/// helps decide the main axis length; the cross axis
-/// length depends on the container and cannot be
-/// impacted by the children of the container.
+/// Nodes specify a policy to be layed out in various ways
+/// by the [layout functions](`crate::flexbox::compute_tree`).
 #[derive(Debug, Copy, Clone)]
 pub enum LengthPolicy {
 	// needs two passes in diff-axis config
@@ -39,30 +36,39 @@ pub enum LengthPolicy {
 	/// Main length is just enough to contain all children.
 	/// Valid for containers only.
 	WrapContent,
-	/// Main length is a fixed number of pixels
+	/// Main length is a fixed number of pixels.
 	Fixed(usize),
 	/// Main length is divided in chunks of specified
 	/// length (in pixels). The number of chunks is
 	/// determined by the contained nodes: there will
 	/// be as many chunks as necessary for all children
 	/// to fit in.
-	/// Valid for diff-axis [todo: explain diff-axis] containers only.
+	/// For this to work, the node must be:
+	/// * A vertical container in an vorizontal container, or
+	/// * An horizontal container in a vertical container.
 	Chunks(usize),
 	/// Main length is computed from the cross length
 	/// so that the size of the node maintains a certain
 	/// aspect ratio.
 	AspectRatio(f64),
-	/// todo: doc
+	/// After neighbors with a different policy are layed
+	/// out, nodes with this policy are layed-out so that
+	/// they occupy the remaining space in their container.
+	/// The `f64` is the relative "weight" of this node:
+	/// heavier nodes will get more space, lighter nodes
+	/// will get less space. If they all have the same
+	/// weight, they will all get the same space.
 	Remaining(f64),
 }
 
+/// General-purpose axis enumeration
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Axis {
 	Horizontal,
 	Vertical,
 }
 
-/// This can be used by [`crate::application::Widget`] implementations
+/// This can be used by [`Node`] implementations
 /// to offset the boundaries of their original
 /// rendering spot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -74,6 +80,8 @@ pub struct Margin {
 }
 
 bitflags! {
+	/// This is a bit field of events supported
+	/// by this toolkit.
 	pub struct EventMask: u32 {
 		const QUICK_ACTION_1 = 0b0000000000000001;
 		const QUICK_ACTION_2 = 0b0000000000000010;
@@ -90,11 +98,10 @@ bitflags! {
 		const WHEEL_X        = 0b0001000000000000;
 		const WHEEL_Y        = 0b0010000000000000;
 		const TEXT_INPUT     = 0b0100000000000000;
-		const DELETE         = 0b1000000000000000;
 	}
 }
 
-/// An event which widgets can handle.
+/// Events supported by this toolkit.
 #[derive(Debug, Clone)]
 pub enum Event {
 	QuickAction1,
@@ -112,62 +119,158 @@ pub enum Event {
 	WheelX(f64),
 	WheelY(f64),
 	TextInput(String),
-	Delete,
 }
 
+/// A path to a node in a view
 pub type NodePath = Vec<usize>;
 
+/// Trait for elements of a view
 pub trait Node: Debug + Any + 'static {
-	/// `as_any` is required for as long as upcasting coercion is unstable
+	/// `as_any` is required for downcasting.
 	fn as_any(&mut self) -> &mut dyn Any;
 
 	#[allow(unused)]
+	/// This method is called each time a new frame
+	/// is being created for display.
+	///
+	/// The `style` parameter is an index into `app.styles`.
+	/// Nodes should follow this style when applicable.
+	/// For containers, the returned `usize` is the style
+	/// index which will be passed to its children. For
+	/// non-containers, this `usize` has no effect.
+	///
+	/// Example implementation filling the spot with white:
+	/// ```rust
+	/// use acrylic::Spot;
+	/// use acrylic::node::Node;
+	/// use acrylic::node::NodePath;
+	/// use acrylic::node::LengthPolicy;
+	/// use acrylic::app::Application;
+	/// use acrylic::app::for_each_line;
+	/// use core::any::Any;
+	///
+	/// #[derive(Debug, Copy, Clone)]
+	/// struct MyNode {
+	///     dirty: bool,
+	///     spot: Spot,
+	/// }
+	/// 
+	/// impl Node for MyNode {
+	///     fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
+	///         if self.dirty {
+	///             if let Ok((dst, pitch, _)) = app.blit(&self.spot, Some(path)) {
+	///                 let (_, size) = self.spot;
+	///                 for_each_line(dst, size, pitch, |_, line| {
+	///                     line.fill(255);
+	///                 });
+	///             } else {
+	///                 app.log("rendering failed.");
+	///             }
+	///             self.dirty = false;
+	///         }
+	///         Ok(0)
+	///     }
+	/// 
+	///     // other methods necessary for rendering:
+	/// 
+	///     fn as_any(&mut self) -> &mut dyn Any {
+	///         self
+	///     }
+	/// 
+	///     fn describe(&self) -> String {
+	///         String::from("White Square")
+	///     }
+	/// 
+	///     fn set_dirty(&mut self) {
+	///         self.dirty = true;
+	///     }
+	/// 
+	///     fn policy(&self) -> LengthPolicy {
+	///         LengthPolicy::AspectRatio(1.0)
+	///     }
+	/// 
+	///     fn get_spot(&self) -> Spot {
+	///         self.spot
+	///     }
+	/// 
+	///     fn set_spot(&mut self, spot: Spot) {
+	///         self.spot = spot;
+	///         // we could need a repaint:
+	///         self.dirty = true;
+	///     }
+	/// }
+	/// ```
 	fn render(&mut self, app: &mut Application, path: &mut NodePath, style: usize) -> Result<usize, ()> {
 		Err(())
 	}
 
 	/// The `handle` method is called when the platform forwards an event
-	/// to the application. Using `app.tree`, one can manipulate the node
-	/// identified by the `node` argument in reaction.
+	/// to the application. You can implement this method to receive these
+	/// events and maybe react to them.
 	///
-	/// To receive events via this interface, you must first initialize
-	/// the node using [`Tree::set_node_handler`].
+	/// Note: At this moment, no platform has implemented event handling.
 	#[allow(unused)]
 	fn handle(&mut self, app: &mut Application, path: &NodePath, event: Event) -> Status {
 		Err(())
 	}
 
-	/// Once you add [`DataRequest`]s to `app.data_requests`, the platform
-	/// should fetch the data you requested. Once it has fetched the data,
-	/// It will call the `loaded` method.
+	/// Once you add [`DataRequest`](`crate::app::DataRequest`)s to
+	/// `app.data_requests`, the platform should fetch the data you
+	/// requested. Once it has fetched the data, it will call the
+	/// `loaded` method.
 	#[allow(unused)]
 	fn loaded(&mut self, app: &mut Application, path: &NodePath, name: &str, offset: usize, data: &[u8]) -> Status {
 		Err(())
 	}
 
+	/// When instanciating your object implementing [`Node`],
+	/// you might find that it is too early for some
+	/// work (such as pushing [`DataRequest`](`crate::app::DataRequest`)s).
+	/// You can use this method, which is called as soon as
+	/// your node is attached to an app's view, to do such
+	/// things.
 	#[allow(unused)]
 	fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
 		Ok(())
 	}
 
+	/// General-purpose containers must implement this method
+	/// to receive children (for instance while parsing views).
 	#[allow(unused)]
 	fn add_node(&mut self, child: RcNode) -> Result<usize, String> {
 		Err(String::from("Not a container"))
 	}
 
+	/// This method is called when a child of this node is to
+	/// be replaced. All General-purpose containers must implement
+	/// this.
 	#[allow(unused)]
 	fn replace_node(&mut self, index: usize, child: RcNode) -> Result<(), String> {
 		Err(String::from("Not a container"))
 	}
 
+	/// Nodes can report a margin to the layout algorithm
+	/// via this method.
 	fn margin(&self) -> Option<Margin> {
 		None
 	}
 
+	/// The layout code will call this method on every
+	/// node to know how it should lay it out. The default
+	/// implementation return a fixed length policy of
+	/// zero pixels.
+	///
+	/// Note: This function must return the same value
+	/// for the entire lifetime of the object implementing
+	/// [`Node`].
+	///
+	/// See [`LengthPolicy`] for a list of policies.
 	fn policy(&self) -> LengthPolicy {
 		LengthPolicy::Fixed(0)
 	}
 
+	/// Used by [`Application`] code to force a node
+	/// to render during next frame rendering.
 	fn set_dirty(&mut self) {
 		// do nothing by default
 	}
@@ -177,15 +280,21 @@ pub trait Node: Debug + Any + 'static {
 	/// applications accessible to people with disabilities.
 	fn describe(&self) -> String;
 
+	/// A getter for a node's children. General-purpose
+	/// containers must implement this.
 	#[allow(unused)]
 	fn children(&self) -> &[RcNode] {
 		&[]
 	}
 
+	/// A getter for a node's spot. The spot
+	/// is set by layout code via [`Node::set_spot`].
 	fn get_spot(&self) -> Spot {
 		(Point::zero(), Size::zero())
 	}
 
+	/// Offsets a spot by a node's margin. It should
+	/// never be required to implement this.
 	fn get_content_spot_at(&self, mut spot: Spot) -> Option<Spot> {
 		if let Some(margin) = self.margin() {
 			spot.0.x += margin.left;
@@ -200,48 +309,50 @@ pub trait Node: Debug + Any + 'static {
 		Some(spot)
 	}
 
+	/// Offsets a node's spot by that node's margin.
+	/// It should never be required to implement this.
 	fn get_content_spot(&self) -> Option<Spot> {
 		self.get_content_spot_at(self.get_spot())
 	}
 
+	/// The layout code may call this method many times
+	/// during layout. Renderable Nodes should store the
+	/// given spot and give it back when [`Node::get_spot`]
+	/// is called.
 	#[allow(unused)]
 	fn set_spot(&mut self, spot: Spot) {
 		// do nothing
 	}
 
+	/// This is called exactly once after layout so that
+	/// nodes can process spot changes.
 	fn validate_spot(&mut self) {
 		// do nothing
 	}
 
+	/// General-purpose containers should implement this
+	/// method. It allows the layout code to know on which
+	/// axis it should lay the children out as well as
+	/// the gap to place between each child.
 	#[allow(unused)]
 	fn container(&self) -> Option<(Axis, usize)> {
 		None
 	}
 
+	/// todo: doc
 	#[allow(unused)]
 	fn event_mask(&self) -> EventMask {
 		EventMask::empty()
 	}
 }
 
+/// A handle to a [`Node`] implementor.
 pub type RcNode = Arc<Mutex<dyn Node>>;
 
-/// This utility function wraps a widget in an Arc<Mutex<W>>.
+/// This utility function wraps a node
+/// implementor in an [`RcNode`].
 pub fn rc_node<W: Node>(node: W) -> RcNode {
 	Arc::new(Mutex::new(node))
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct DummyNode;
-
-impl Node for DummyNode {
-	fn as_any(&mut self) -> &mut dyn Any {
-		self
-	}
-
-	fn describe(&self) -> String {
-		String::from("Dummy node")
-	}
 }
 
 #[cfg(feature = "railway")]
@@ -267,6 +378,7 @@ lazy_static! {
 	};
 }
 
+/// General-purpose container
 #[derive(Debug, Clone)]
 pub struct Container {
 	pub children: Vec<RcNode>,
@@ -275,9 +387,13 @@ pub struct Container {
 	pub axis: Axis,
 	pub gap: usize,
 	pub margin: Option<usize>,
+	/// For rounded-corners
 	pub radius: Option<usize>,
+	/// Initialize to `true`
 	pub dirty: bool,
+	/// Style override
 	pub style: Option<usize>,
+	/// Initialize to `None`
 	#[cfg(feature = "railway")]
 	pub style_rwy: Option<LoadedRailwayProgram<4>>,
 }

@@ -29,6 +29,7 @@ use core::any::Any;
 use std::string::String;
 use std::vec::Vec;
 
+/// Resolves an argument to an address in a railway program.
 pub fn arg(program: &Program, name: &str, mandatory: bool) -> Result<usize, Option<String>> {
 	match program.argument(name) {
 		Some(addr) => Ok(addr as usize),
@@ -39,6 +40,9 @@ pub fn arg(program: &Program, name: &str, mandatory: bool) -> Result<usize, Opti
 	}
 }
 
+/// Minimal structure which you can store between
+/// railway renderings and which holds everything
+/// needed to render.
 #[derive(Debug, Clone)]
 pub struct LoadedRailwayProgram<const A: usize> {
 	pub program: Program,
@@ -47,7 +51,7 @@ pub struct LoadedRailwayProgram<const A: usize> {
 	pub addresses: [usize; A],
 }
 
-/// See [`xml_handler`]
+/// [`Node`] implementor which displays a railway image.
 #[derive(Debug, Clone)]
 pub struct RailwayNode {
 	pub(crate) lrp: LoadedRailwayProgram<1>,
@@ -59,6 +63,11 @@ pub struct RailwayNode {
 const PXF: u8 = RWY_PXF_RGBA8888;
 
 impl<const A: usize> LoadedRailwayProgram<A> {
+	/// Renders a railway image to a buffer.
+	///
+	/// Alpha blending is not implemented here,
+	/// so any transparency in the image will
+	/// override transparent pixels in the buffer.
 	pub fn render(&mut self, dst: &mut [u8], pitch: usize, size: Size) -> Status {
 		self.mask.resize(size.w * size.h, 0);
 		self.program.compute(&mut self.stack);
@@ -70,6 +79,7 @@ impl<const A: usize> LoadedRailwayProgram<A> {
 }
 
 impl RailwayNode {
+	/// Parse and create a railway node.
 	pub fn new(bytes: &[u8]) -> Result<Self, String> {
 		let program = match Program::parse(bytes) {
 			Ok(p) => p,
@@ -92,15 +102,6 @@ impl RailwayNode {
 			ratio,
 			spot: (Point::zero(), Size::zero()),
 		})
-	}
-
-	pub fn render(&mut self, app: &mut Application, path: &mut NodePath) -> Status {
-		let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
-		let (_, size) = self.spot;
-		let _ = self.time_arg;
-		let c_size = Couple::new(size.w as f32, size.h as f32);
-		self.lrp.stack[self.lrp.addresses[0]] = c_size;
-		self.lrp.render(dst, pitch, size)
 	}
 }
 
@@ -126,11 +127,19 @@ impl Node for RailwayNode {
 	}
 
 	fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
-		self.render(app, path)?;
+		let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+		let (_, size) = self.spot;
+		let _ = self.time_arg;
+		let c_size = Couple::new(size.w as f32, size.h as f32);
+		self.lrp.stack[self.lrp.addresses[0]] = c_size;
+		self.lrp.render(dst, pitch, size)?;
 		Ok(0)
 	}
 }
 
+/// [`Node`] implementor which requests PNG bytes
+/// then replaces itself with a [`RailwayNode`] once
+/// data has been loaded and parsed.
 #[derive(Debug, Clone)]
 pub struct RailwayLoader {
 	source: String,
@@ -167,13 +176,19 @@ impl Node for RailwayLoader {
 	}
 }
 
-/// This function is to be used in [`crate::xml::TreeParser::with`].
-/// It parses xml attributes to find an image source, and installs
-/// a PngLoader node and a data request for the image. Once the data loads, the [`PngLoader`]
-/// instance parses the png image and replaces itself with a [`Bitmap`]
-/// containing the decoded image.
+/// XML tag for Railway Images.
+///
+/// Pass this to [`TreeParser::with`].
+///
+/// Results in a [`RailwayLoader`] node.
+///
+/// ```xml
+/// <rwy src="img/image0.rwy" />
+/// ```
+///
+/// The `src` attribute is mandatory and must point to a railway image asset.
 #[cfg(feature = "xml")]
-pub fn xml_handler(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
+pub fn xml_load_railway(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<RcNode>, String> {
 	let mut source = Err(String::from("missing src attribute"));
 
 	for Attribute { name, value } in attributes {

@@ -22,6 +22,7 @@ use std::string::String;
 use std::vec::Vec;
 use std::prelude::v1::vec;
 
+/// Number of channels
 pub type Channels = usize;
 
 /// red, green, blue, alpha
@@ -33,28 +34,28 @@ pub const RGB:  Channels = 3;
 /// black and white
 pub const BW:   Channels = 1;
 
-/// This structure has two purposes.
-///
-/// First, it is used across this crate as a way to
-/// store 2D pixel arrays.
-///
-/// It also implements [`Widget`], so it can be set to
-/// a node so that this node renders as an image.
+/// General-purpose 2D image node.
 #[derive(Clone)]
 pub struct Bitmap {
-	/// The pixel array
+	/// The pixel array; Changing its size
+	/// is forbidden.
 	pub pixels: Vec<u8>,
-	/// A resized copy cached for faster rendering
+	/// A resized cache for faster rendering
 	pub cache: Vec<u8>,
 	/// The number of channels; must be one of
-	/// BW, RGB or RGBA.
+	/// BW, RGB or RGBA. Rendering is only
+	/// supported for RGBA images at the moment.
 	pub channels: Channels,
-	/// The size (width and height) of the image
+	/// The original size (width and height) of the image
 	pub size: Size,
-	/// The screen spot of the node
+	/// The output spot of the node
 	pub spot: Spot,
+	/// Optional margin for the node
 	pub margin: Option<Margin>,
+	/// aspect ratio of the node (taking
+	/// the margin into account)
 	pub ratio: f64,
+	/// determines if rendering is necessary
 	pub dirty: bool,
 }
 
@@ -73,6 +74,9 @@ impl Debug for Bitmap {
 const TRANSPARENT_PIXEL: [u8; 4] = [0; 4];
 
 impl Bitmap {
+	/// Creates a new Bitmap Node. Once created,
+	/// all pixels will be transparent, but you can
+	/// set their color manually via the `pixels` field.
 	pub fn new(size: Size, channels: Channels, margin: Option<Margin>) -> Self {
 		Self {
 			size,
@@ -92,7 +96,7 @@ impl Bitmap {
 		}
 	}
 
-	pub fn update_cache(&mut self, spot: Spot, owned: bool) -> Status {
+	fn update_cache(&mut self, spot: Spot, owned: bool) -> Status {
 		assert!(self.channels == RGBA);
 		let (_, size) = spot;
 		let len = size.w * size.h * RGBA;
@@ -125,6 +129,11 @@ impl Bitmap {
 		Ok(())
 	}
 
+	/// Updates the cache and tries to render it at `spot`,
+	/// regardless of `self.dirty`.
+	///
+	/// This method is called manually by nodes embedding
+	/// [`Bitmap`]s, such as [`GlyphNode`](`crate::text::GlyphNode`).
 	pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Status {
 		let spot = status(self.get_content_spot_at(spot))?;
 		let (dst, pitch, owned) = app.blit(&spot, Some(path))?;

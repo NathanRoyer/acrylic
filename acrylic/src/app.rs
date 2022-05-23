@@ -34,58 +34,93 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 /// The Application structure represents your application.
-/// It has a [`Tree`] containing nodes, a `model` field
-/// where you can store your application-specific model,
-/// and a vector of [`DataRequest`] where you can add
-/// you own data requests (which the platform will handle).
+///
+/// It stores the currently displayed view, your model and
+/// some platform functions
 pub struct Application {
+	/// This is the root node of the currently displayed view.
 	pub view: RcNode,
 
+	/// The spot where our view should be displayed on the
+	/// output. It is set by [`Application::set_spot`].
 	pub view_spot: Spot,
 
-	/// Fonts that can be used by widgets to draw glyphs
+	/// Fonts that can be used by nodes to draw glyphs
 	#[cfg(feature = "text")]
 	pub fonts: HashMap<Option<String>, Arc<Mutex<Font>>>,
 
-	/// Default font size used by textual widgets
+	/// Default font size used by textual nodes
 	#[cfg(feature = "text")]
 	pub default_font_size: usize,
 
-	/// Data requests allow widgets to load external assets,
-	/// partially or completely. You can append new ones to
-	/// this vector.
+	/// Data requests allow nodes to load external assets,
+	/// partially or completely. If you're implementing
+	/// [`Node`], pushes to this field are expected in
+	/// [`Node::initialize`] and in [`Node::render`].
 	pub data_requests: Vec<DataRequest>,
 
 	/// This field's content is completely up to you. You
 	/// should use it to store the global state of your
-	/// application.
+	/// application. Note that you can downcast this to
+	/// your structure using [`Application::model`].
 	pub model: Box<dyn Any>,
 
+	/// A platform-specific function which allows logging
+	/// messages. Do not use it directly, prefer the
+	/// [`Application::log`] method.
 	pub platform_log: PlatformLog,
 
+	/// A platform-specific function which is used to request
+	/// buffers where nodes are rendered. Do not use it
+	/// directly, prefer the [`Application::blit`] method.
 	pub platform_blit: PlatformBlit,
 
+	/// Nodes can prevent children (direct or indirect) from
+	/// requesting new buffers to be rendered in by pushing
+	/// to this vector; When these children would request a
+	/// buffer, that node's buffer will be returned instead.
+	/// [`Paragraph`](`crate::text::Paragraph`) nodes use this, for instance,
+	/// so that its contained [`GlyphNode`](`crate::text::GlyphNode`) render
+	/// in the paragraph's buffer.
 	pub blit_hooks: Vec<(NodePath, Spot)>,
 
+	/// The platform will push styles to this vector. All
+	/// platforms must push the same number of styles,
+	/// however this number is yet to be decided.
+	/// You can use this vector in your implementation of
+	/// [`Node::render`], using the `style` parameter of that
+	/// method.
 	pub styles: Vec<Style>,
 
+	/// Setting this to `true` will trigger a new computation
+	/// of the layout at the beginning of the next frame's
+	/// rendering.
 	pub should_recompute: bool,
 
+	/// Applications using this toolkit can enable visual
+	/// debugging of containers by setting this to true.
 	pub debug_containers: bool,
 }
 
-/// Data requests allow widgets to load external assets,
+/// Data requests allow nodes to load external assets,
 /// partially or completely.
-/// You can append new ones to `app.data_requests`.
+///
+/// You can push new ones
+/// to `app.data_requests`.
 #[derive(Debug, Clone, Hash)]
 pub struct DataRequest {
+	/// The path to the node which is making the request.
 	pub node: NodePath,
+	/// the name of the asset (eg. `"img/image0.png"`)
 	pub name: String,
+	/// If specified, the range of bytes to load.
 	pub range: Option<Range<usize>>,
 }
 
+/// A color represented as four bytes.
 pub type Color = [u8; RGBA];
 
+/// Represent a node's visual style.
 #[derive(Debug, Copy, Clone)]
 pub struct Style {
 	pub background: Color,
@@ -94,8 +129,23 @@ pub struct Style {
 }
 
 impl Application {
-	/// The Application constructor. If you omit the `tree`
-	/// argument, it will be initialized to an empty tree.
+	/// The Application constructor. You should pass the `log` and `blit`
+	/// implementations of your platform. To use an XML file as view,
+	/// use [`ViewLoader`](`crate::xml::ViewLoader`).
+	///
+	/// ```rust
+	/// use platform::app;
+	/// use platform::log;
+	/// use platform::blit;
+	/// use acrylic::app::Application;
+	/// use acrylic::xml::ViewLoader;
+	///
+	/// app!("./", {
+	///     let loader = ViewLoader::new("default.xml");
+	///     let mut app = Application::new(&log, &blit, (), loader);
+	///     app
+	/// });
+	/// ```
 	pub fn new<M: Any + 'static>(log: PlatformLog, blit: PlatformBlit, model: M, view: impl Node) -> Self {
 		#[allow(unused_mut)]
 		let mut app = Self {
@@ -134,7 +184,7 @@ impl Application {
 
 	/// Adds a font to the font store. If `default` is `true`,
 	/// this font will be used by default when textual nodes
-	/// are created.
+	/// are created without a specific font.
 	#[cfg(feature = "text")]
 	pub fn add_font(&mut self, name: String, data: Vec<u8>, default: bool) {
 		let font = Font::from_bytes(data);
@@ -144,10 +194,18 @@ impl Application {
 		}
 	}
 
+	/// The platforms should use this method to add styles
+	/// as soon as they have a handle to an [`Application`].
+	/// They can call it again between calls to
+	/// [`Application::render`] to change styles.
 	pub fn set_styles(&mut self, styles: Vec<Style>) {
 		self.styles = styles;
+		let mut view = lock(&self.view).unwrap();
+		let _ = Self::set_cont_dirty(view.deref_mut(), false);
 	}
 
+	/// Use this method to find a node in the view based
+	/// on its path.
 	pub fn get_node(&self, path: &NodePath) -> Option<RcNode> {
 		let mut node = self.view.clone();
 		for i in path {
@@ -204,6 +262,8 @@ impl Application {
 		res
 	}
 
+	/// Platforms should use this method to set the position
+	/// and size of the view in the output buffer.
 	pub fn set_spot(&mut self, spot: Spot) {
 		if self.view_spot != spot {
 			self.view_spot = spot;
@@ -270,10 +330,22 @@ impl Application {
 		Ok(())
 	}
 
+	/// Anyone can use this method to log messages.
 	pub fn log(&self, message: &str) {
 		(self.platform_log)(message)
 	}
 
+	/// Nodes can use this method to request a buffer where
+	/// they can then be rendered.
+	///
+	/// On success, the return value is a tuple containing:
+	/// 1. the buffer slice
+	/// 2. the pitch (number of bytes that you should skip between lines)
+	/// 3. false if this buffer is shared between nodes at this spot, true otherwise
+	///
+	/// You should use these values with [`for_each_line`]
+	/// in your rendering code instead of using them directly,
+	/// as it is easy to trigger panics when doing so.
 	pub fn blit<'a>(&'a self, node_spot: &'a Spot, path: Option<&'a NodePath>) -> Result<(&'a mut [u8], usize, bool), ()> {
 		if let Some(path) = path {
 			for (hook_path, hook_spot) in &self.blit_hooks {
@@ -288,6 +360,11 @@ impl Application {
 	}
 }
 
+/// This utility function tries to crop a buffer
+/// into a smaller view of this buffer.
+///
+/// `spots` should contain the original spot of the
+/// buffer and the smaller spot, in that order respectively.
 pub fn sub_spot<'a>(slice: &'a mut [u8], mut pitch: usize, spots: [&Spot; 2]) -> Option<(&'a mut [u8], usize)> {
 	let [(hp, hs), (np, ns)] = spots;
 	if ns.w != 0 && ns.h != 0 {
@@ -307,6 +384,12 @@ pub fn sub_spot<'a>(slice: &'a mut [u8], mut pitch: usize, spots: [&Spot; 2]) ->
 	}
 }
 
+/// This utility function calls `f` for each line
+/// in a buffer.
+///
+/// These line will have a length of `size.w` and
+/// there will be `size.h` calls. The first argument
+/// of `f` is the line number, starting from `0`.
 pub fn for_each_line(slice: &mut [u8], size: Size, pitch: usize, mut f: impl FnMut(usize, &mut [u8])) {
 	let px_width = size.w * RGBA;
 	let mut start = 0;
