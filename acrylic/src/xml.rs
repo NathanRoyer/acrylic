@@ -482,11 +482,13 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 		}
 	}
 
+	let spot = (Point::zero(), Size::zero());
 	let container = rc_node(Container {
 		children: Vec::new(),
 		policy: policy?,
 		on_click,
-		spot: (Point::zero(), Size::zero()),
+		spot,
+		prev_spot: spot,
 		margin,
 		radius,
 		axis,

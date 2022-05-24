@@ -398,6 +398,7 @@ pub struct Container {
 	pub policy: LengthPolicy,
 	pub on_click: Option<String>,
 	pub spot: Spot,
+	pub prev_spot: Spot,
 	pub axis: Axis,
 	pub gap: usize,
 	pub margin: Option<usize>,
@@ -498,8 +499,12 @@ impl Node for Container {
 	}
 
 	fn set_spot(&mut self, spot: Spot) {
-		self.dirty = true;
 		self.spot = spot;
+	}
+
+	fn validate_spot(&mut self) {
+		self.dirty = self.spot != self.prev_spot;
+		self.prev_spot = self.spot;
 	}
 
 	fn set_dirty(&mut self) {
