@@ -7,11 +7,11 @@ use node::NodePath;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 
-pub mod node;
+pub mod app;
+pub mod bitmap;
 pub mod flexbox;
 pub mod geometry;
-pub mod bitmap;
-pub mod app;
+pub mod node;
 
 #[cfg(feature = "text")]
 pub mod text;
@@ -64,21 +64,22 @@ pub type PlatformLog = &'static dyn Fn(&str);
 ///     (slice, pitch, not_shared)
 /// }
 /// ```
-pub type PlatformBlit = &'static dyn for<'a> Fn(&'a Spot, Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)>;
+pub type PlatformBlit =
+    &'static dyn for<'a> Fn(&'a Spot, Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)>;
 
 /// `no_std`-friendly wrapper for `mutex.lock()`
 pub fn lock<T: ?Sized>(mutex: &Mutex<T>) -> Option<MutexGuard<T>> {
-	#[cfg(feature = "std")]
-	let result = mutex.lock().ok();
-	#[cfg(not(feature = "std"))]
-	let result = Some(mutex.lock());
-	result
+    #[cfg(feature = "std")]
+    let result = mutex.lock().ok();
+    #[cfg(not(feature = "std"))]
+    let result = Some(mutex.lock());
+    result
 }
 
 /// Transforms an `Option<T>` to a `Result<T, ()>`
 /// which is compatible with [`Status`]
 pub fn status<T>(option: Option<T>) -> Result<T, ()> {
-	option.ok_or(())
+    option.ok_or(())
 }
 
 /// `no_std`-friendly [`std::format`](https://doc.rust-lang.org/std/macro.format.html)
