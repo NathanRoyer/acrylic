@@ -3,6 +3,7 @@ use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
 use crate::geometry::aspect_ratio;
 use crate::node::rc_node;
+use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
@@ -63,7 +64,7 @@ fn read_png(bytes: &[u8]) -> Bitmap {
         channels: RGBA,
         spot: (Point::zero(), Size::zero()),
         pixels,
-        dirty: true,
+        repaint: NeedsRepaint::all(),
         cache: Vec::new(),
         margin: None,
         ratio: aspect_ratio(size.w, size.h),

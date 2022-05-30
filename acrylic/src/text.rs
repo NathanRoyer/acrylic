@@ -14,6 +14,7 @@ use crate::node::rc_node;
 use crate::node::Axis;
 use crate::node::LengthPolicy;
 use crate::node::Margin;
+use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
@@ -124,7 +125,7 @@ impl Debug for Unbreakable {
 pub struct GlyphNode {
     pub bitmap: RcNode,
     pub spot: Spot,
-    pub dirty: bool,
+    pub repaint: NeedsRepaint,
 }
 
 impl Node for GlyphNode {
@@ -134,12 +135,12 @@ impl Node for GlyphNode {
         path: &mut NodePath,
         _: usize,
     ) -> Result<usize, ()> {
-        if self.dirty {
+        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
             let mut bitmap = status(lock(&self.bitmap))?;
             let bitmap = bitmap.deref_mut().as_any();
             let bitmap = status(bitmap.downcast_mut::<Bitmap>())?;
             bitmap.render_at(app, path, self.spot)?;
-            self.dirty = false;
+            self.repaint.remove(NeedsRepaint::FOREGROUND);
         }
         Ok(0)
     }
@@ -150,8 +151,8 @@ impl Node for GlyphNode {
         bitmap.deref_mut().policy()
     }
 
-    fn set_dirty(&mut self) {
-        self.dirty = true;
+    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
+        self.repaint.insert(repaint);
     }
 
     fn get_spot(&self) -> Spot {
@@ -159,7 +160,7 @@ impl Node for GlyphNode {
     }
 
     fn set_spot(&mut self, spot: Spot) {
-        self.dirty = true;
+        self.repaint = NeedsRepaint::all();
         self.spot = spot;
     }
 
@@ -239,7 +240,7 @@ pub struct Paragraph {
     pub font_size: Option<usize>,
     pub spot: Spot,
     /// Initialize to `true`
-    pub dirty: bool,
+    pub repaint: NeedsRepaint,
 }
 
 #[derive(Debug, Clone)]
@@ -325,7 +326,7 @@ impl Font {
             rc_node(GlyphNode {
                 bitmap: rc_bitmap,
                 spot: (Point::zero(), Size::zero()),
-                dirty: true,
+                repaint: NeedsRepaint::all(),
             })
         } else {
             rc_node(Placeholder {
@@ -419,7 +420,7 @@ impl Node for Paragraph {
         path: &mut NodePath,
         s: usize,
     ) -> Result<usize, ()> {
-        if self.dirty {
+        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
             let color = app.styles[s].foreground;
             let spot = status(self.get_content_spot_at(self.spot))?;
             let (dst, pitch, _) = app.blit(&spot, Some(path))?;
@@ -428,7 +429,7 @@ impl Node for Paragraph {
                 line_dst.fill(0);
             });
             app.should_recompute = true;
-            self.dirty = false;
+            self.repaint.remove(NeedsRepaint::FOREGROUND);
             self.deploy(Some((
                 match self.policy {
                     Some(LengthPolicy::Chunks(h)) => h,
@@ -507,8 +508,14 @@ impl Node for Paragraph {
         self.spot = spot;
     }
 
+    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
+        self.repaint.insert(repaint);
+    }
+
     fn validate_spot(&mut self) {
-        self.dirty = self.spot != self.prev_spot;
+        if self.spot != self.prev_spot {
+            self.repaint = NeedsRepaint::all();
+        }
         self.prev_spot = self.spot;
     }
 }
@@ -590,7 +597,7 @@ pub fn xml_paragraph(
         margin,
         spot,
         prev_spot: spot,
-        dirty: true,
+        repaint: NeedsRepaint::all(),
     });
 
     Ok(Some(paragraph))

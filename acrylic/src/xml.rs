@@ -6,6 +6,7 @@ use crate::node::rc_node;
 use crate::node::Axis;
 use crate::node::Container;
 use crate::node::LengthPolicy;
+use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
@@ -537,7 +538,7 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
         axis,
         gap,
         style,
-        dirty: true,
+        repaint: NeedsRepaint::all(),
         #[cfg(feature = "railway")]
         style_rwy: None,
     });

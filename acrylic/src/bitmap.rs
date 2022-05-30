@@ -5,6 +5,7 @@ use crate::node::Axis::Horizontal;
 use crate::node::Axis::Vertical;
 use crate::node::LengthPolicy;
 use crate::node::Margin;
+use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::status;
@@ -56,7 +57,7 @@ pub struct Bitmap {
     /// the margin into account)
     pub ratio: f64,
     /// determines if rendering is necessary
-    pub dirty: bool,
+    pub repaint: NeedsRepaint,
 }
 
 impl Debug for Bitmap {
@@ -85,7 +86,7 @@ impl Bitmap {
             cache: Vec::new(),
             spot: (Point::zero(), Size::zero()),
             margin,
-            dirty: true,
+            repaint: NeedsRepaint::all(),
             ratio: {
                 let (add_w, add_h) = match margin {
                     Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
@@ -173,9 +174,9 @@ impl Node for Bitmap {
         path: &mut NodePath,
         _: usize,
     ) -> Result<usize, ()> {
-        if self.dirty {
+        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
             self.render_at(app, path, self.spot)?;
-            self.dirty = false;
+            self.repaint.remove(NeedsRepaint::FOREGROUND);
         }
         Ok(0)
     }
@@ -184,8 +185,8 @@ impl Node for Bitmap {
         LengthPolicy::AspectRatio(self.ratio)
     }
 
-    fn set_dirty(&mut self) {
-        self.dirty = true;
+    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
+        self.repaint.insert(repaint);
     }
 
     fn margin(&self) -> Option<Margin> {
@@ -197,7 +198,7 @@ impl Node for Bitmap {
     }
 
     fn set_spot(&mut self, spot: Spot) {
-        self.dirty = true;
+        self.repaint = NeedsRepaint::all();
         self.spot = spot;
     }
 

@@ -204,6 +204,11 @@ pub fn wasm_init(assets: &str, mut app: Application) -> &'static Application {
             foreground: [255; RGBA],
             border: [0; RGBA],
         },
+        Style {
+            background: [220, 220, 220, 255],
+            foreground: [40, 40, 40, 255],
+            border: [0; RGBA],
+        },
     ]);
     unsafe {
         BG_PIXELS = Some(Vec::new());

@@ -99,6 +99,13 @@ bitflags! {
         const WHEEL_Y        = 0b0010000000000000;
         const TEXT_INPUT     = 0b0100000000000000;
     }
+
+    /// Utility bit field to keep track of what you
+    /// need to repaint
+    pub struct NeedsRepaint: u8 {
+        const BACKGROUND = 0b01;
+        const FOREGROUND = 0b10;
+    }
 }
 
 /// Events supported by this toolkit.
@@ -144,6 +151,7 @@ pub trait Node: Debug + Any + 'static {
     /// use acrylic::Spot;
     /// use acrylic::node::Node;
     /// use acrylic::node::NodePath;
+    /// use acrylic::node::NeedsRepaint;
     /// use acrylic::node::LengthPolicy;
     /// use acrylic::app::Application;
     /// use acrylic::app::for_each_line;
@@ -151,13 +159,13 @@ pub trait Node: Debug + Any + 'static {
     ///
     /// #[derive(Debug, Copy, Clone)]
     /// struct MyNode {
-    ///     dirty: bool,
+    ///     repaint: NeedsRepaint,
     ///     spot: Spot,
     /// }
     ///
     /// impl Node for MyNode {
     ///     fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
-    ///         if self.dirty {
+    ///         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
     ///             if let Ok((dst, pitch, _)) = app.blit(&self.spot, Some(path)) {
     ///                 let (_, size) = self.spot;
     ///                 for_each_line(dst, size, pitch, |_, line| {
@@ -166,7 +174,7 @@ pub trait Node: Debug + Any + 'static {
     ///             } else {
     ///                 app.log("rendering failed.");
     ///             }
-    ///             self.dirty = false;
+    ///             self.repaint.remove(NeedsRepaint::FOREGROUND);
     ///         }
     ///         Ok(0)
     ///     }
@@ -181,8 +189,8 @@ pub trait Node: Debug + Any + 'static {
     ///         String::from("White Square")
     ///     }
     ///
-    ///     fn set_dirty(&mut self) {
-    ///         self.dirty = true;
+    ///     fn repaint_needed(&mut self, repaint: NeedsRepaint) {
+    ///         self.repaint.insert(repaint);
     ///     }
     ///
     ///     fn policy(&self) -> LengthPolicy {
@@ -196,7 +204,7 @@ pub trait Node: Debug + Any + 'static {
     ///     fn set_spot(&mut self, spot: Spot) {
     ///         self.spot = spot;
     ///         // we could need a repaint:
-    ///         self.dirty = true;
+    ///         self.repaint.insert(NeedsRepaint::FOREGROUND);
     ///     }
     /// }
     /// ```
@@ -289,8 +297,9 @@ pub trait Node: Debug + Any + 'static {
     }
 
     /// Used by [`Application`] code to force a node
-    /// to render during next frame rendering.
-    fn set_dirty(&mut self) {
+    /// to repaint during next frame rendering.
+    #[allow(unused)]
+    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
         // do nothing by default
     }
 
@@ -344,7 +353,7 @@ pub trait Node: Debug + Any + 'static {
     }
 
     /// This is called exactly once after layout so that
-    /// nodes can process spot changes.
+    /// nodes can detect spot changes.
     fn validate_spot(&mut self) {
         // do nothing
     }
@@ -421,8 +430,8 @@ pub struct Container {
     pub margin: Option<usize>,
     /// For rounded-corners
     pub radius: Option<usize>,
-    /// Initialize to `true`
-    pub dirty: bool,
+    /// Initialize to `NeedsRepaint::all()`
+    pub repaint: NeedsRepaint,
     /// Style override
     pub style: Option<usize>,
     /// Initialize to `None`
@@ -437,10 +446,10 @@ impl Node for Container {
         path: &mut NodePath,
         style: usize,
     ) -> Result<usize, ()> {
-        if self.dirty {
-            self.dirty = false;
-            let (_, size) = self.spot;
-            let px_width = RGBA * size.w;
+        let (_, size) = self.spot;
+        let px_width = RGBA * size.w;
+        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
+            self.repaint.remove(NeedsRepaint::FOREGROUND);
             #[cfg(feature = "railway")]
             if self.margin.is_some() || self.radius.is_some() {
                 if self.style_rwy.is_none() {
@@ -462,15 +471,6 @@ impl Node for Container {
                     rwy.render(dst, pitch, size)?;
                 }
             }
-            if let Some(i) = self.style {
-                let this_bg = app.styles[i].background;
-                let (dst, pitch, _) = app.blit(&self.spot, None)?;
-                for_each_line(dst, size, pitch, |_, line_dst| {
-                    for i in 0..px_width {
-                        line_dst[i] = this_bg[i % RGBA];
-                    }
-                });
-            }
             if app.debug_containers {
                 let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
                 for_each_line(dst, size, pitch, |i, line_dst| {
@@ -479,6 +479,18 @@ impl Node for Container {
                     } else {
                         line_dst[RGBA..].fill(0);
                         line_dst[..RGBA].fill(255);
+                    }
+                });
+            }
+        }
+        if self.repaint.contains(NeedsRepaint::BACKGROUND) {
+            self.repaint.remove(NeedsRepaint::BACKGROUND);
+            if let Some(i) = self.style {
+                let this_bg = app.styles[i].background;
+                let (dst, pitch, _) = app.blit(&self.spot, None)?;
+                for_each_line(dst, size, pitch, |_, line_dst| {
+                    for i in 0..px_width {
+                        line_dst[i] = this_bg[i % RGBA];
                     }
                 });
             }
@@ -525,12 +537,14 @@ impl Node for Container {
     }
 
     fn validate_spot(&mut self) {
-        self.dirty = self.spot != self.prev_spot;
+        if self.spot != self.prev_spot {
+            self.repaint = NeedsRepaint::all();
+        }
         self.prev_spot = self.spot;
     }
 
-    fn set_dirty(&mut self) {
-        self.dirty = true;
+    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
+        self.repaint.insert(repaint);
     }
 
     fn container(&self) -> Option<(Axis, usize)> {

@@ -4,6 +4,7 @@ use crate::lock;
 use crate::node::rc_node;
 use crate::node::Event;
 use crate::node::EventType;
+use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
@@ -279,7 +280,7 @@ impl Application {
     pub fn set_styles(&mut self, styles: Vec<Style>) {
         self.styles = styles;
         let mut view = lock(&self.view).unwrap();
-        let _ = Self::set_cont_dirty(view.deref_mut(), false);
+        let _ = Self::set_cont_dirty(view.deref_mut(), false, NeedsRepaint::all());
     }
 
     /// Use this method to find a node in the view based
@@ -320,12 +321,12 @@ impl Application {
         self.initialize_node(new_node, &mut path)
     }
 
-    fn set_cont_dirty(node: &mut dyn Node, validate_only: bool) -> Status {
+    fn set_cont_dirty(node: &mut dyn Node, validate_only: bool, repaint: NeedsRepaint) -> Status {
         let children = {
             if validate_only {
                 node.validate_spot();
             } else {
-                node.set_dirty();
+                node.repaint_needed(repaint);
             }
             node.children().to_vec()
         };
@@ -333,7 +334,7 @@ impl Application {
         for child in children {
             let mut child = status(lock(&child))?;
             let child = child.deref_mut();
-            if let Err(_) = Self::set_cont_dirty(child, validate_only) {
+            if let Err(_) = Self::set_cont_dirty(child, validate_only, repaint) {
                 res = Err(());
             }
         }
@@ -349,7 +350,7 @@ impl Application {
             let view = view.deref_mut();
             view.set_spot(spot);
             self.should_recompute = true;
-            let _ = Self::set_cont_dirty(view, false);
+            let _ = Self::set_cont_dirty(view, false, NeedsRepaint::BACKGROUND);
         }
     }
 
@@ -361,7 +362,7 @@ impl Application {
             {
                 let mut view = lock(&self.view).unwrap();
                 let _ = compute_tree(view.deref());
-                let _ = Self::set_cont_dirty(view.deref_mut(), true);
+                let _ = Self::set_cont_dirty(view.deref_mut(), true, NeedsRepaint::empty());
             }
             for i in 0..self.blit_hooks.len() {
                 if let Some(node) = self.get_node(&self.blit_hooks[i].0) {

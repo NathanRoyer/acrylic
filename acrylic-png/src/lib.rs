@@ -42,18 +42,28 @@ pub fn blit<'a>(
 pub fn run(assets: &str, mut app: Application) {
     app.set_styles(vec![
         Style {
-            background: [50, 50, 50, 255],
-            foreground: [0; RGBA],
+            background: [47, 49, 54, 255],
+            foreground: [220, 221, 222, 255],
             border: [0; RGBA],
         },
         Style {
-            background: [100, 100, 100, 255],
-            foreground: [0; RGBA],
+            background: [32, 34, 37, 255],
+            foreground: [255; RGBA],
             border: [0; RGBA],
         },
         Style {
-            background: [50, 50, 250, 255],
-            foreground: [0; RGBA],
+            background: [54, 57, 63, 255],
+            foreground: [220, 221, 222, 255],
+            border: [0; RGBA],
+        },
+        Style {
+            background: [59, 165, 93, 255],
+            foreground: [255; RGBA],
+            border: [0; RGBA],
+        },
+        Style {
+            background: [220, 220, 220, 255],
+            foreground: [40, 40, 40, 255],
             border: [0; RGBA],
         },
     ]);
