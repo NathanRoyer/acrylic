@@ -321,6 +321,8 @@ impl Application {
         self.initialize_node(new_node, &mut path)
     }
 
+    // TODO: lock only during call to repaint_needed
+    // unlock just afterwards, like in render_node
     fn set_cont_dirty(node: &mut dyn Node, validate_only: bool, repaint: NeedsRepaint) -> Status {
         let children = {
             if validate_only {
@@ -341,9 +343,17 @@ impl Application {
         res
     }
 
+    /// Signals that part of the view needs to be repainted.
+    ///
+    /// The node at path and its children (direct and
+    /// indirect) will be affected.
+    pub fn repaint_needed(&mut self, node: &mut dyn Node, repaint: NeedsRepaint) -> Status {
+        Self::set_cont_dirty(node, false, repaint)
+    }
+
     /// Platforms should use this method to set the position
     /// and size of the view in the output buffer.
-    pub fn set_spot(&mut self, spot: Spot) {
+    pub fn set_spot(&mut self, spot: Spot) -> bool {
         if self.view_spot != spot {
             self.view_spot = spot;
             let mut view = lock(&self.view).unwrap();
@@ -351,6 +361,9 @@ impl Application {
             view.set_spot(spot);
             self.should_recompute = true;
             let _ = Self::set_cont_dirty(view, false, NeedsRepaint::BACKGROUND);
+            true
+        } else {
+            false
         }
     }
 
