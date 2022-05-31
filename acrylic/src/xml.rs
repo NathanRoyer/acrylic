@@ -405,6 +405,11 @@ impl Node for Spacer {
 /// Note: This is in early state of development, it is not defined
 /// how much is the maximum for this attribute.
 ///
+/// The `focus` attribute is optional and references a style
+/// which is only applied when the node is focused.
+/// Note: This is in early state of development, it is not defined
+/// how much is the maximum for this attribute.
+///
 /// The `gap` attribute is optional and defines the space
 /// between consecutive children of this container.
 ///
@@ -443,6 +448,11 @@ pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 /// * ` wrap="" ` → maps to [`LengthPolicy::WrapContent`]
 ///
 /// The `style` attribute is optional and references a style.
+/// Note: This is in early state of development, it is not defined
+/// how much is the maximum for this attribute.
+///
+/// The `focus` attribute is optional and references a style
+/// which is only applied when the node is focused.
 /// Note: This is in early state of development, it is not defined
 /// how much is the maximum for this attribute.
 ///
@@ -490,7 +500,8 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
     let mut policy = Err(String::from("missing policy attribute"));
     let mut margin = None;
     let mut radius = None;
-    let mut style = None;
+    let mut normal_style = None;
+    let mut focus_style = None;
     let mut on_click = None;
     let mut gap = 0;
 
@@ -521,7 +532,8 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
                 ))
             }
             "wrap" => policy = Ok(LengthPolicy::WrapContent),
-            "style" => style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
+            "style" => normal_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
+            "focus" => focus_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
             _ => Err(format!("unexpected attribute: {}", name))?,
         }
     }
@@ -537,7 +549,9 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
         radius,
         axis,
         gap,
-        style,
+        normal_style,
+        focus_style,
+        focused: false,
         repaint: NeedsRepaint::all(),
         #[cfg(feature = "railway")]
         style_rwy: None,

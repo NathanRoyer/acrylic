@@ -240,6 +240,7 @@ pub struct Paragraph {
     /// Ignored when `policy` is WrapContent.
     pub font_size: Option<usize>,
     pub spot: Spot,
+    pub deployed: bool,
     /// Initialize to `true`
     pub repaint: NeedsRepaint,
 }
@@ -431,13 +432,16 @@ impl Node for Paragraph {
             });
             app.should_recompute = true;
             self.repaint.remove(NeedsRepaint::FOREGROUND);
-            self.deploy(Some((
-                match self.policy {
-                    Some(LengthPolicy::Chunks(h)) => h,
-                    _ => size.h,
-                },
-                color,
-            )));
+            if !self.deployed {
+                self.deploy(Some((
+                    match self.policy {
+                        Some(LengthPolicy::Chunks(h)) => h,
+                        _ => size.h,
+                    },
+                    color,
+                )));
+                self.deployed = true;
+            }
         }
         Ok(s)
     }
@@ -514,6 +518,11 @@ impl Node for Paragraph {
     }
 
     fn validate_spot(&mut self) {
+        if let Some(LengthPolicy::WrapContent) = self.policy {
+            if self.spot.1.h != self.prev_spot.1.h {
+                self.deployed = false;
+            }
+        }
         if self.spot != self.prev_spot {
             self.repaint = NeedsRepaint::all();
         }
@@ -598,6 +607,7 @@ pub fn xml_paragraph(
         margin,
         spot,
         prev_spot: spot,
+        deployed: false,
         repaint: NeedsRepaint::all(),
     });
 

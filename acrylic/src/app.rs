@@ -26,6 +26,7 @@ use core::fmt::Debug;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ops::Range;
+use core::mem::swap;
 
 use std::boxed::Box;
 use std::string::String;
@@ -79,6 +80,10 @@ pub struct Application {
     /// application. Note that you can downcast this to
     /// your structure using [`Application::model`].
     pub model: Box<dyn Any>,
+
+    /// This field has a path which points to the node
+    /// which currently has user focus.
+    pub focus: Option<NodePath>,
 
     /// A platform-specific function which allows logging
     /// messages. Do not use it directly, prefer the
@@ -184,6 +189,7 @@ impl Application {
             platform_log: log,
             platform_blit: blit,
             blit_hooks: Vec::new(),
+            focus: None,
         };
         app.initialize_node(app.view.clone(), &mut NodePath::new())
             .unwrap();
@@ -223,19 +229,62 @@ impl Application {
         self.event_handlers.insert(name, handler);
     }
 
-    /// The platforms should use this method to pass events to
-    /// nodes of the application.
-    pub fn call_handler(&mut self, path: &NodePath, event: Event) -> Status {
+    /// Platforms which support pointing input devices (mice)
+    /// must use this function to report device movement.
+    pub fn pointing_at(&mut self, point: Point) {
+        let mut path = self.hit_test(point);
+        swap(&mut self.focus, &mut path);
+        if path != self.focus {
+            if let Some(mut path) = path {
+                loop {
+                    if let Some(node) = self.get_node(&path) {
+                        let mut node = lock(&node).unwrap();
+                        if node.set_focused(false) {
+                            let _ = self.repaint_needed(node.deref_mut(), NeedsRepaint::all());
+                        }
+                    }
+                    if let None = path.pop() {
+                        break;
+                    }
+                }
+            }
+            if let Some(mut path) = self.focus.clone() {
+                loop {
+                    if let Some(node) = self.get_node(&path) {
+                        let mut node = lock(&node).unwrap();
+                        if node.set_focused(true) {
+                            let _ = self.repaint_needed(node.deref_mut(), NeedsRepaint::all());
+                        }
+                    }
+                    if let None = path.pop() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Platforms should trigger input events via
+    /// this function.
+    pub fn fire_event(&mut self, event: &Event) -> Status {
         let mut result = Err(());
-        if let Some(node) = self.get_node(path) {
-            let handler_name = {
-                let mut node = lock(&node).unwrap();
-                node.handle(self, path, &event)?
+        if let Some(mut path) = self.focus.clone() {
+            let handler_name = loop {
+                if let Some(node) = self.get_node(&path) {
+                    let mut node = lock(&node).unwrap();
+                    let event_mask = node.supported_events();
+                    if event_mask.contains(event.event_type()) {
+                        break node.handle(self, &path, event)?;
+                    }
+                }
+                if let None = path.pop() {
+                    break None;
+                }
             };
             if let Some(name) = handler_name {
                 let handler = self.event_handlers.remove(&name);
                 if let Some(mut handler) = handler {
-                    result = (handler)(self, path, &event);
+                    result = (handler)(self, &path, event);
                     self.event_handlers.insert(name, handler);
                 }
             }
@@ -243,34 +292,55 @@ impl Application {
         result
     }
 
-    /// The platforms should use this method to find the node at
-    /// a specific point on the screen.
-    pub fn hit_test(&mut self, point: Point, e: EventType) -> Option<NodePath> {
+    /// Platforms can ask what events the application will accept
+    /// via this function. It can be called after any input event.
+    pub fn acceptable_events(&mut self) -> Vec<(EventType, String)> {
+        let mut events = Vec::new();
+        let mut pushed = EventType::empty();
+        if let Some(mut path) = self.focus.clone() {
+            loop {
+                if let Some(node) = self.get_node(&path) {
+                    let node = lock(&node).unwrap();
+                    for (event, description) in node.describe_supported_events() {
+                        if !pushed.contains(event) {
+                            events.push((event, description));
+                            pushed.insert(event);
+                        }
+                    }
+                }
+                if let None = path.pop() {
+                    break;
+                }
+            }
+        }
+        events
+    }
+
+    pub fn hit_test(&mut self, point: Point) -> Option<NodePath> {
         let mut path = NodePath::new();
-        if Self::hit_test_for(self.view.clone(), point, &mut path, e) {
+        if Self::hit_test_for(self.view.clone(), point, &mut path) {
             Some(path)
         } else {
             None
         }
     }
 
-    fn hit_test_for(node: RcNode, p: Point, path: &mut NodePath, e: EventType) -> bool {
-        let ((min, size), children, sup) = {
+    fn hit_test_for(node: RcNode, p: Point, path: &mut NodePath) -> bool {
+        let ((min, size), children) = {
             let node = lock(&node).unwrap();
-            let sup = node.supported_events();
-            (node.get_spot(), node.children().to_vec(), sup)
+            (node.get_spot(), node.children().to_vec())
         };
         let max_x = min.x + size.w as isize;
         let max_y = min.y + size.h as isize;
         if (min.x..max_x).contains(&p.x) && (min.y..max_y).contains(&p.y) {
             for i in 0..children.len() {
                 path.push(i);
-                if Self::hit_test_for(children[i].clone(), p, path, e) {
+                if Self::hit_test_for(children[i].clone(), p, path) {
                     return true;
                 }
                 path.pop();
             }
-            return sup.contains(e);
+            return true;
         }
         return false;
     }
@@ -289,7 +359,7 @@ impl Application {
     /// on its path.
     pub fn get_node(&self, path: &NodePath) -> Option<RcNode> {
         let mut node = self.view.clone();
-        for i in path {
+        for i in path.as_slice() {
             // todo: get rid of these locks
             let child = {
                 let tmp = lock(&node)?;

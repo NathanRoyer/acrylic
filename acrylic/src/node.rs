@@ -361,6 +361,14 @@ pub trait Node: Debug + Any + 'static {
         // do nothing
     }
 
+    /// This is called when the focus changes and this node
+    /// is now, or was, in focus. Return true if this node
+    /// will make the focus change clearly visible.
+    #[allow(unused)]
+    fn set_focused(&mut self, focused: bool) -> bool {
+        false
+    }
+
     /// General-purpose containers should implement this
     /// method. It allows the layout code to know on which
     /// axis it should lay the children out as well as
@@ -435,11 +443,23 @@ pub struct Container {
     pub radius: Option<usize>,
     /// Initialize to `NeedsRepaint::all()`
     pub repaint: NeedsRepaint,
+    pub focused: bool,
     /// Style override
-    pub style: Option<usize>,
+    pub normal_style: Option<usize>,
+    /// Style override when focused 
+    pub focus_style: Option<usize>,
     /// Initialize to `None`
     #[cfg(feature = "railway")]
     pub style_rwy: Option<LoadedRailwayProgram<4>>,
+}
+
+impl Container {
+    fn style(&self) -> Option<usize> {
+        match self.focused {
+            true => self.focus_style.or(self.normal_style),
+            false => self.normal_style,
+        }
+    }
 }
 
 impl Node for Container {
@@ -488,7 +508,7 @@ impl Node for Container {
         }
         if self.repaint.contains(NeedsRepaint::BACKGROUND) {
             self.repaint.remove(NeedsRepaint::BACKGROUND);
-            if let Some(i) = self.style {
+            if let Some(i) = self.style() {
                 let this_bg = app.styles[i].background;
                 let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Background)?;
                 for_each_line(dst, size, pitch, |_, line_dst| {
@@ -498,7 +518,7 @@ impl Node for Container {
                 });
             }
         }
-        Ok(self.style.unwrap_or(style))
+        Ok(self.style().unwrap_or(style))
     }
 
     fn as_any(&mut self) -> &mut dyn Any {
@@ -550,6 +570,11 @@ impl Node for Container {
         self.repaint.insert(repaint);
     }
 
+    fn set_focused(&mut self, focused: bool) -> bool {
+        self.focused = focused;
+        true
+    }
+
     fn container(&self) -> Option<(Axis, usize)> {
         Some((self.axis, self.gap))
     }
@@ -580,6 +605,28 @@ impl Node for Container {
             events.push((EventType::QUICK_ACTION_1, String::from("Some action")));
         }
         events
+    }
+}
+
+impl Event {
+    pub fn event_type(&self) -> EventType {
+        match self {
+            Event::QuickAction1 => EventType::QUICK_ACTION_1,
+            Event::QuickAction2 => EventType::QUICK_ACTION_2,
+            Event::QuickAction3 => EventType::QUICK_ACTION_3,
+            Event::QuickAction4 => EventType::QUICK_ACTION_4,
+            Event::QuickAction5 => EventType::QUICK_ACTION_5,
+            Event::QuickAction6 => EventType::QUICK_ACTION_6,
+            Event::Modifier1(_) => EventType::MODIFIER_1,
+            Event::Modifier2(_) => EventType::MODIFIER_2,
+            Event::Factor1(_) => EventType::FACTOR_1,
+            Event::Factor2(_) => EventType::FACTOR_2,
+            Event::Pan1(_, _) => EventType::PAN_1,
+            Event::Pan2(_, _) => EventType::PAN_2,
+            Event::WheelX(_) => EventType::WHEEL_X,
+            Event::WheelY(_) => EventType::WHEEL_Y,
+            Event::TextInput(_) => EventType::TEXT_INPUT,
+        }
     }
 }
 
