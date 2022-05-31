@@ -1,7 +1,7 @@
 use acrylic::app::Application;
 use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
-use acrylic::node::NodePath;
+use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;
 use acrylic::Spot;
@@ -29,11 +29,11 @@ const PNG_NAME: &'static str = "output.png";
 
 static mut PIXELS: [u8; WIDTH * HEIGHT * 4] = [127; WIDTH * HEIGHT * 4];
 
-pub fn blit<'a>(
-    spot: &'a Spot,
-    _path: Option<&'a NodePath>,
-) -> Option<(&'a mut [u8], usize, bool)> {
-    let (position, size) = *spot;
+pub fn blit(
+    spot: Spot,
+    _key: BlitKey,
+) -> Option<(&'static mut [u8], usize, bool)> {
+    let (position, size) = spot;
     let (x, y) = (position.x as usize, position.y as usize);
     let pitch = 4 * (WIDTH - size.w);
     unsafe { Some((&mut PIXELS[4 * (x + HEIGHT * y)..], pitch, false)) }
