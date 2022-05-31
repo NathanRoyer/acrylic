@@ -96,12 +96,13 @@ struct WaylandApp {
     pub acrylic_app: Application,
     pub closed: bool,
     pub configured: bool,
-    pub can_run: bool,
+    pub draw_explicit: bool,
     pub size: Size,
+    pub assets: String,
 }
 
 impl WaylandApp {
-    pub fn new(acrylic_app: Application) -> (Self, EventQueue) {
+    pub fn new(acrylic_app: Application, assets: String) -> (Self, EventQueue) {
         let display = Display::connect_to_env().unwrap();
         let mut event_queue = display.create_event_queue();
         let display = display.attach(event_queue.token());
@@ -124,10 +125,10 @@ impl WaylandApp {
             }
         });
 
-        shm.quick_assign(|_iface, event, _data| {
-            if let wayland_client::protocol::wl_shm::Event::Format { format } = event {
-                println!("{:?}, {}", format, format as u32);
-            }
+        shm.quick_assign(|_iface, _event, _data| {
+            // if let wayland_client::protocol::wl_shm::Event::Format { format } = event {
+            // println!("{:?}, {}", format, format as u32);
+            // }
         });
 
         let surface = compositor.create_surface();
@@ -143,15 +144,16 @@ impl WaylandApp {
                     };
                     app.size = Size::new(w, h);
                     let spot = (Point::zero(), app.size);
-                    app.acrylic_app.set_spot(spot);
-                    app.frame_buffer.resize(app.size);
-                    unsafe {
-                        FRAME_SPOT = Some(spot);
-                        BG_PIXELS.as_mut().unwrap().resize(w * h * RGBA, 0);
-                    };
-                    app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
-                    app.can_run = true;
-                    app.request_frame();
+                    if app.acrylic_app.set_spot(spot) {
+                        app.frame_buffer.resize(app.size);
+                        unsafe {
+                            FRAME_SPOT = Some(spot);
+                            BG_PIXELS.as_mut().unwrap().resize(w * h * RGBA, 0);
+                        };
+                        app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
+                    }
+                    app.draw_explicit = true;
+                    app.frame();
                     app.surface.commit();
                 }
             } else if let XdgToplevelEvent::Close = event {
@@ -162,6 +164,7 @@ impl WaylandApp {
         xdg_surface.quick_assign(|xdg_surface, event, mut data| {
             let app = data.get::<WaylandApp>().unwrap();
             if let XdgSurfaceEvent::Configure { serial } = event {
+                // println!("surface cfg");
                 app.configured = true;
                 xdg_surface.ack_configure(serial);
                 app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
@@ -185,34 +188,44 @@ impl WaylandApp {
             size,
             closed: false,
             configured: false,
-            can_run: false,
+            draw_explicit: false,
+            assets,
         };
         app.surface.commit();
         (app, event_queue)
     }
 
-    pub fn frame(&mut self, assets: &str) {
+    pub fn frame(&mut self) {
+        // println!("frame {:?}", self.size);
+        let mut subframes = 5;
+        loop {
+            self.acrylic_app.render();
+            if let Some(request) = self.acrylic_app.data_requests.pop() {
+                println!("loading {}", request.name);
+                let data = read(&format!("{}{}", &self.assets, request.name)).unwrap();
+                let node = self.acrylic_app.get_node(&request.node).unwrap();
+                let mut node = node.lock().unwrap();
+                let _ = node.loaded(
+                    &mut self.acrylic_app,
+                    &request.node,
+                    &request.name,
+                    0,
+                    &data,
+                );
+            } else if subframes == 0 {
+                break;
+            } else {
+                subframes -= 1;
+            }
+        }
         self.frame_buffer
             .data
             .copy_from_slice(unsafe { &mut BG_PIXELS.as_mut().unwrap() });
-        self.acrylic_app.render();
-        while let Some(request) = self.acrylic_app.data_requests.pop() {
-            println!("loading {}", request.name);
-            let data = read(&format!("{}{}", assets, request.name)).unwrap();
-            let node = self.acrylic_app.get_node(&request.node).unwrap();
-            let mut node = node.lock().unwrap();
-            let _ = node.loaded(
-                &mut self.acrylic_app,
-                &request.node,
-                &request.name,
-                0,
-                &data,
-            );
-        }
         let blits = unsafe { BLITS_PIXELS.as_ref().unwrap() };
         let mut paths = blits.keys().collect::<Vec<&NodePath>>();
         paths.sort_by(|a, b| b.len().partial_cmp(&a.len()).unwrap());
         for path in paths {
+            // println!("blitting {:?}", &path);
             if let Some(((pos, size), pixels)) = blits.get(path) {
                 if size.w != 0 && size.h != 0 && size.w < self.size.w {
                     let (x, y) = (pos.x as usize, pos.y as usize);
@@ -241,20 +254,21 @@ impl WaylandApp {
                 }
             }
         }
-        self.surface
-            .damage_buffer(0, 0, self.size.w as i32, self.size.h as i32);
+        // self.surface
+        // .damage_buffer(0, 0, self.size.w as i32, self.size.h as i32);
     }
 
-    pub fn request_frame(&mut self) {
-        // println!("requesting frame");
-        self.surface
-            .frame()
-            .quick_assign(|_iface, _event, mut data| {
-                let app = data.get::<WaylandApp>().unwrap();
-                app.request_frame();
-            });
-        self.surface.commit();
-    }
+    // pub fn request_frame(&mut self) {
+    // // println!("requesting frame");
+    // self.surface
+    // .frame()
+    // .quick_assign(|_iface, _event, mut data| {
+    // let app = data.get::<WaylandApp>().unwrap();
+    // app.frame();
+    // app.request_frame();
+    // });
+    // self.surface.commit();
+    // }
 }
 
 pub static mut BLITS_PIXELS: Option<HashMap<NodePath, (Spot, Vec<u8>)>> = None;
@@ -317,13 +331,18 @@ pub fn run(mut app: Application, assets: &str) {
     ]);
     unsafe { BLITS_PIXELS = Some(HashMap::new()) };
     unsafe { BG_PIXELS = Some(Vec::new()) };
-    let (mut app, mut event_queue) = WaylandApp::new(app);
+    let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {
-        if app.can_run {
-            app.frame(assets);
+        if app.draw_explicit {
+            // app.frame();
+            // app.surface.commit();
+            app.draw_explicit = false;
         }
         event_queue
-            .dispatch(&mut app, |a, _, _| println!("ignored {:?}", a))
+            .dispatch(
+                &mut app,
+                |_a, _, _| {}, /* println!("ignored {:?}", a) */
+            )
             .expect("Event dispatching Error!");
     }
 }
