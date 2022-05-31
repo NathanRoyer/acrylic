@@ -572,7 +572,7 @@ impl Node for Container {
 
     fn set_focused(&mut self, focused: bool) -> bool {
         self.focused = focused;
-        true
+        self.focus_style.is_some()
     }
 
     fn container(&self) -> Option<(Axis, usize)> {

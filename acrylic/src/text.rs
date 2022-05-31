@@ -430,9 +430,9 @@ impl Node for Paragraph {
             for_each_line(dst, size, pitch, |_, line_dst| {
                 line_dst.fill(0);
             });
-            app.should_recompute = true;
             self.repaint.remove(NeedsRepaint::FOREGROUND);
             if !self.deployed {
+                app.should_recompute = true;
                 self.deploy(Some((
                     match self.policy {
                         Some(LengthPolicy::Chunks(h)) => h,
