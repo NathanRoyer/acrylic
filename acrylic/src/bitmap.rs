@@ -9,6 +9,7 @@ use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::status;
+use crate::BlitPath;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
@@ -140,7 +141,7 @@ impl Bitmap {
     /// [`Bitmap`]s, such as [`GlyphNode`](`crate::text::GlyphNode`).
     pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Status {
         let spot = status(self.get_content_spot_at(spot))?;
-        let (dst, pitch, owned) = app.blit(&spot, Some(path))?;
+        let (dst, pitch, owned) = app.blit(&spot, BlitPath::Node(path))?;
         self.update_cache(spot, owned)?;
         let (_, size) = spot;
         let px_width = RGBA * size.w;

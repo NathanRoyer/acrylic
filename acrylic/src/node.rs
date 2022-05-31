@@ -3,6 +3,7 @@ use bitflags::bitflags;
 use crate::app::for_each_line;
 use crate::app::Application;
 use crate::bitmap::RGBA;
+use crate::BlitPath;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
@@ -130,6 +131,8 @@ pub enum Event {
 
 /// A path to a node in a view
 pub type NodePath = Vec<usize>;
+
+pub type NodePathHash = u64;
 
 /// Trait for elements of a view
 pub trait Node: Debug + Any + 'static {
@@ -467,12 +470,12 @@ impl Node for Container {
                     // parent RG and BA
                     rwy.stack[rwy.addresses[2]] = Couple::new(c(0), c(1));
                     rwy.stack[rwy.addresses[3]] = Couple::new(c(2), c(3));
-                    let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+                    let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Node(path))?;
                     rwy.render(dst, pitch, size)?;
                 }
             }
             if app.debug_containers {
-                let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+                let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Node(path))?;
                 for_each_line(dst, size, pitch, |i, line_dst| {
                     if i == 0 {
                         line_dst.fill(255);
@@ -487,7 +490,7 @@ impl Node for Container {
             self.repaint.remove(NeedsRepaint::BACKGROUND);
             if let Some(i) = self.style {
                 let this_bg = app.styles[i].background;
-                let (dst, pitch, _) = app.blit(&self.spot, None)?;
+                let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Background)?;
                 for_each_line(dst, size, pitch, |_, line_dst| {
                     for i in 0..px_width {
                         line_dst[i] = this_bg[i % RGBA];

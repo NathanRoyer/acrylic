@@ -21,20 +21,10 @@ html, body {
 canvas {
 	position: absolute;
 }
-
-#bg-canvas {
-	left: 0;
-	top: 0;
-	z-index: -9999999;
-	background-color: black;
-}
 		</style>
 	</head>
 	<body onload="onLoad();">
-		<canvas id="bg-canvas"></canvas>
 		<script>
-let bgCanvas;
-let bgCanvasSlice;
 let wasm;
 let app;
 let w, h;
@@ -56,20 +46,21 @@ function getString(ptr, len) {
 	return String.fromCharCode.apply(null, slice);
 }
 
-function raw_set_blit_dirty(n, l) {
-	let name = getString(n, l);
-	blits[name].dirty = true;
+function raw_set_blit_dirty(ptr, len) {
+    let hashString = getString(ptr, len);
+	blits[hashString].dirty = true;
 }
 
-function raw_update_blit(x, y, w, h, pixels, depth, n, l) {
-	let name = getString(n, l);
+function raw_update_blit(x, y, w, h, pixels, depth, ptr, len) {
+    let hashString = getString(ptr, len);
 	let canvas, ctx;
-	if (name in blits) {
-		let blit = blits[name];
+	if (hashString in blits) {
+		let blit = blits[hashString];
 		canvas = blit.canvas;
 		ctx = blit.ctx;
 	} else {
 		canvas = document.createElement('canvas');
+		canvas.id = 'canvas-' + hashString;
 		ctx = canvas.getContext('2d');
 		document.body.appendChild(canvas);
 	}
@@ -78,7 +69,7 @@ function raw_update_blit(x, y, w, h, pixels, depth, n, l) {
 	canvas.style.zIndex = '-' + depth;
 	canvas.width = w;
 	canvas.height = h;
-	blits[name] = { x, y, w, h, canvas, ctx, pixels, dirty: true };
+	blits[hashString] = { x, y, w, h, canvas, ctx, pixels, dirty: true };
 }
 
 function raw_log(s, l) {
@@ -139,20 +130,12 @@ function frame() {
 	if (w != window.innerWidth || h != window.innerHeight) {
 		w = window.innerWidth;
 		h = window.innerHeight;
-		bgCanvas.width = w;
-		bgCanvas.height = h;
-		bgCanvasSlice = wasm.exports.set_output_size(app, w, h);
+		wasm.exports.set_output_size(app, w, h);
 		printLastFrameTime = true;
 	}
 
-	let bgDirty = wasm.exports.frame(app);
-	if (bgDirty) {
-		let ctx = bgCanvas.getContext('2d');
-		let len = w * h * 4;
-		let mem = wasm.exports.memory;
-		let slice = new Uint8ClampedArray(mem.buffer, bgCanvasSlice, len);
-		ctx.putImageData(new ImageData(slice, w, h), 0, 0);
-	}
+    wasm.exports.frame(app);
+
 	for (let i in blits) {
 		let blit = blits[i];
 		if (blit.dirty) {
@@ -211,14 +194,25 @@ function findWasm(debug) {
 }
 
 function onClick(event) {
-	let x = event.clientX;
-	let y = event.clientY;
-	wasm.exports.quick_action(app, x, y, 1);
+    if (wasm) {
+    	let x = event.clientX;
+    	let y = event.clientY;
+    	wasm.exports.pointing_at(app, x, y);
+    	wasm.exports.quick_action(app, 1);
+    }
+}
+
+function onMouseMove(event) {
+    if (wasm) {
+    	let x = event.clientX;
+    	let y = event.clientY;
+    	wasm.exports.pointing_at(app, x, y);
+    }
 }
 
 function onLoad() {
-	bgCanvas = document.getElementById('bg-canvas');
 	document.body.addEventListener('click', onClick);
+	document.body.addEventListener('mousemove', onMouseMove);
 	let hash = document.location.hash;
 	let debug;
 	if (hash == '#debug') {

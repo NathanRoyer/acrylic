@@ -9,6 +9,8 @@ use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
 use crate::status;
+use crate::BlitKey;
+use crate::BlitPath;
 use crate::PlatformBlit;
 use crate::PlatformLog;
 use crate::Point;
@@ -183,7 +185,7 @@ impl Application {
             platform_blit: blit,
             blit_hooks: Vec::new(),
         };
-        app.initialize_node(app.view.clone(), &mut Vec::new())
+        app.initialize_node(app.view.clone(), &mut NodePath::new())
             .unwrap();
         #[cfg(all(feature = "text", feature = "noto-default-font"))]
         {
@@ -441,19 +443,29 @@ impl Application {
     pub fn blit<'a>(
         &'a self,
         node_spot: &'a Spot,
-        path: Option<&'a NodePath>,
+        path: BlitPath<'a>,
     ) -> Result<(&'a mut [u8], usize, bool), ()> {
-        if let Some(path) = path {
+        if let BlitPath::Node(path) = &path {
             for (hook_path, hook_spot) in &self.blit_hooks {
                 if path.starts_with(hook_path) {
-                    let (slice, pitch, owned) =
-                        status((self.platform_blit)(hook_spot, Some(hook_path)))?;
-                    let (slice, pitch) = status(sub_spot(slice, pitch, [hook_spot, node_spot]))?;
+                    let key = BlitPath::Node(hook_path).to_key();
+                    let (slice, pitch, owned) = status((self.platform_blit)(*hook_spot, key))?;
+                    let (slice, pitch) = status(sub_spot(slice, pitch, [*hook_spot, *node_spot]))?;
                     return Ok((slice, pitch, owned));
                 }
             }
         }
-        status((self.platform_blit)(node_spot, path))
+        let key = path.to_key();
+        let spot = match key {
+            BlitKey::Background => self.view_spot,
+            BlitKey::Overlay => self.view_spot,
+            _ => *node_spot,
+        };
+        let (mut slice, mut pitch, owned) = status((self.platform_blit)(spot, key))?;
+        if let BlitKey::Background | BlitKey::Overlay = key {
+            (slice, pitch) = status(sub_spot(slice, pitch, [spot, *node_spot]))?;
+        }
+        Ok((slice, pitch, owned))
     }
 }
 
@@ -465,7 +477,7 @@ impl Application {
 pub fn sub_spot<'a>(
     slice: &'a mut [u8],
     mut pitch: usize,
-    spots: [&Spot; 2],
+    spots: [Spot; 2],
 ) -> Option<(&'a mut [u8], usize)> {
     let [(hp, hs), (np, ns)] = spots;
     if ns.w != 0 && ns.h != 0 {

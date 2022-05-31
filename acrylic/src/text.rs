@@ -19,6 +19,7 @@ use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
 use crate::status;
+use crate::BlitPath;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
@@ -423,7 +424,7 @@ impl Node for Paragraph {
         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
             let color = app.styles[s].foreground;
             let spot = status(self.get_content_spot_at(self.spot))?;
-            let (dst, pitch, _) = app.blit(&spot, Some(path))?;
+            let (dst, pitch, _) = app.blit(&spot, BlitPath::Node(path))?;
             let (_, size) = spot;
             for_each_line(dst, size, pitch, |_, line_dst| {
                 line_dst.fill(0);

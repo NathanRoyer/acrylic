@@ -6,6 +6,7 @@ use crate::node::LengthPolicy;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
+use crate::BlitPath;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
@@ -133,7 +134,7 @@ impl Node for RailwayNode {
         path: &mut NodePath,
         _: usize,
     ) -> Result<usize, ()> {
-        let (dst, pitch, _) = app.blit(&self.spot, Some(path))?;
+        let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Node(path))?;
         let (_, size) = self.spot;
         let _ = self.time_arg;
         let c_size = Couple::new(size.w as f32, size.h as f32);

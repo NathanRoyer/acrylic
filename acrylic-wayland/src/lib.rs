@@ -25,11 +25,10 @@ use wayland_protocols::xdg_shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::Event as XdgWmBaseEvent;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 
-use acrylic::app::sub_spot;
 use acrylic::app::Application;
 use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
-use acrylic::node::NodePath;
+use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;
 use acrylic::Spot;
@@ -46,6 +45,9 @@ pub struct FrameBuffer {
     buffer: Main<WlBuffer>,
     data: MmapMut,
 }
+
+const DEFAULT_W: usize = 1000;
+const DEFAULT_H: usize = 800;
 
 impl FrameBuffer {
     pub fn new(shm: &WlShm, size: Size) -> Self {
@@ -139,17 +141,13 @@ impl WaylandApp {
             if let XdgToplevelEvent::Configure { width, height, .. } = event {
                 if app.configured {
                     let (w, h) = match (width, height) {
-                        (0, 0) => (500, 500),
+                        (0, 0) => (DEFAULT_W, DEFAULT_H),
                         _ => (width as usize, height as usize),
                     };
                     app.size = Size::new(w, h);
                     let spot = (Point::zero(), app.size);
                     if app.acrylic_app.set_spot(spot) {
                         app.frame_buffer.resize(app.size);
-                        unsafe {
-                            FRAME_SPOT = Some(spot);
-                            BG_PIXELS.as_mut().unwrap().resize(w * h * RGBA, 0);
-                        };
                         app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
                     }
                     app.draw_explicit = true;
@@ -172,7 +170,7 @@ impl WaylandApp {
             }
         });
 
-        let size = Size::new(500, 500);
+        let size = Size::new(DEFAULT_W, DEFAULT_H);
         let frame_buffer = FrameBuffer::new(&shm, size);
         let app = WaylandApp {
             acrylic_app,
@@ -196,8 +194,7 @@ impl WaylandApp {
     }
 
     pub fn frame(&mut self) {
-        // println!("frame {:?}", self.size);
-        let mut subframes = 5;
+        let mut subframes = 2;
         loop {
             self.acrylic_app.render();
             if let Some(request) = self.acrylic_app.data_requests.pop() {
@@ -218,16 +215,22 @@ impl WaylandApp {
                 subframes -= 1;
             }
         }
-        self.frame_buffer
-            .data
-            .copy_from_slice(unsafe { &mut BG_PIXELS.as_mut().unwrap() });
         let blits = unsafe { BLITS_PIXELS.as_ref().unwrap() };
-        let mut paths = blits.keys().collect::<Vec<&NodePath>>();
-        paths.sort_by(|a, b| b.len().partial_cmp(&a.len()).unwrap());
-        for path in paths {
-            // println!("blitting {:?}", &path);
-            if let Some(((pos, size), pixels)) = blits.get(path) {
-                if size.w != 0 && size.h != 0 && size.w < self.size.w {
+        let mut keys = blits.keys().collect::<Vec<&BlitKey>>();
+        keys.sort();
+        if let Some(bg_key) = keys.first() {
+            if let Some(((_, size), pixels)) = blits.get(bg_key) {
+                if self.size == *size {
+                    self.frame_buffer.data.copy_from_slice(pixels);
+                } else {
+                    println!("wrong bg size: {:?}, {:?}", bg_key, size);
+                }
+            }
+        }
+        let keys = keys.get(1..).unwrap_or(&[]);
+        for key in keys {
+            if let Some(((pos, size), pixels)) = blits.get(key) {
+                if size.w != 0 && size.h != 0 && size.w <= self.size.w {
                     let (x, y) = (pos.x as usize, pos.y as usize);
                     let start = RGBA * (x + y * self.size.w);
                     let pitch = RGBA * (self.size.w - size.w);
@@ -271,34 +274,24 @@ impl WaylandApp {
     // }
 }
 
-pub static mut BLITS_PIXELS: Option<HashMap<NodePath, (Spot, Vec<u8>)>> = None;
-pub static mut BG_PIXELS: Option<Vec<u8>> = None;
-pub static mut FRAME_SPOT: Option<Spot> = None;
+pub static mut BLITS_PIXELS: Option<HashMap<BlitKey, (Spot, Vec<u8>)>> = None;
 
-pub fn blit<'a>(spot: &'a Spot, path: Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)> {
-    if let Some(path) = path {
-        let (_, size) = *spot;
+pub fn blit(spot: Spot, key: BlitKey) -> Option<(&'static mut [u8], usize, bool)> {
+    let (_, size) = spot;
+    let (saved_spot, slice) = unsafe {
         let total_pixels = size.w * size.h * RGBA;
-        let slice = unsafe {
-            let blits = BLITS_PIXELS.as_mut().unwrap();
-            if let None = blits.get_mut(path) {
-                let pixels = vec![0; total_pixels];
-                let spot = (Point::zero(), Size::zero());
-                blits.insert(path.clone(), (spot, pixels));
-            }
-            let (saved_spot, vec) = blits.get_mut(path).unwrap();
-            *saved_spot = *spot;
-            vec.resize(total_pixels, 0);
-            &mut *vec
-        };
-        Some((slice, 0, true))
-    } else {
-        let f_spot = unsafe { FRAME_SPOT.unwrap() };
-        let background = unsafe { BG_PIXELS.as_mut().unwrap() };
-        let background = background.as_mut_slice();
-        let (slice, pitch) = sub_spot(background, 0, [&f_spot, spot])?;
-        Some((slice, pitch, true))
-    }
+        let blits = BLITS_PIXELS.as_mut().unwrap();
+        if let None = blits.get(&key) {
+            let pixels = vec![0; total_pixels];
+            let spot = (Point::zero(), Size::zero());
+            blits.insert(key, (spot, pixels));
+        }
+        let (spot, vec) = blits.get_mut(&key).unwrap();
+        vec.resize(total_pixels, 0);
+        (spot, vec.as_mut_slice())
+    };
+    *saved_spot = spot;
+    Some((slice, 0, true))
 }
 
 pub fn run(mut app: Application, assets: &str) {
@@ -330,7 +323,6 @@ pub fn run(mut app: Application, assets: &str) {
         },
     ]);
     unsafe { BLITS_PIXELS = Some(HashMap::new()) };
-    unsafe { BG_PIXELS = Some(Vec::new()) };
     let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {
         if app.draw_explicit {

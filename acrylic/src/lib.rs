@@ -3,9 +3,17 @@
 extern crate no_std_compat as std;
 
 use node::NodePath;
+use node::NodePathHash;
 
+use std::collections::hash_map::DefaultHasher;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+
+use core::cmp::Ord;
+use core::cmp::Ordering;
+use core::cmp::PartialOrd;
+use core::hash::Hash;
+use core::hash::Hasher;
 
 pub mod app;
 pub mod bitmap;
@@ -64,8 +72,41 @@ pub type PlatformLog = &'static dyn Fn(&str);
 ///     (slice, pitch, not_shared)
 /// }
 /// ```
-pub type PlatformBlit =
-    &'static dyn for<'a> Fn(&'a Spot, Option<&'a NodePath>) -> Option<(&'a mut [u8], usize, bool)>;
+pub type PlatformBlit = &'static dyn Fn(Spot, BlitKey) -> Option<(&'static mut [u8], usize, bool)>;
+
+/// Used by platforms as an index of pixel buffers
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum BlitKey {
+    /// (depth, hash)
+    Node(usize, NodePathHash),
+    Background,
+    Overlay,
+}
+
+/// Used by platforms as an index of pixel buffers
+#[derive(Debug, Copy, Clone)]
+pub enum BlitPath<'a> {
+    Node(&'a NodePath),
+    Background,
+    Overlay,
+}
+
+impl<'a> BlitPath<'a> {
+    pub fn to_key(&self) -> BlitKey {
+        match self {
+            BlitPath::Node(path) => BlitKey::Node(path.len() + 1, single_hash(path)),
+            BlitPath::Background => BlitKey::Background,
+            BlitPath::Overlay => BlitKey::Overlay,
+        }
+    }
+}
+
+/// Compute the hash of anything which implements [`Hash`]
+pub fn single_hash(hashable: impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hashable.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// `no_std`-friendly wrapper for `mutex.lock()`
 pub fn lock<T: ?Sized>(mutex: &Mutex<T>) -> Option<MutexGuard<T>> {
@@ -90,4 +131,30 @@ macro_rules! format {
 		core::fmt::write(&mut string, core::format_args!($($arg)*)).unwrap();
 		string
 	}}
+}
+
+impl Ord for BlitKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (BlitKey::Node(d1, _), BlitKey::Node(d2, _)) => d2.cmp(d1),
+
+            (BlitKey::Background, BlitKey::Node(_, _)) => Ordering::Less,
+            (BlitKey::Node(_, _), BlitKey::Background) => Ordering::Greater,
+
+            (BlitKey::Overlay, BlitKey::Node(_, _)) => Ordering::Greater,
+            (BlitKey::Node(_, _), BlitKey::Overlay) => Ordering::Less,
+
+            (BlitKey::Background, BlitKey::Overlay) => Ordering::Less,
+            (BlitKey::Overlay, BlitKey::Background) => Ordering::Greater,
+
+            (BlitKey::Background, BlitKey::Background) => Ordering::Equal,
+            (BlitKey::Overlay, BlitKey::Overlay) => Ordering::Equal,
+        }
+    }
+}
+
+impl PartialOrd for BlitKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
