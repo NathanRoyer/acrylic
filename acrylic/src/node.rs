@@ -409,7 +409,7 @@ pub fn rc_node<W: Node>(node: W) -> RcNode {
 lazy_static! {
     static ref CONTAINER_RWY: LoadedRailwayProgram<4> = {
         let program = Program::parse(include_bytes!("container.rwy")).unwrap();
-        let stack = program.create_stack();
+        let mut stack = program.create_stack();
         program.valid().unwrap();
         let mut addresses = [0; 4];
         {
@@ -418,6 +418,10 @@ lazy_static! {
             addresses[1] = arg("margin-radius");
             addresses[2] = arg("background-color-red-green");
             addresses[3] = arg("background-color-blue-alpha");
+            stack[arg("border-width")].x = 0.0;
+            stack[arg("border-pattern")].x = 0.0;
+            stack[arg("border-pattern")].y = 10.0;
+            stack[arg("border-color-blue-alpha")].y = 0.0;
         }
         LoadedRailwayProgram {
             program,

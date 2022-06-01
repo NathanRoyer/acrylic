@@ -14,7 +14,7 @@ readme = "../README.md"
 ab_glyph = { version = "0.2", optional = true }
 xmlparser = { version = "0.13.3", optional = true }
 png = { version = "0.17", optional = true }
-railway = { version = "0.1.6", features = [ "zeno" ], optional = true }
+railway = { version = "0.1.7", features = [ "zeno" ], optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 no-std-compat = { version = "0.4.1", features = [ "alloc", "compat_hash", "compat_sync", "compat_macros" ] }
 bitflags = "1.3"
