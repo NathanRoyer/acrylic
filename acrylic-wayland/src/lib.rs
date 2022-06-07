@@ -27,6 +27,8 @@ use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 
 use acrylic::app::Application;
 use acrylic::app::Style;
+use acrylic::app::sub_spot;
+use acrylic::app::for_each_line;
 use acrylic::bitmap::RGBA;
 use acrylic::BlitKey;
 use acrylic::Point;
@@ -228,32 +230,25 @@ impl WaylandApp {
             }
         }
         let keys = keys.get(1..).unwrap_or(&[]);
+        let fb_pixels = &mut self.frame_buffer.data;
         for key in keys {
-            if let Some(((pos, size), pixels)) = blits.get(key) {
-                if size.w != 0 && size.h != 0 && size.w <= self.size.w {
-                    let (x, y) = (pos.x as usize, pos.y as usize);
-                    let start = RGBA * (x + y * self.size.w);
-                    let pitch = RGBA * (self.size.w - size.w);
-                    let stop = start + RGBA * (size.w + size.h * self.size.w);
-                    let px_width = RGBA * size.w;
-                    let mut dst = self.frame_buffer.data.get_mut(start..stop);
-                    let mut src = pixels.chunks(px_width);
-                    while let (Some(dst_tmp), Some(src)) = (dst, src.next()) {
-                        let (line_dst, next_dst) = dst_tmp.split_at_mut(px_width);
-                        let mut i = px_width as isize - 1;
-                        let (mut a, mut b) = (0, 0);
-                        while i >= 0 {
-                            let j = i as usize;
-                            let (dst, src) = (&mut line_dst[j], &(src[j] as u32));
-                            if (j & 0b11) == 3 {
+            if let Some((spot, src)) = blits.get(key) {
+                let app_spot = (Point::zero(), self.size);
+                if let Some(dst) = sub_spot(fb_pixels, 0, [app_spot, *spot]) {
+                    let (slice, pitch) = dst;
+                    let (mut a, mut b) = (0, 0);
+                    let mut j = 0;
+                    for_each_line(slice, spot.1, pitch, |_, line| {
+                        for i in (0..line.len()).rev() {
+                            let (dst, src) = (&mut line[i], &(src[j + i] as u32));
+                            if (i % RGBA) == 3 {
                                 a = *src as u32;
                                 b = 255 - a;
                             }
                             *dst = ((*src * a + (*dst as u32) * b) / 255) as u8;
-                            i -= 1;
                         }
-                        dst = next_dst.get_mut(pitch..);
-                    }
+                        j += line.len();
+                    });
                 }
             }
         }
