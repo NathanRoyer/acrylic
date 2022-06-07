@@ -104,8 +104,9 @@ bitflags! {
     /// Utility bit field to keep track of what you
     /// need to repaint
     pub struct NeedsRepaint: u8 {
-        const BACKGROUND = 0b01;
-        const FOREGROUND = 0b10;
+        const BACKGROUND = 0b001;
+        const FOREGROUND = 0b010;
+        const OVERLAY    = 0b100;
     }
 }
 
@@ -450,7 +451,7 @@ pub struct Container {
     pub focused: bool,
     /// Style override
     pub normal_style: Option<usize>,
-    /// Style override when focused 
+    /// Style override when focused
     pub focus_style: Option<usize>,
     /// Initialize to `None`
     #[cfg(feature = "railway")]
