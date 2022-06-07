@@ -229,7 +229,7 @@ impl FontState {
 /// might be bold, others can be both, etc.
 #[derive(Debug, Clone)]
 pub struct Paragraph {
-    pub parts: Vec<(FontConfig, String)>,
+    pub parts: Vec<(FontConfig, Option<Color>, String)>,
     pub font: FontState,
     pub children: Vec<RcNode>,
     pub space_width: usize,
@@ -250,6 +250,7 @@ struct ParagraphIter<'a> {
     pub paragraph: &'a Paragraph,
     pub i: usize,
     pub cfg: FontConfig,
+    pub color_override: Option<Color>,
     pub chars: Option<Chars<'a>>,
 }
 
@@ -352,6 +353,7 @@ impl Paragraph {
                 opacity: 0,
                 serif_rise: 0,
             },
+            color_override: None,
             chars: None,
         }
     }
@@ -369,7 +371,7 @@ impl Paragraph {
         let mut next;
         let mut iter = self.into_iter();
         let mut current = iter.next();
-        while let Some((char_cfg, c1)) = current {
+        while let Some((char_cfg, color, c1)) = current {
             next = iter.next();
             if c1 == ' ' {
                 let mut prev = default_unbreakable.clone();
@@ -377,11 +379,15 @@ impl Paragraph {
                 children.push(rc_node(prev));
             } else {
                 let c2 = match next {
-                    Some((_, c)) => match c {
+                    Some((_, _, c)) => match c {
                         ' ' => None,
                         _ => Some(c),
                     },
                     None => None,
+                };
+                let rdr_cfg = match (rdr_cfg, color) {
+                    (Some((h, _)), Some(c)) => Some((h, c)),
+                    _ => rdr_cfg,
                 };
                 unbreakable.glyphs.push(font.get(c1, c2, rdr_cfg, char_cfg));
                 unbreakable.text.push(c1);
@@ -398,17 +404,18 @@ impl Paragraph {
 }
 
 impl<'a> Iterator for ParagraphIter<'a> {
-    type Item = (FontConfig, char);
+    type Item = (FontConfig, Option<Color>, char);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let None = self.chars {
-                let (cfg, part) = self.paragraph.parts.get(self.i)?;
+                let (cfg, color_ovrd, part) = self.paragraph.parts.get(self.i)?;
                 self.chars = Some(part.chars());
                 self.cfg = *cfg;
+                self.color_override = *color_ovrd;
                 self.i += 1;
             }
             match self.chars.as_mut()?.next() {
-                Some(c) => break Some((self.cfg, c)),
+                Some(c) => break Some((self.cfg, self.color_override, c)),
                 None => self.chars = None,
             }
         }
@@ -487,7 +494,7 @@ impl Node for Paragraph {
 
     fn describe(&self) -> String {
         let mut legend = String::new();
-        for (_, part) in &self.parts {
+        for (_, _, part) in &self.parts {
             legend += &part;
         }
         legend
@@ -596,7 +603,7 @@ pub fn xml_paragraph(
     let paragraph = rc_node(Paragraph {
         parts: {
             let mut vec = Vec::new();
-            vec.push((font_config, text?));
+            vec.push((font_config, None, text?));
             vec
         },
         font: FontState::Pending(font),
