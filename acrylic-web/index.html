@@ -36,8 +36,8 @@ let previousFrame = performance.now();
 const targetFPS = 40;
 const targetFrameTime = parseInt(1000 / targetFPS);
 let lastFrameTime;
+let appDateOfBirth;
 let assets = {};
-
 let blits = {};
 
 function getString(ptr, len) {
@@ -134,12 +134,14 @@ function frame() {
 		printLastFrameTime = true;
 	}
 
-    wasm.exports.frame(app);
+	let age = performance.now() - appDateOfBirth;
+	console.log(age);
+    wasm.exports.frame(app, age);
 
 	for (let i in blits) {
 		let blit = blits[i];
-		if (blit.dirty) {
-			let len = blit.w * blit.h * 4;
+        let len = blit.w * blit.h * 4;
+		if (blit.dirty && len > 0) {
 			let mem = wasm.exports.memory;
 			let slice = new Uint8ClampedArray(mem.buffer, blit.pixels, len);
 			blit.ctx.putImageData(new ImageData(slice, blit.w, blit.h), 0, 0);
@@ -147,7 +149,7 @@ function frame() {
 		}
 	}
 
-	let now = performance.now();
+	now = performance.now();
 	lastFrameTime = now - previousFrame;
 	if (printLastFrameTime) console.log(lastFrameTime);
 	previousFrame = now;
@@ -172,6 +174,7 @@ function startWasm(file, debug) {
 				WebAssembly.instantiate(module, { env }).then(mod => {
 					wasm = mod;
 					app = wasm.exports.init();
+					appDateOfBirth = performance.now();
 					frame();
 				});
 			});

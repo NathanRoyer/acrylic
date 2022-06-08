@@ -2,6 +2,7 @@ use std::collections::HashMap;
 pub use std::concat;
 use std::fs::read;
 use std::fs::File;
+use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 
 use wayland_client::protocol::wl_buffer::WlBuffer;
@@ -98,9 +99,10 @@ struct WaylandApp {
     pub xdg_surface: Main<XdgSurface>,
     pub xdg_toplevel: Main<XdgToplevel>,
     pub acrylic_app: Application,
+    pub acrylic_app_dob: Instant,
     pub closed: bool,
     pub configured: bool,
-    pub draw_explicit: bool,
+    pub ready_to_draw: bool,
     pub size: Size,
     pub assets: String,
 }
@@ -152,7 +154,7 @@ impl WaylandApp {
                         app.frame_buffer.resize(app.size);
                         app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
                     }
-                    app.draw_explicit = true;
+                    app.ready_to_draw = true;
                     app.frame();
                     app.surface.commit();
                 }
@@ -172,10 +174,12 @@ impl WaylandApp {
             }
         });
 
+        let acrylic_app_dob = Instant::now();
         let size = Size::new(DEFAULT_W, DEFAULT_H);
         let frame_buffer = FrameBuffer::new(&shm, size);
         let app = WaylandApp {
             acrylic_app,
+            acrylic_app_dob,
             display,
             global_manager: gm,
             compositor,
@@ -188,7 +192,7 @@ impl WaylandApp {
             size,
             closed: false,
             configured: false,
-            draw_explicit: false,
+            ready_to_draw: false,
             assets,
         };
         app.surface.commit();
@@ -196,27 +200,22 @@ impl WaylandApp {
     }
 
     pub fn frame(&mut self) {
-        let mut subframes = 2;
-        loop {
-            self.acrylic_app.render();
-            if let Some(request) = self.acrylic_app.data_requests.pop() {
-                println!("loading {}", request.name);
-                let data = read(&format!("{}{}", &self.assets, request.name)).unwrap();
-                let node = self.acrylic_app.get_node(&request.node).unwrap();
-                let mut node = node.lock().unwrap();
-                let _ = node.loaded(
-                    &mut self.acrylic_app,
-                    &request.node,
-                    &request.name,
-                    0,
-                    &data,
-                );
-            } else if subframes == 0 {
-                break;
-            } else {
-                subframes -= 1;
-            }
+        let age = self.acrylic_app_dob.elapsed();
+        self.acrylic_app.set_age(age.as_millis() as usize);
+        while let Some(request) = self.acrylic_app.data_requests.pop() {
+            println!("loading {}", request.name);
+            let data = read(&format!("{}{}", &self.assets, request.name)).unwrap();
+            let node = self.acrylic_app.get_node(&request.node).unwrap();
+            let mut node = node.lock().unwrap();
+            let _ = node.loaded(
+                &mut self.acrylic_app,
+                &request.node,
+                &request.name,
+                0,
+                &data,
+            );
         }
+        self.acrylic_app.render();
         let blits = unsafe { BLITS_PIXELS.as_ref().unwrap() };
         let mut keys = blits.keys().collect::<Vec<&BlitKey>>();
         keys.sort();
@@ -252,21 +251,18 @@ impl WaylandApp {
                 }
             }
         }
-        // self.surface
-        // .damage_buffer(0, 0, self.size.w as i32, self.size.h as i32);
+        self.ready_to_draw = true;
     }
 
-    // pub fn request_frame(&mut self) {
-    // // println!("requesting frame");
-    // self.surface
-    // .frame()
-    // .quick_assign(|_iface, _event, mut data| {
-    // let app = data.get::<WaylandApp>().unwrap();
-    // app.frame();
-    // app.request_frame();
-    // });
-    // self.surface.commit();
-    // }
+    pub fn request_frame(&mut self) {
+        self.surface.frame().quick_assign(|_iface, _event, mut data| {
+            let app = data.get::<WaylandApp>().unwrap();
+            app.frame();
+            app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
+            app.surface.damage(0, 0, app.size.w as i32, app.size.h as i32);
+            app.surface.commit();
+        });
+    }
 }
 
 pub static mut BLITS_PIXELS: Option<HashMap<BlitKey, (Spot, Vec<u8>)>> = None;
@@ -320,17 +316,16 @@ pub fn run(mut app: Application, assets: &str) {
     unsafe { BLITS_PIXELS = Some(HashMap::new()) };
     let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {
-        if app.draw_explicit {
-            // app.frame();
-            // app.surface.commit();
-            app.draw_explicit = false;
-        }
         event_queue
-            .dispatch(
+            .sync_roundtrip(
                 &mut app,
-                |_a, _, _| {}, /* println!("ignored {:?}", a) */
+                |_a, _, _| println!("ignored {:?}", _a)
             )
             .expect("Event dispatching Error!");
+        if app.ready_to_draw {
+            app.ready_to_draw = false;
+            app.request_frame();
+        }
     }
 }
 

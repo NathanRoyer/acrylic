@@ -532,8 +532,12 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
                 ))
             }
             "wrap" => policy = Ok(LengthPolicy::WrapContent),
-            "style" => normal_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
-            "focus" => focus_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
+            "style" => {
+                normal_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?)
+            }
+            "focus" => {
+                focus_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?)
+            }
             _ => Err(format!("unexpected attribute: {}", name))?,
         }
     }

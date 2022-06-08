@@ -223,37 +223,6 @@ impl FontState {
     }
 }
 
-/// A Paragraph represent a block of text. It can be
-/// made of multiple parts which may have different
-/// configurations: some might be underlined, some
-/// might be bold, others can be both, etc.
-#[derive(Debug, Clone)]
-pub struct Paragraph {
-    pub parts: Vec<(FontConfig, Option<Color>, String)>,
-    pub font: FontState,
-    pub children: Vec<RcNode>,
-    pub space_width: usize,
-    pub policy: Option<LengthPolicy>,
-    /// Used in [`Paragraph::validate_spot`]
-    pub prev_spot: Spot,
-    pub margin: Option<Margin>,
-    /// Ignored when `policy` is WrapContent.
-    pub font_size: Option<usize>,
-    pub spot: Spot,
-    pub deployed: bool,
-    /// Initialize to `true`
-    pub repaint: NeedsRepaint,
-}
-
-#[derive(Debug, Clone)]
-struct ParagraphIter<'a> {
-    pub paragraph: &'a Paragraph,
-    pub i: usize,
-    pub cfg: FontConfig,
-    pub color_override: Option<Color>,
-    pub chars: Option<Chars<'a>>,
-}
-
 impl Font {
     /// Parse a TTF / OpenType font's data
     pub fn from_bytes(data: Vec<u8>) -> Arc<Mutex<Self>> {
@@ -340,6 +309,50 @@ impl Font {
     }
 }
 
+/// Paragraphs can show a cursor on top of the text.
+#[derive(Debug, Clone)]
+pub struct TextCursor {
+    /// - `None` => before any char
+    /// - `Some(N)` => after Nth char
+    pub position: Option<usize>,
+    /// in milliseconds
+    pub blink_interval: Option<usize>,
+    /// Please initialize to `None`
+    pub blink_state: Option<(usize, bool, Vec<u8>)>,
+}
+
+/// A Paragraph represent a block of text. It can be
+/// made of multiple parts which may have different
+/// configurations: some might be underlined, some
+/// might be bold, others can be both, etc.
+#[derive(Debug, Clone)]
+pub struct Paragraph {
+    pub parts: Vec<(FontConfig, Option<Color>, String)>,
+    pub font: FontState,
+    pub children: Vec<RcNode>,
+    pub space_width: usize,
+    pub policy: Option<LengthPolicy>,
+    /// Used in [`Paragraph::validate_spot`]
+    pub prev_spot: Spot,
+    pub margin: Option<Margin>,
+    /// Ignored when `policy` is WrapContent.
+    pub font_size: Option<usize>,
+    pub cursors: Vec<TextCursor>,
+    pub spot: Spot,
+    pub deployed: bool,
+    /// Initialize to `true`
+    pub repaint: NeedsRepaint,
+}
+
+#[derive(Debug, Clone)]
+struct ParagraphIter<'a> {
+    pub paragraph: &'a Paragraph,
+    pub i: usize,
+    pub cfg: FontConfig,
+    pub color_override: Option<Color>,
+    pub chars: Option<Chars<'a>>,
+}
+
 impl Paragraph {
     fn into_iter(&self) -> ParagraphIter {
         ParagraphIter {
@@ -401,6 +414,13 @@ impl Paragraph {
         }
         self.children = children;
     }
+
+    pub fn get_height(&self, content_size: Size) -> usize {
+        match self.policy {
+            Some(LengthPolicy::Chunks(h)) => h,
+            _ => content_size.h,
+        }
+    }
 }
 
 impl<'a> Iterator for ParagraphIter<'a> {
@@ -429,26 +449,97 @@ impl Node for Paragraph {
         path: &mut NodePath,
         s: usize,
     ) -> Result<usize, ()> {
+        let spot = status(self.get_content_spot_at(self.spot))?;
+        let (_, size) = spot;
+        let height = self.get_height(spot.1);
+        let color = app.styles[s].foreground;
+
         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            let color = app.styles[s].foreground;
-            let spot = status(self.get_content_spot_at(self.spot))?;
             let (dst, pitch, _) = app.blit(&spot, BlitPath::Node(path))?;
-            let (_, size) = spot;
             for_each_line(dst, size, pitch, |_, line_dst| {
                 line_dst.fill(0);
             });
             self.repaint.remove(NeedsRepaint::FOREGROUND);
             if !self.deployed {
                 app.should_recompute = true;
-                self.deploy(Some((
-                    match self.policy {
-                        Some(LengthPolicy::Chunks(h)) => h,
-                        _ => size.h,
-                    },
-                    color,
-                )));
+                self.deploy(Some((height, color)));
                 self.deployed = true;
             }
+            app.global_repaint.insert(NeedsRepaint::OVERLAY);
+        }
+
+        if self.repaint.contains(NeedsRepaint::OVERLAY) {
+            for cursor in self.cursors.iter_mut() {
+                cursor.blink_state = None;
+            }
+            self.repaint.remove(NeedsRepaint::OVERLAY);
+        }
+
+        for c in 0..self.cursors.len() {
+            let cursor = &self.cursors[c];
+            if let Some((last_change_ms, _, _)) = cursor.blink_state {
+                let interval = cursor.blink_interval.unwrap_or(usize::MAX);
+                if app.instance_age_ms - last_change_ms < interval {
+                    continue;
+                }
+            }
+
+            let cursor_spot = {
+                let cursor_position;
+                if let Some(mut i) = cursor.position {
+                    let mut c_spot = (Point::zero(), Size::zero());
+                    let mut advance = true;
+                    'outer: for u in self.children() {
+                        let unbreakable = lock(u).unwrap();
+                        for g in unbreakable.children() {
+                            let glyph = lock(g).unwrap();
+                            if i == 0 {
+                                c_spot = glyph.get_spot();
+                                break 'outer;
+                            }
+                            i -= 1;
+                        }
+                        if i == 0 {
+                            advance = false;
+                        } else {
+                            i -= 1;
+                        }
+                    }
+                    let (mut position, size) = c_spot;
+                    if advance {
+                        position.x += size.w as isize;
+                    }
+                    cursor_position = position;
+                } else {
+                    cursor_position = spot.0;
+                }
+                (cursor_position, Size::new(2, height))
+            };
+            let (_, cursor_size) = cursor_spot;
+            let (dst, pitch, _) = app.blit(&cursor_spot, BlitPath::Overlay)?;
+
+            // now borrowing mutably
+            let cursor = &mut self.cursors[c];
+            if cursor.blink_state.is_none() {
+                cursor.blink_state = Some((0, false, Vec::new()));
+            }
+
+            let (last_change, shown, _) = cursor.blink_state.as_mut().unwrap();
+
+            if *shown {
+                for_each_line(dst, cursor_size, pitch, |_, line_dst| {
+                    line_dst.fill(0);
+                });
+            } else {
+                for_each_line(dst, cursor_size, pitch, |_, line_dst| {
+                    for i in 0..line_dst.len() {
+                        line_dst[i] = color[i % RGBA];
+                    }
+                });
+            }
+
+            *last_change = app.instance_age_ms;
+            *shown = !*shown;
         }
         Ok(s)
     }
@@ -610,6 +701,7 @@ pub fn xml_paragraph(
         children: Vec::new(),
         space_width: 10,
         policy: None,
+        cursors: Vec::new(),
         font_size,
         margin,
         spot,

@@ -153,7 +153,8 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize) {
 }
 
 #[export_name = "frame"]
-pub extern "C" fn frame(app: &mut Application) {
+pub extern "C" fn frame(app: &mut Application, age_ms: usize) {
+    app.set_age(age_ms);
     app.render();
     ensure_pending_request(app);
 }

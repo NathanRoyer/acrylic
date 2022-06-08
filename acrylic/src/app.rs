@@ -439,7 +439,6 @@ impl Application {
     /// of the output. It should be called for every frame.
     pub fn render(&mut self) {
         let mut path = Vec::new();
-
         let max_runs = 5;
         let mut runs = 0;
         loop {
