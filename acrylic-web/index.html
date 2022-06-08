@@ -135,7 +135,6 @@ function frame() {
 	}
 
 	let age = performance.now() - appDateOfBirth;
-	console.log(age);
     wasm.exports.frame(app, age);
 
 	for (let i in blits) {

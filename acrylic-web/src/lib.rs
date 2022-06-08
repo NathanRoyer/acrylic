@@ -2,6 +2,7 @@ use acrylic::app::Application;
 use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
 use acrylic::node::Event;
+use acrylic::node::EventType;
 use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;
@@ -133,14 +134,18 @@ pub extern "C" fn set_output_size(app: &mut Application, w: usize, h: usize) {
     app.set_spot(spot);
 }
 
+pub static mut FOCUS_GRABBED: bool = false;
+
 #[export_name = "pointing_at"]
 pub extern "C" fn pointing_at(app: &mut Application, x: isize, y: isize) {
-    app.pointing_at(Point::new(x, y));
+    if unsafe { !FOCUS_GRABBED } {
+        app.pointing_at(Point::new(x, y));
+    }
 }
 
 #[export_name = "quick_action"]
 pub extern "C" fn quick_action(app: &mut Application, action: usize) {
-    let event = match action {
+    let mut event = match action {
         1 => Event::QuickAction1,
         2 => Event::QuickAction2,
         3 => Event::QuickAction3,
@@ -149,6 +154,15 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize) {
         6 => Event::QuickAction6,
         _ => unreachable!(),
     };
+    if action == 1 {
+        if app.can_grab_focus(Some(EventType::QUICK_ACTION_1)) {
+            let grabbed = unsafe {
+                FOCUS_GRABBED = !FOCUS_GRABBED;
+                FOCUS_GRABBED
+            };
+            event = Event::FocusGrab(grabbed);
+        }
+    }
     let _ = app.fire_event(&event);
 }
 

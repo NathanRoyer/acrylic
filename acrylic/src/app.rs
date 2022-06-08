@@ -83,7 +83,7 @@ pub struct Application {
 
     /// This field has a path which points to the node
     /// which currently has user focus.
-    pub focus: Option<NodePath>,
+    pub focus: Option<(Point, NodePath)>,
 
     /// A platform-specific function which allows logging
     /// messages. Do not use it directly, prefer the
@@ -246,10 +246,10 @@ impl Application {
     /// Platforms which support pointing input devices (mice)
     /// must use this function to report device movement.
     pub fn pointing_at(&mut self, point: Point) {
-        let mut path = self.hit_test(point);
-        swap(&mut self.focus, &mut path);
-        if path != self.focus {
-            if let Some(mut path) = path {
+        let mut focus = Some((point, self.hit_test(point)));
+        swap(&mut self.focus, &mut focus);
+        if focus != self.focus {
+            if let Some((_, mut path)) = focus {
                 loop {
                     if let Some(rc_node) = self.get_node(&path) {
                         let visible_change = { lock(&rc_node).unwrap().set_focused(false) };
@@ -262,7 +262,7 @@ impl Application {
                     }
                 }
             }
-            if let Some(mut path) = self.focus.clone() {
+            if let Some((_, mut path)) = self.focus.clone() {
                 loop {
                     if let Some(rc_node) = self.get_node(&path) {
                         let visible_change = { lock(&rc_node).unwrap().set_focused(true) };
@@ -278,11 +278,38 @@ impl Application {
         }
     }
 
+    /// Platforms can detect focus-grabbing nodes via
+    /// this method.
+    pub fn can_grab_focus(&self, except: Option<EventType>) -> bool {
+        let mut result = false;
+        if let Some((_, mut path)) = self.focus.clone() {
+            loop {
+                if let Some(node) = self.get_node(&path) {
+                    let node = lock(&node).unwrap();
+                    let event_mask = node.supported_events();
+                    if event_mask.contains(EventType::FOCUS_GRAB) {
+                        result = true;
+                        break;
+                    }
+                    if let Some(except) = except {
+                        if event_mask.contains(except) {
+                            break;
+                        }
+                    }
+                }
+                if let None = path.pop() {
+                    break;
+                }
+            };
+        }
+        result
+    }
+
     /// Platforms should trigger input events via
-    /// this function.
+    /// this method.
     pub fn fire_event(&mut self, event: &Event) -> Status {
         let mut result = Err(());
-        if let Some(mut path) = self.focus.clone() {
+        if let Some((_, mut path)) = self.focus.clone() {
             let handler_name = loop {
                 if let Some(node) = self.get_node(&path) {
                     let mut node = lock(&node).unwrap();
@@ -311,7 +338,7 @@ impl Application {
     pub fn acceptable_events(&mut self) -> Vec<(EventType, String)> {
         let mut events = Vec::new();
         let mut pushed = EventType::empty();
-        if let Some(mut path) = self.focus.clone() {
+        if let Some((_, mut path)) = self.focus.clone() {
             loop {
                 if let Some(node) = self.get_node(&path) {
                     let node = lock(&node).unwrap();
@@ -330,13 +357,12 @@ impl Application {
         events
     }
 
-    pub fn hit_test(&mut self, point: Point) -> Option<NodePath> {
+    pub fn hit_test(&mut self, point: Point) -> NodePath {
         let mut path = NodePath::new();
-        if Self::hit_test_for(self.view.clone(), point, &mut path) {
-            Some(path)
-        } else {
-            None
+        if !Self::hit_test_for(self.view.clone(), point, &mut path) {
+            path.clear()
         }
+        path
     }
 
     fn hit_test_for(node: RcNode, p: Point, path: &mut NodePath) -> bool {
