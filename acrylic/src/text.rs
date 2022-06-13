@@ -5,7 +5,7 @@ use ab_glyph::ScaleFont;
 
 use crate::app::for_each_line;
 use crate::app::Application;
-use crate::app::Color;
+use crate::style::Color;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
 use crate::geometry::aspect_ratio;
@@ -337,6 +337,7 @@ pub struct Paragraph {
     pub policy: Option<LengthPolicy>,
     /// Used in [`Paragraph::validate_spot`]
     pub prev_spot: Spot,
+    pub fg_color: Color,
     pub margin: Option<Margin>,
     /// Ignored when `policy` is WrapContent.
     pub font_size: Option<usize>,
@@ -457,7 +458,7 @@ impl Node for Paragraph {
         let spot = status(self.get_content_spot_at(self.spot))?;
         let (_, size) = spot;
         let height = self.get_height(spot.1);
-        let color = app.styles[s].foreground;
+        let color = app.theme.styles[s].foreground;
 
         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
             let (dst, pitch, _) = app.blit(&spot, BlitPath::Node(path))?;
@@ -465,7 +466,8 @@ impl Node for Paragraph {
                 line_dst.fill(0);
             });
             self.repaint.remove(NeedsRepaint::FOREGROUND);
-            if !self.deployed {
+            if !self.deployed || color != self.fg_color {
+                self.fg_color = color;
                 app.should_recompute = true;
                 self.deploy(Some((height, color)));
                 self.deployed = true;
@@ -873,6 +875,7 @@ pub fn xml_paragraph(
         cursors: Vec::new(),
         on_edit,
         on_submit,
+        fg_color: [0; 4],
         font_size,
         margin,
         spot,

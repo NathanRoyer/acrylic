@@ -506,7 +506,7 @@ impl Node for Container {
                     self.style_rwy = Some(CONTAINER_RWY.clone());
                 }
                 if let Some(rwy) = &mut self.style_rwy {
-                    let parent_bg = app.styles[style].background;
+                    let parent_bg = app.theme.styles[style].background;
                     let c = |i| parent_bg[i] as f32 / 255.0;
                     let margin = self.margin.unwrap_or(1);
                     let radius = self.radius.unwrap_or(1);
@@ -536,7 +536,7 @@ impl Node for Container {
         if self.repaint.contains(NeedsRepaint::BACKGROUND) {
             self.repaint.remove(NeedsRepaint::BACKGROUND);
             if let Some(i) = self.style() {
-                let this_bg = app.styles[i].background;
+                let this_bg = app.theme.styles[i].background;
                 let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Background)?;
                 for_each_line(dst, size, pitch, |_, line_dst| {
                     for i in 0..px_width {

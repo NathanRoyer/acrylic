@@ -1,6 +1,7 @@
 use crate::bitmap::RGBA;
 use crate::flexbox::compute_tree;
 use crate::lock;
+use crate::style::Theme;
 use crate::node::rc_node;
 use crate::node::Event;
 use crate::node::EventType;
@@ -31,9 +32,8 @@ use core::ops::Range;
 use std::boxed::Box;
 use std::string::String;
 use std::vec::Vec;
-
-#[cfg(feature = "text")]
 use std::collections::HashMap;
+
 #[cfg(feature = "text")]
 use std::sync::Arc;
 #[cfg(feature = "text")]
@@ -104,13 +104,9 @@ pub struct Application {
     /// in the paragraph's buffer.
     pub blit_hooks: Vec<(NodePath, Spot)>,
 
-    /// The platform will push styles to this vector. All
-    /// platforms must push the same number of styles,
-    /// however this number is yet to be decided.
-    /// You can use this vector in your implementation of
-    /// [`Node::render`], using the `style` parameter of that
-    /// method.
-    pub styles: Vec<Style>,
+    /// The platform can set the theme to use via the
+    /// [`Application::set_theme`] method.
+    pub theme: Theme,
 
     /// Global override for node's repaint flags
     pub global_repaint: NeedsRepaint,
@@ -141,17 +137,6 @@ pub struct DataRequest {
     pub name: String,
     /// If specified, the range of bytes to load.
     pub range: Option<Range<usize>>,
-}
-
-/// A color represented as four bytes.
-pub type Color = [u8; RGBA];
-
-/// Represent a node's visual style.
-#[derive(Debug, Copy, Clone)]
-pub struct Style {
-    pub background: Color,
-    pub foreground: Color,
-    pub border: Color,
 }
 
 impl Application {
@@ -192,7 +177,7 @@ impl Application {
             should_recompute: true,
             global_repaint: NeedsRepaint::empty(),
             debug_containers: false,
-            styles: Vec::new(),
+            theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             platform_log: log,
             platform_blit: blit,
             blit_hooks: Vec::new(),
@@ -385,12 +370,11 @@ impl Application {
         return false;
     }
 
-    /// The platforms should use this method to add styles
-    /// as soon as they have a handle to an [`Application`].
+    /// The platforms can use this method to set a visual theme.
     /// They can call it again between calls to
-    /// [`Application::render`] to change styles.
-    pub fn set_styles(&mut self, styles: Vec<Style>) {
-        self.styles = styles;
+    /// [`Application::render`] to change the theme.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
         self.global_repaint = NeedsRepaint::all();
     }
 
@@ -471,8 +455,9 @@ impl Application {
             if self.should_recompute {
                 self.log("recomputing layout");
                 {
-                    let view = lock(&self.view).unwrap();
+                    let mut view = lock(&self.view).unwrap();
                     let _ = compute_tree(view.deref());
+                    view.validate_spot();
                 }
                 path.clear();
                 let _ = for_each_node(self.view.clone(), &mut path, &mut (), (), |n, _, _, _| {
@@ -486,6 +471,8 @@ impl Application {
                         self.blit_hooks[i].1 = spot;
                     }
                 }
+                self.global_repaint |= NeedsRepaint::BACKGROUND;
+                self.global_repaint |= NeedsRepaint::OVERLAY;
                 self.should_recompute = false;
             }
             if !self.global_repaint.is_empty() {

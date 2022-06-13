@@ -20,6 +20,7 @@ pub mod bitmap;
 pub mod flexbox;
 pub mod geometry;
 pub mod node;
+pub mod style;
 
 #[cfg(feature = "text")]
 pub mod text;

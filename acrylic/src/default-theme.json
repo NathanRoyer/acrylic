@@ -1,0 +1,56 @@
+{
+    "theme": "Default Theme",
+    "compliance": 1,
+    "styles": {
+        "default": {
+            "background": "222F",
+            "foreground": "EEEF",
+            "outline": "999F"
+        },
+        "menu-1": {
+            "background": "333F",
+            "foreground": "EEEF",
+            "outline": "999F"
+        },
+        "menu-2": {
+            "background": "444F",
+            "foreground": "EEEF",
+            "outline": "999F"
+        },
+        "menu-3": {
+            "background": "555F",
+            "foreground": "EEEF",
+            "outline": "999F"
+        },
+        "neutral-inert": {
+            "background": "666F",
+            "foreground": "CCCF",
+            "outline": "777F"
+        },
+        "neutral-focus": {
+            "background": "666F",
+            "foreground": "FFFF",
+            "outline": "AAAF"
+        },
+        "warn-inert": {
+            "background": "922F",
+            "foreground": "EEEF",
+            "outline": "AAAF"
+        },
+        "warn-focus": {
+            "background": "D22F",
+            "foreground": "FFFF",
+            "outline": "F11F"
+        },
+        "incite-inert": {
+            "background": "292F",
+            "foreground": "EEEF",
+            "outline": "AAAF"
+        },
+        "incite-focus": {
+            "background": "4B4F",
+            "foreground": "FFFF",
+            "outline": "1F1F"
+        }
+    }
+}

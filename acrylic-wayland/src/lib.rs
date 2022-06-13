@@ -27,7 +27,6 @@ use wayland_protocols::xdg_shell::client::xdg_wm_base::Event as XdgWmBaseEvent;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 
 use acrylic::app::Application;
-use acrylic::app::Style;
 use acrylic::app::sub_spot;
 use acrylic::app::for_each_line;
 use acrylic::bitmap::RGBA;
@@ -285,34 +284,7 @@ pub fn blit(spot: Spot, key: BlitKey) -> Option<(&'static mut [u8], usize, bool)
     Some((slice, 0, true))
 }
 
-pub fn run(mut app: Application, assets: &str) {
-    app.set_styles(vec![
-        Style {
-            background: [47, 49, 54, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [32, 34, 37, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [54, 57, 63, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [59, 165, 93, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [220, 220, 220, 255],
-            foreground: [40, 40, 40, 255],
-            border: [0; RGBA],
-        },
-    ]);
+pub fn run(app: Application, assets: &str) {
     unsafe { BLITS_PIXELS = Some(HashMap::new()) };
     let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {

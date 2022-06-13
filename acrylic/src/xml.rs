@@ -2,6 +2,7 @@ use crate::app::Application;
 use crate::app::DataRequest;
 use crate::format;
 use crate::lock;
+use crate::style::style_index;
 use crate::node::rc_node;
 use crate::node::Axis;
 use crate::node::Container;
@@ -515,29 +516,31 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
                 policy = Ok(LengthPolicy::Fixed(
                     value.parse().map_err(|_| format!("bad value: {}", value))?,
                 ))
-            }
+            },
             "rem" => {
                 policy = Ok(LengthPolicy::Remaining(
                     value.parse().map_err(|_| format!("bad value: {}", value))?,
                 ))
-            }
+            },
             "chunks" => {
                 policy = Ok(LengthPolicy::Chunks(
                     value.parse().map_err(|_| format!("bad value: {}", value))?,
                 ))
-            }
+            },
             "ratio" => {
                 policy = Ok(LengthPolicy::AspectRatio(
                     value.parse().map_err(|_| format!("bad value: {}", value))?,
                 ))
-            }
+            },
             "wrap" => policy = Ok(LengthPolicy::WrapContent),
             "style" => {
-                normal_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?)
-            }
+                let s = style_index(&value).ok_or(());
+                normal_style = Some(s.map_err(|_| format!("unknown style: {}", value))?)
+            },
             "focus" => {
-                focus_style = Some(value.parse().map_err(|_| format!("bad value: {}", value))?)
-            }
+                let s = style_index(&value).ok_or(());
+                focus_style = Some(s.map_err(|_| format!("unknown style: {}", value))?)
+            },
             _ => Err(format!("unexpected attribute: {}", name))?,
         }
     }

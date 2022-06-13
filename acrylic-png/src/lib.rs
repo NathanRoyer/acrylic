@@ -1,5 +1,4 @@
 use acrylic::app::Application;
-use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
 use acrylic::BlitKey;
 use acrylic::Point;
@@ -40,33 +39,6 @@ pub fn blit(
 }
 
 pub fn run(assets: &str, mut app: Application) {
-    app.set_styles(vec![
-        Style {
-            background: [47, 49, 54, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [32, 34, 37, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [54, 57, 63, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [59, 165, 93, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [220, 220, 220, 255],
-            foreground: [40, 40, 40, 255],
-            border: [0; RGBA],
-        },
-    ]);
     let size = Size::new(WIDTH, HEIGHT);
     app.set_spot((Point::zero(), size));
 

@@ -1,5 +1,4 @@
 use acrylic::app::Application;
-use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
 use acrylic::node::Event;
 use acrylic::node::EventType;
@@ -216,34 +215,7 @@ pub extern "C" fn frame(app: &mut Application, age_ms: usize) {
     ensure_pending_request(app);
 }
 
-pub fn wasm_init(assets: &str, mut app: Application) -> &'static Application {
-    app.set_styles(vec![
-        Style {
-            background: [47, 49, 54, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [32, 34, 37, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [54, 57, 63, 255],
-            foreground: [220, 221, 222, 255],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [59, 165, 93, 255],
-            foreground: [255; RGBA],
-            border: [0; RGBA],
-        },
-        Style {
-            background: [220, 220, 220, 255],
-            foreground: [40, 40, 40, 255],
-            border: [0; RGBA],
-        },
-    ]);
+pub fn wasm_init(assets: &str, app: Application) -> &'static Application {
     unsafe {
         set_request_url_prefix(&String::from(assets));
         BLITS_PIXELS = Some(HashMap::new());
