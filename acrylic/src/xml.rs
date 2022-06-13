@@ -465,7 +465,7 @@ pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 /// The `radius` attribute is optional and specifies that the
 /// container should have round corners of such a radius.
 ///
-/// The `onclick` attribute is optional and specifies an
+/// The `on-click` attribute is optional and specifies an
 /// event handler to call when the node receives an
 /// [`Event::QuickAction1`](`crate::node::Event::QuickAction1`).
 /// See [`Application::add_handler`] to set event handlers up.
@@ -507,7 +507,7 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<RcNode>, Str
 
     for Attribute { name, value } in attributes {
         match name.as_str() {
-            "onclick" => on_click = Some(value.clone()),
+            "on-click" => on_click = Some(value.clone()),
             "margin" => margin = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
             "radius" => radius = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
             "gap" => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,

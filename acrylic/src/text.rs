@@ -18,6 +18,9 @@ use crate::node::NeedsRepaint;
 use crate::node::Node;
 use crate::node::NodePath;
 use crate::node::RcNode;
+use crate::node::Event;
+use crate::node::EventType;
+use crate::node::Direction;
 use crate::status;
 use crate::BlitPath;
 use crate::Point;
@@ -51,7 +54,7 @@ use std::vec::Vec;
 pub type Cents = usize;
 
 /// Specifies a font variant
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct FontConfig {
     pub weight: Cents,
     pub italic_angle: Cents,
@@ -338,6 +341,8 @@ pub struct Paragraph {
     /// Ignored when `policy` is WrapContent.
     pub font_size: Option<usize>,
     pub cursors: Vec<TextCursor>,
+    pub on_edit: Option<String>,
+    pub on_submit: Option<String>,
     pub spot: Spot,
     pub deployed: bool,
     /// Initialize to `true`
@@ -487,7 +492,7 @@ impl Node for Paragraph {
             let cursor_spot = {
                 let cursor_position;
                 if let Some(mut i) = cursor.position {
-                    let mut c_spot = (Point::zero(), Size::zero());
+                    let mut c_spot = spot;
                     let mut advance = true;
                     'outer: for u in self.children() {
                         let unbreakable = lock(u).unwrap();
@@ -542,6 +547,165 @@ impl Node for Paragraph {
             *shown = !*shown;
         }
         Ok(s)
+    }
+
+    fn handle(
+        &mut self,
+        app: &mut Application,
+        _: &NodePath,
+        event: &Event,
+    ) -> Result<Option<String>, ()> {
+        let mut result = Ok(None);
+        if let Event::FocusGrab(grabbed) = event {
+            self.cursors.clear();
+            app.global_repaint.insert(NeedsRepaint::OVERLAY);
+            if *grabbed {
+                let mut position = None;
+                if let Some((point, _)) = &app.focus {
+                    let mut i: usize = 0;
+                    let mut sub = 1;
+                    'outer: for u in self.children() {
+                        sub = 1;
+                        let unbreakable = lock(u).unwrap();
+                        let (u_pos, u_size) = unbreakable.get_spot();
+                        let range = u_pos.y..(u_pos.y + (u_size.h as isize));
+                        let correct_line = range.contains(&point.y);
+                        if correct_line && u_pos.x > point.x {
+                            sub = 2;
+                            break;
+                        }
+                        for g in unbreakable.children() {
+                            if correct_line {
+                                let glyph = lock(g).unwrap();
+                                let (g_pos, g_size) = glyph.get_spot();
+                                let right_border = g_pos.x + (g_size.w as isize);
+                                if right_border > point.x {
+                                    break 'outer;
+                                }
+                            }
+                            i += 1;
+                        }
+                        i += 1;
+                        sub = 2;
+                    }
+                    position = i.checked_sub(sub);
+                }
+                self.cursors.push(TextCursor {
+                    position,
+                    blink_interval: Some(800),
+                    blink_state: None,
+                });
+            }
+        }
+        if let Event::TextReplace(text) = event {
+            self.repaint.insert(NeedsRepaint::FOREGROUND);
+            self.deployed = false;
+            self.parts.clear();
+            self.parts.push((FontConfig::default(), None, text.clone()));
+            result = Ok(self.on_edit.clone());
+        }
+        if let Event::TextInsert(text) = event {
+            self.repaint.insert(NeedsRepaint::FOREGROUND);
+            self.deployed = false;
+            if self.parts.is_empty() {
+                self.parts.push((FontConfig::default(), None, String::new()));
+            }
+            let cursor_pos = match status(self.cursors.first())?.position {
+                Some(p) => p + 1,
+                None => 0,
+            };
+            let mut insert_pos = cursor_pos;
+            for (_, _, part) in self.parts.iter_mut() {
+                if insert_pos <= part.len() {
+                    part.insert_str(insert_pos, text.as_str());
+                    break;
+                } else {
+                    insert_pos -= part.len();
+                }
+            }
+            self.cursors.first_mut().unwrap().position = (cursor_pos + text.len()).checked_sub(1);
+            result = Ok(self.on_edit.clone());
+        }
+        if let Event::TextDelete(mut delete) = event {
+            self.repaint.insert(NeedsRepaint::FOREGROUND);
+            self.deployed = false;
+            let cursor_pos = match status(self.cursors.first())?.position {
+                Some(p) => p + 1,
+                None => 0,
+            };
+            let new_cursor_pos = (cursor_pos as isize + match delete > 0 {
+                true => delete - 1,
+                false => delete,
+            }).clamp(0, isize::MAX);
+            self.cursors.first_mut().unwrap().position = (new_cursor_pos as usize).checked_sub(1);
+            let mut delete_pos = cursor_pos;
+            let (mut p, mut g) = (0, None);
+            for (_, _, part) in &self.parts {
+                if delete_pos <= part.len() {
+                    g = Some(delete_pos);
+                    break;
+                } else {
+                    delete_pos -= part.len();
+                    p += 1;
+                }
+            }
+            let (mut p, mut g) = (p, status(g)?);
+            loop {
+                let (_, _, part) = status(self.parts.get_mut(p))?;
+                let part_len = part.len() as isize;
+                let base = g as isize;
+                let result = base + delete;
+                let bound = result.clamp(0, part_len);
+                let deleted = bound - base;
+                let bound_u = bound as usize;
+                let range = g.min(bound_u)..g.max(bound_u);
+                part.replace_range(range, "");
+                delete -= deleted;
+                if result < 0 {
+                    p -= 1;
+                    g = status(self.parts.get(p))?.2.len();
+                } else if result > part_len {
+                    p += 1;
+                    g = 0;
+                } else {
+                    break;
+                }
+            }
+            result = Ok(self.on_edit.clone());
+        }
+        if let Event::DirInput(direction) = event {
+            app.global_repaint.insert(NeedsRepaint::OVERLAY);
+            let mut cursor_pos = match status(self.cursors.first())?.position {
+                Some(p) => p as isize + 1,
+                None => 0,
+            };
+            cursor_pos += match direction {
+                Direction::Left => -1,
+                Direction::Right => 1,
+                _ => 0,
+            };
+            let cursor_pos: usize = status(cursor_pos.try_into().ok())?;
+            self.cursors.first_mut().unwrap().position = cursor_pos.checked_sub(1);
+        }
+        if let Event::QuickAction1 = event {
+            result = Ok(self.on_submit.clone());
+        }
+        result
+    }
+
+    fn supported_events(&self) -> EventType {
+        let mut sup_events =
+            EventType::FOCUS_GRAB |
+            EventType::TEXT_REPLACE |
+            EventType::TEXT_INSERT |
+            EventType::TEXT_DELETE |
+            EventType::DIR_INPUT;
+        if self.on_submit.is_some() {
+            sup_events |= EventType::QUICK_ACTION_1;
+        } else if self.on_edit.is_none() {
+            sup_events = EventType::empty();
+        }
+        sup_events
     }
 
     fn margin(&self) -> Option<Margin> {
@@ -642,6 +806,16 @@ impl Node for Paragraph {
 ///
 /// The `txt` attribute is mandatory and must contain valid UTF-8.
 ///
+/// The `on-edit` attribute is optional and specifies an
+/// event handler to call when the textual content is edited by
+/// the user.
+/// See [`Application::add_handler`] to set event handlers up.
+///
+/// The `on-submit` attribute is optional and specifies an
+/// event handler to call when the user validates the content of
+/// the text box, for instance by pressing `Enter`.
+/// See [`Application::add_handler`] to set event handlers up.
+///
 /// The `font` attribute is optional and must point to a loaded font.
 ///
 /// The `font-size` attribute is optional.
@@ -660,6 +834,8 @@ pub fn xml_paragraph(
     let mut font_size = None;
     let mut font = None;
     let mut margin = None;
+    let mut on_edit = None;
+    let mut on_submit = None;
 
     for Attribute { name, value } in attributes {
         match name.as_str() {
@@ -669,6 +845,8 @@ pub fn xml_paragraph(
             }
             "txt" => text = Ok(value.clone()),
             "font" => font = Some(value.clone()),
+            "on-edit" => on_edit = Some(value.clone()),
+            "on-submit" => on_submit = Some(value.clone()),
             "font-size" => {
                 font_size = Some(
                     value
@@ -681,20 +859,11 @@ pub fn xml_paragraph(
         }
     }
 
-    let font_config = FontConfig {
-        weight: 0,
-        italic_angle: 0,
-        underline: 0,
-        overline: 0,
-        opacity: 0,
-        serif_rise: 0,
-    };
-
     let spot = (Point::zero(), Size::zero());
     let paragraph = rc_node(Paragraph {
         parts: {
             let mut vec = Vec::new();
-            vec.push((font_config, None, text?));
+            vec.push((FontConfig::default(), None, text?));
             vec
         },
         font: FontState::Pending(font),
@@ -702,6 +871,8 @@ pub fn xml_paragraph(
         space_width: 10,
         policy: None,
         cursors: Vec::new(),
+        on_edit,
+        on_submit,
         font_size,
         margin,
         spot,

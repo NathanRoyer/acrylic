@@ -3,6 +3,7 @@ use acrylic::app::Style;
 use acrylic::bitmap::RGBA;
 use acrylic::node::Event;
 use acrylic::node::EventType;
+use acrylic::node::Direction;
 use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;
@@ -134,13 +135,53 @@ pub extern "C" fn set_output_size(app: &mut Application, w: usize, h: usize) {
     app.set_spot(spot);
 }
 
+pub static mut TEXT_INPUT: [u8; 16] = [0; 16];
 pub static mut FOCUS_GRABBED: bool = false;
+pub static mut FOCUS_POINT: Point = Point {
+    x: 0,
+    y: 0,
+};
+
+#[export_name = "get_text_input_buffer"]
+pub extern "C" fn get_text_input_buffer() -> *const u8 {
+    unsafe { TEXT_INPUT.as_ptr() }
+}
+
+#[export_name = "send_text_input"]
+pub extern "C" fn send_text_input(app: &mut Application, len: usize, replace: bool) {
+    let bytes = unsafe { &TEXT_INPUT[..len] }.to_vec();
+    if let Ok(string) = String::from_utf8(bytes) {
+        let event = match replace {
+            true => Event::TextReplace(string),
+            false => Event::TextInsert(string),
+        };
+        let _ = app.fire_event(&event);
+    }
+}
+
+#[export_name = "send_text_delete"]
+pub extern "C" fn send_text_delete(app: &mut Application, delete: isize) {
+    let _ = app.fire_event(&Event::TextDelete(delete));
+}
+
+#[export_name = "send_dir_input"]
+pub extern "C" fn send_dir_input(app: &mut Application, dir: usize) {
+    let direction = [
+        Direction::Up,
+        Direction::Left,
+        Direction::Down,
+        Direction::Right,
+    ][dir];
+    let _ = app.fire_event(&Event::DirInput(direction));
+}
 
 #[export_name = "pointing_at"]
 pub extern "C" fn pointing_at(app: &mut Application, x: isize, y: isize) {
+    let p = Point::new(x, y);
     if unsafe { !FOCUS_GRABBED } {
-        app.pointing_at(Point::new(x, y));
+        app.pointing_at(p);
     }
+    unsafe { FOCUS_POINT = p };
 }
 
 #[export_name = "quick_action"]
@@ -154,16 +195,18 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize) {
         6 => Event::QuickAction6,
         _ => unreachable!(),
     };
+    let grabbed = unsafe { FOCUS_GRABBED };
     if action == 1 {
         if app.can_grab_focus(Some(EventType::QUICK_ACTION_1)) {
-            let grabbed = unsafe {
-                FOCUS_GRABBED = !FOCUS_GRABBED;
-                FOCUS_GRABBED
-            };
-            event = Event::FocusGrab(grabbed);
+            unsafe { FOCUS_GRABBED = !grabbed };
+            event = Event::FocusGrab(!grabbed);
         }
     }
     let _ = app.fire_event(&event);
+    if grabbed {
+        app.pointing_at(unsafe { FOCUS_POINT });
+        quick_action(app, action)
+    }
 }
 
 #[export_name = "frame"]

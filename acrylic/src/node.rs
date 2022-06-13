@@ -84,27 +84,29 @@ bitflags! {
     /// This is a bit field of events supported
     /// by this toolkit.
     pub struct EventType: u32 {
-        const QUICK_ACTION_1 = 0b00000000000000001;
-        const QUICK_ACTION_2 = 0b00000000000000010;
-        const QUICK_ACTION_3 = 0b00000000000000100;
-        const QUICK_ACTION_4 = 0b00000000000001000;
-        const QUICK_ACTION_5 = 0b00000000000010000;
-        const QUICK_ACTION_6 = 0b00000000000100000;
-        const MODIFIER_1     = 0b00000000001000000;
-        const MODIFIER_2     = 0b00000000010000000;
-        const FACTOR_1       = 0b00000000100000000;
-        const FACTOR_2       = 0b00000001000000000;
-        const PAN_1          = 0b00000010000000000;
-        const PAN_2          = 0b00000100000000000;
-        const WHEEL_X        = 0b00001000000000000;
-        const WHEEL_Y        = 0b00010000000000000;
-        const TEXT_INPUT     = 0b00100000000000000;
+        const QUICK_ACTION_1 = 0b0000000000000000001;
+        const QUICK_ACTION_2 = 0b0000000000000000010;
+        const QUICK_ACTION_3 = 0b0000000000000000100;
+        const QUICK_ACTION_4 = 0b0000000000000001000;
+        const QUICK_ACTION_5 = 0b0000000000000010000;
+        const QUICK_ACTION_6 = 0b0000000000000100000;
+        const MODIFIER_1     = 0b0000000000001000000;
+        const MODIFIER_2     = 0b0000000000010000000;
+        const FACTOR_1       = 0b0000000000100000000;
+        const FACTOR_2       = 0b0000000001000000000;
+        const PAN_1          = 0b0000000010000000000;
+        const PAN_2          = 0b0000000100000000000;
+        const WHEEL_X        = 0b0000001000000000000;
+        const WHEEL_Y        = 0b0000010000000000000;
+        const TEXT_REPLACE   = 0b0000100000000000000;
         /// If a node supports FOCUS_GRAB and the
         /// user sends a QuickAction1, the node
         /// will obtain the focus. It will then
         /// receive DirInput events automatically.
-        const FOCUS_GRAB     = 0b01000000000000000;
-        const DIR_INPUT      = 0b10000000000000000;
+        const FOCUS_GRAB     = 0b0001000000000000000;
+        const DIR_INPUT      = 0b0010000000000000000;
+        const TEXT_INSERT    = 0b0100000000000000000;
+        const TEXT_DELETE    = 0b1000000000000000000;
     }
 
     /// Utility bit field to keep track of what you
@@ -141,11 +143,13 @@ pub enum Event {
     Pan2(usize, usize),
     WheelX(f64),
     WheelY(f64),
-    TextInput(String),
+    TextReplace(String),
     FocusGrab(bool),
     /// Nodes which grabbed the focus
     /// receives this special event:
     DirInput(Direction),
+    TextInsert(String),
+    TextDelete(isize),
 }
 
 /// A path to a node in a view
@@ -648,9 +652,11 @@ impl Event {
             Event::Pan2(_, _) => EventType::PAN_2,
             Event::WheelX(_) => EventType::WHEEL_X,
             Event::WheelY(_) => EventType::WHEEL_Y,
-            Event::TextInput(_) => EventType::TEXT_INPUT,
+            Event::TextReplace(_) => EventType::TEXT_REPLACE,
             Event::FocusGrab(_) => EventType::FOCUS_GRAB,
             Event::DirInput(_) => EventType::DIR_INPUT,
+            Event::TextInsert(_) => EventType::TEXT_INSERT,
+            Event::TextDelete(_) => EventType::TEXT_DELETE,
         }
     }
 }
