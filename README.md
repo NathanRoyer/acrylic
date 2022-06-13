@@ -1,18 +1,45 @@
 ## 🎨 acrylic
 
-This is a work-in-progress, cross-platform, small, web-inspired user interface toolkit.
+This is a **work-in-progress**, cross-platform, small, web-inspired user interface toolkit.
+
+## 🪂 Features
+
+- feels familiar to web developers
+- support for templating
+- frame + pixel perfect
+- input API designed for improved accessibility
+- pure and safe rust
+- `no_std` friendly (very poor support at the moment)
+
+## 🏗️ Progress (core crate)
+
+- ☑ XML parsing
+- ☑ flexbox-like layout
+- ☑ textual nodes
+- ☑ PNG images
+- ☑ round containers
+- ☑ input events
+- ☑ event handlers
+- ☑ text editing
+- ☐ scrolling
+- ☐ rich text
+- ☐ external links
+- ☐ video playback
+- ☐ sound playback
 
 ## 🪀 Live Demos
 
-> coming soon!
+- https://l0.pm/acrylic/
+
+> more coming soon!
 
 ## 🧱 Supported platforms
 
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
-| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ |  |
-| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | glitchy | ☑ |  |
-| x11 |  |  |  |  |
+| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | ☑ |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ☑ | ☑ |  |
+| x11 | coming soon |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
 | drmkms |  |  |  |  |
@@ -100,8 +127,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.27"
-platform = { package = "acrylic-web", version = "0.1.27" }
+acrylic = "0.1.30"
+platform = { package = "acrylic-web", version = "0.1.30" }
 ```
 
 Build:
