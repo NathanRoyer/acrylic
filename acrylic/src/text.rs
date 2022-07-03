@@ -1,14 +1,9 @@
-use ab_glyph::Font as AbGlyphFont;
-use ab_glyph::FontVec;
-use ab_glyph::GlyphId;
-use ab_glyph::ScaleFont;
-
 use crate::app::for_each_line;
 use crate::app::Application;
 use crate::style::Color;
-use crate::bitmap::Bitmap;
+// use crate::bitmap::Bitmap;
+// use crate::bitmap::aspect_ratio_with_m;
 use crate::bitmap::RGBA;
-use crate::geometry::aspect_ratio;
 use crate::lock;
 use crate::node::rc_node;
 use crate::node::Axis;
@@ -21,6 +16,8 @@ use crate::node::RcNode;
 use crate::node::Event;
 use crate::node::EventType;
 use crate::node::Direction;
+use crate::font::Font;
+use crate::font::FontConfig;
 use crate::status;
 use crate::BlitPath;
 use crate::Point;
@@ -41,39 +38,13 @@ use core::fmt::Debug;
 use core::fmt::Formatter;
 use core::fmt::Result as FmtResult;
 use core::mem::swap;
-use core::ops::DerefMut;
+// use core::ops::DerefMut;
 use core::str::Chars;
 
-use std::collections::HashMap;
 use std::string::String;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::vec::Vec;
-
-/// 1/100 of a value
-pub type Cents = usize;
-
-/// Specifies a font variant
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct FontConfig {
-    pub weight: Cents,
-    pub italic_angle: Cents,
-    pub underline: Cents,
-    pub overline: Cents,
-    pub opacity: Cents,
-    pub serif_rise: Cents,
-}
-
-/// The Font object contains font data as well
-/// as a cache of previously rendered glyphs.
-#[derive(Debug)]
-pub struct Font {
-    pub(crate) ab_glyph_font: FontVec,
-    pub(crate) glyphs: HashMap<(usize, Color, FontConfig, GlyphId), RcNode>,
-}
-
-/// A handle to a [`Font`].
-pub type RcFont = Arc<Mutex<Font>>;
 
 /// A wrapping container for glyphs which should
 /// not be separated.
@@ -123,60 +94,6 @@ impl Debug for Unbreakable {
     }
 }
 
-/// A single glyph. The underlying bitmap is shared
-/// among all instances of that glyph.
-#[derive(Debug, Clone)]
-pub struct GlyphNode {
-    pub bitmap: RcNode,
-    pub spot: Spot,
-    pub repaint: NeedsRepaint,
-}
-
-impl Node for GlyphNode {
-    fn render(
-        &mut self,
-        app: &mut Application,
-        path: &mut NodePath,
-        _: usize,
-    ) -> Result<usize, ()> {
-        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            let mut bitmap = status(lock(&self.bitmap))?;
-            let bitmap = bitmap.deref_mut().as_any();
-            let bitmap = status(bitmap.downcast_mut::<Bitmap>())?;
-            bitmap.render_at(app, path, self.spot)?;
-            self.repaint.remove(NeedsRepaint::FOREGROUND);
-        }
-        Ok(0)
-    }
-
-    fn policy(&self) -> LengthPolicy {
-        // that unwrap is ugly...
-        let mut bitmap = lock(&self.bitmap).unwrap();
-        bitmap.deref_mut().policy()
-    }
-
-    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-        self.repaint.insert(repaint);
-    }
-
-    fn get_spot(&self) -> Spot {
-        self.spot
-    }
-
-    fn set_spot(&mut self, spot: Spot) {
-        self.repaint = NeedsRepaint::all();
-        self.spot = spot;
-    }
-
-    fn describe(&self) -> String {
-        String::from("Glyph")
-    }
-
-    fn as_any(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 /// An empty, invisible node which has the size
 /// of a specific glyph. Used to occupy space
 /// when it is too early to produce bitmaps of glyphs.
@@ -222,92 +139,6 @@ impl FontState {
         match self {
             FontState::Available(arc) => arc,
             _ => panic!("unwrap called on a FontState::Pending"),
-        }
-    }
-}
-
-impl Font {
-    /// Parse a TTF / OpenType font's data
-    pub fn from_bytes(data: Vec<u8>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
-            ab_glyph_font: FontVec::try_from_vec(data).unwrap(),
-            glyphs: HashMap::new(),
-        }))
-    }
-
-    /// Used internally to obtain a rendered glyph
-    /// from the font, which is then kept in cache.
-    pub fn get(
-        &mut self,
-        c: char,
-        next: Option<char>,
-        rdr_cfg: Option<(usize, Color)>,
-        char_cfg: FontConfig,
-    ) -> RcNode {
-        let font = self.ab_glyph_font.as_scaled(match rdr_cfg {
-            Some((h, _)) => h as f32,
-            None => 200.0,
-        });
-        let c1 = font.glyph_id(c);
-        let kern = match next {
-            Some(c2) => font.kern(c1, self.ab_glyph_font.glyph_id(c2)),
-            _ => 0.0,
-        };
-        let glyph = font.scaled_glyph(c);
-        let g_box = font.glyph_bounds(&glyph);
-        let box_w = (g_box.width() + kern).ceil() as isize;
-        let box_h = g_box.height().ceil() as isize;
-        let ratio = aspect_ratio(box_w as usize, box_h as usize);
-        if rdr_cfg.is_none() {
-            rc_node(Placeholder {
-                ratio,
-                spot: (Point::zero(), Size::zero()),
-            })
-        } else if let Some(q) = font.outline_glyph(glyph) {
-            let outline_bounds = q.px_bounds();
-            let top = (outline_bounds.min.y - g_box.min.y).ceil() as isize;
-            let left = (outline_bounds.min.x - g_box.min.x).ceil() as isize;
-            let glyph_w = outline_bounds.width().ceil() as isize;
-            let glyph_h = outline_bounds.height().ceil() as isize;
-            let margin = Margin {
-                top,
-                left,
-                right: box_w - (left + glyph_w),
-                bottom: box_h - (top + glyph_h),
-            };
-
-            let (h, color) = rdr_cfg.unwrap();
-            let rc_bitmap = if let Some(rc_bitmap) = self.glyphs.get(&(h, color, char_cfg, c1)) {
-                rc_bitmap.clone()
-            } else {
-                let bmpsz = Size::new(glyph_w as usize, glyph_h as usize);
-                let mut bitmap = Bitmap::new(bmpsz, RGBA, Some(margin));
-
-                q.draw(|x, y, c| {
-                    let (x, y) = (x as usize, y as usize);
-                    let i = (y * bmpsz.w + x) * RGBA;
-                    let mut pixel = color;
-                    pixel[3] = (color[3] as f32 * c) as u8;
-                    if let Some(slice) = bitmap.pixels.get_mut(i..(i + RGBA)) {
-                        slice.copy_from_slice(&pixel);
-                    }
-                });
-
-                let rc_bitmap = rc_node(bitmap);
-                self.glyphs
-                    .insert((h, color, char_cfg, c1), rc_bitmap.clone());
-                rc_bitmap
-            };
-            rc_node(GlyphNode {
-                bitmap: rc_bitmap,
-                spot: (Point::zero(), Size::zero()),
-                repaint: NeedsRepaint::all(),
-            })
-        } else {
-            rc_node(Placeholder {
-                ratio,
-                spot: (Point::zero(), Size::zero()),
-            })
         }
     }
 }
@@ -365,19 +196,19 @@ impl Paragraph {
             paragraph: self,
             i: 0,
             cfg: FontConfig {
-                weight: 0,
-                italic_angle: 0,
-                underline: 0,
-                overline: 0,
-                opacity: 0,
-                serif_rise: 0,
+                weight: None,
+                italic_angle: None,
+                underline: None,
+                overline: None,
+                opacity: None,
+                serif_rise: None,
             },
             color_override: None,
             chars: None,
         }
     }
 
-    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>) {
+    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>, app: &mut Application) {
         let mut children = Vec::with_capacity(self.children.len());
         let default_unbreakable = Unbreakable {
             glyphs: Vec::new(),
@@ -408,7 +239,7 @@ impl Paragraph {
                     (Some((h, _)), Some(c)) => Some((h, c)),
                     _ => rdr_cfg,
                 };
-                unbreakable.glyphs.push(font.get(c1, c2, rdr_cfg, char_cfg));
+                unbreakable.glyphs.push(font.get(c1, c2, rdr_cfg, char_cfg, app));
                 unbreakable.text.push(c1);
                 if let None = next {
                     let mut prev = default_unbreakable.clone();
@@ -469,7 +300,7 @@ impl Node for Paragraph {
             if !self.deployed || color != self.fg_color {
                 self.fg_color = color;
                 app.should_recompute = true;
-                self.deploy(Some((height, color)));
+                self.deploy(Some((height, color)), app);
                 self.deployed = true;
             }
             app.global_repaint.insert(NeedsRepaint::OVERLAY);
@@ -738,7 +569,7 @@ impl Node for Paragraph {
             })
         };
 
-        self.deploy(None);
+        self.deploy(None, app);
         app.should_recompute = true;
         app.blit_hooks
             .push((path.clone(), (Point::zero(), Size::zero())));
@@ -870,7 +701,7 @@ pub fn xml_paragraph(
         },
         font: FontState::Pending(font),
         children: Vec::new(),
-        space_width: 10,
+        space_width: 8,
         policy: None,
         cursors: Vec::new(),
         on_edit,

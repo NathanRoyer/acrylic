@@ -25,6 +25,9 @@ pub mod style;
 #[cfg(feature = "text")]
 pub mod text;
 
+#[cfg(feature = "text")]
+pub mod font;
+
 #[cfg(feature = "xml")]
 pub mod xml;
 
@@ -128,7 +131,7 @@ pub fn status<T>(option: Option<T>) -> Result<T, ()> {
 #[macro_export]
 macro_rules! format {
 	($($arg:tt)*) => {{
-		let mut string = String::new();
+		let mut string = std::string::String::new();
 		core::fmt::write(&mut string, core::format_args!($($arg)*)).unwrap();
 		string
 	}}

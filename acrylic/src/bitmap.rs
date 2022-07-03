@@ -75,6 +75,17 @@ impl Debug for Bitmap {
 
 const TRANSPARENT_PIXEL: [u8; 4] = [0; 4];
 
+pub fn aspect_ratio_with_m(size: Size, margin: Option<Margin>) -> f64 {
+    let (add_w, add_h) = match margin {
+        Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
+        None => (0, 0),
+    };
+    aspect_ratio(
+        (size.w as isize + add_w) as usize,
+        (size.h as isize + add_h) as usize,
+    )
+}
+
 impl Bitmap {
     /// Creates a new Bitmap Node. Once created,
     /// all pixels will be transparent, but you can
@@ -88,16 +99,7 @@ impl Bitmap {
             spot: (Point::zero(), Size::zero()),
             margin,
             repaint: NeedsRepaint::all(),
-            ratio: {
-                let (add_w, add_h) = match margin {
-                    Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
-                    None => (0, 0),
-                };
-                aspect_ratio(
-                    (size.w as isize + add_w) as usize,
-                    (size.h as isize + add_h) as usize,
-                )
-            },
+            ratio: aspect_ratio_with_m(size, margin),
         }
     }
 
@@ -140,30 +142,31 @@ impl Bitmap {
     /// This method is called manually by nodes embedding
     /// [`Bitmap`]s, such as [`GlyphNode`](`crate::text::GlyphNode`).
     pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Status {
-        let spot = status(self.get_content_spot_at(spot))?;
         let (dst, pitch, owned) = app.blit(&spot, BlitPath::Node(path))?;
         self.update_cache(spot, owned)?;
         let (_, size) = spot;
         let px_width = RGBA * size.w;
-        let mut src = self.cache.chunks(px_width);
-        for_each_line(dst, size, pitch, |_, line_dst| {
-            let line_src = src.next().unwrap();
-            if owned {
-                line_dst.copy_from_slice(line_src);
-            } else {
-                let mut i = px_width as isize - 1;
-                let mut a = 0;
-                while i >= 0 {
-                    let j = i as usize;
-                    let (dst, src) = (&mut line_dst[j], &(line_src[j] as u32));
-                    if (j & 0b11) == 3 {
-                        a = (255 - *src) as u32;
+        if px_width > 0 {
+            let mut src = self.cache.chunks(px_width);
+            for_each_line(dst, size, pitch, |_, line_dst| {
+                let line_src = src.next().unwrap();
+                if owned {
+                    line_dst.copy_from_slice(line_src);
+                } else {
+                    let mut i = px_width as isize - 1;
+                    let mut a = 0;
+                    while i >= 0 {
+                        let j = i as usize;
+                        let (dst, src) = (&mut line_dst[j], &(line_src[j] as u32));
+                        if (j & 0b11) == 3 {
+                            a = (255 - *src) as u32;
+                        }
+                        *dst = (*src + (((*dst as u32) * a) / 255)) as u8;
+                        i -= 1;
                     }
-                    *dst = (*src + (((*dst as u32) * a) / 255)) as u8;
-                    i -= 1;
                 }
-            }
-        });
+            });
+        }
         Ok(())
     }
 }
@@ -176,7 +179,8 @@ impl Node for Bitmap {
         _: usize,
     ) -> Result<usize, ()> {
         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            self.render_at(app, path, self.spot)?;
+            let spot = status(self.get_content_spot_at(self.spot))?;
+            self.render_at(app, path, spot)?;
             self.repaint.remove(NeedsRepaint::FOREGROUND);
         }
         Ok(0)

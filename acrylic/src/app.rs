@@ -20,12 +20,11 @@ use crate::Spot;
 use crate::Status;
 
 #[cfg(feature = "text")]
-use crate::text::Font;
+use crate::font::Font;
 
 use core::any::Any;
 use core::fmt::Debug;
 use core::mem::swap;
-use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ops::Range;
 
@@ -188,7 +187,7 @@ impl Application {
             .unwrap();
         #[cfg(all(feature = "text", feature = "noto-default-font"))]
         {
-            let font = Font::from_bytes(include_bytes!("noto-sans-regular.ttf").to_vec());
+            let font = Font::from_bytes(include_bytes!("noto-sans.ttf").to_vec());
             app.fonts.insert(None, font);
         }
         app
@@ -456,7 +455,7 @@ impl Application {
                 self.log("recomputing layout");
                 {
                     let mut view = lock(&self.view).unwrap();
-                    let _ = compute_tree(view.deref());
+                    let _ = compute_tree(view.deref_mut());
                     view.validate_spot();
                 }
                 path.clear();

@@ -302,6 +302,22 @@ pub trait Node: Debug + Any + 'static {
         Err(String::from("Not a container"))
     }
 
+    /// This method is called during layout to report overflow
+    /// in a container: there is too much content. The value
+    /// is a length, in pixels, on the container's axis.
+    #[allow(unused)]
+    fn set_overflow(&mut self, px_overflow: usize) -> Result<(), String> {
+        Err(String::from("Not a container"))
+    }
+
+    /// This method is mainly called when the toolkit deals
+    /// with scrollbars. You should report the value previously
+    /// set by [`set_overflow`].
+    #[allow(unused)]
+    fn get_overflow(&self) -> Result<usize, String> {
+        Err(String::from("Not a container"))
+    }
+
     /// Nodes can report a margin to the layout algorithm
     /// via this method.
     fn margin(&self) -> Option<Margin> {

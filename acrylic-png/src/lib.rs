@@ -1,5 +1,4 @@
 use acrylic::app::Application;
-use acrylic::bitmap::RGBA;
 use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;

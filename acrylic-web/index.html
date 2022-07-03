@@ -50,7 +50,8 @@ function getString(ptr, len) {
 
 function raw_set_blit_dirty(ptr, len) {
     let hashString = getString(ptr, len);
-    blits[hashString].dirty = true;
+    let blit = blits[hashString];
+    if (blit) blit.dirty = true;
 }
 
 function raw_update_blit(x, y, w, h, pixels, depth, ptr, len) {

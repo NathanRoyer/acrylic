@@ -60,7 +60,7 @@ Create a basic layout for your user interface:
 ```xml
 <!-- my-app/src/layout.xml -->
 
-<x rem="1">
+<x rem="1" style="default">
 	<inflate />
 	<y fixed="400" gap="10">
 		<inflate />

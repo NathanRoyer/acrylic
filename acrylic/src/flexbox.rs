@@ -23,7 +23,7 @@ use core::ops::DerefMut;
 ///
 /// Prefer setting `app.should_recompute` to true
 /// instead of calling this directly, when possible.
-pub fn compute_tree(root: &dyn Node) -> Status {
+pub fn compute_tree(root: &mut dyn Node) -> Status {
     let (_, size) = status(root.get_content_spot())?;
     let (axis, _) = status(root.container())?;
     let cross = size.get_for_axis(axis.complement());
@@ -48,7 +48,7 @@ fn compute_children_sizes(container: &dyn Node, cross: usize) -> Status {
                     Vertical => (cross as f64) / r,
                 };
                 if result.is_finite() && result >= 0.0 {
-                    let length = result as usize;
+                    let length = result.round() as usize;
                     let size = match axis {
                         Horizontal => Size::new(length, cross),
                         Vertical => Size::new(cross, length),
@@ -334,12 +334,13 @@ fn get_max_length_on(axis: Axis, cont: &dyn Node, cross: Option<usize>) -> Optio
     max
 }
 
-fn compute_children_positions(container: &dyn Node) -> Status {
+fn compute_children_positions(container: &mut dyn Node) -> Status {
     let (axis, gap) = status(container.container())?;
     let (mut base_cursor, size) = status(container.get_content_spot())?;
     let mut cursor = base_cursor;
     let mut chunk_length = 0;
     let max = size.get_for_axis(axis);
+    let mut occupied = 0;
     for child in container.children() {
         let mut child = lock(child).unwrap();
         let child = child.deref_mut();
@@ -358,8 +359,14 @@ fn compute_children_positions(container: &dyn Node) -> Status {
         child.set_spot((cursor, size));
         let _ = compute_children_positions(child);
         let length = child_length + gap;
+        occupied += length;
         cursor.add_to_axis(axis, length as isize);
     }
+    if occupied > 0 {
+        occupied -= gap;
+    }
+    let overflow = occupied.checked_sub(max).unwrap_or(0);
+    let _ = container.set_overflow(overflow);
     Ok(())
 }
 
