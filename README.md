@@ -9,7 +9,7 @@ This is a **work-in-progress**, cross-platform, small, web-inspired user interfa
 - frame + pixel perfect
 - input API designed for improved accessibility
 - pure and safe rust
-- `no_std` friendly (very poor support at the moment)
+- everything supported under `no_std`
 
 ## 🏗️ Progress (core crate)
 
@@ -20,7 +20,8 @@ This is a **work-in-progress**, cross-platform, small, web-inspired user interfa
 - ☑ round containers
 - ☑ input events
 - ☑ event handlers
-- ☑ text editing
+- ☑ full `no_std` support
+- ☐ text editing
 - ☐ scrolling
 - ☐ rich text
 - ☐ external links
@@ -38,13 +39,11 @@ This is a **work-in-progress**, cross-platform, small, web-inspired user interfa
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
 | web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | ☑ |
-| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ☑ | ☑ |  |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ⏳ | ☑ |  |
 | x11 | coming soon |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
 | drmkms |  |  |  |  |
-
-There is also [acrylic-png](https://lib.rs/acrylic-png) for debugging purposes.
 
 ## ⚡️ Quickstart
 
@@ -86,13 +85,12 @@ Create a rust file which will start our application:
 
 use platform::app;
 use platform::log;
-use platform::blit;
 use acrylic::app::Application;
 use acrylic::xml::ViewLoader;
 
 app!("assets/", {
 	let loader = ViewLoader::new("default.xml");
-	Application::new(&log, &blit, (), loader)
+	Application::new(log, (), loader)
 });
 
 ```
@@ -127,8 +125,8 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.1.30"
-platform = { package = "acrylic-web", version = "0.1.30" }
+acrylic = "0.2.0"
+platform = { package = "acrylic-web", version = "0.2.0" }
 ```
 
 Build:
@@ -139,7 +137,7 @@ $ cargo build -r --target wasm32-unknown-unknown
 
 Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.27/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 

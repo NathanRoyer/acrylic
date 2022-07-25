@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 pub use std::concat;
 use std::fs::read;
 use std::fs::File;
@@ -27,13 +26,10 @@ use wayland_protocols::xdg_shell::client::xdg_wm_base::Event as XdgWmBaseEvent;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 
 use acrylic::app::Application;
-use acrylic::app::sub_spot;
-use acrylic::app::for_each_line;
 use acrylic::bitmap::RGBA;
-use acrylic::BlitKey;
 use acrylic::Point;
 use acrylic::Size;
-use acrylic::Spot;
+use acrylic::NewSpot;
 
 use tempfile::tempfile;
 
@@ -148,8 +144,7 @@ impl WaylandApp {
                         _ => (width as usize, height as usize),
                     };
                     app.size = Size::new(w, h);
-                    let spot = (Point::zero(), app.size);
-                    if app.acrylic_app.set_spot(spot) {
+                    if app.acrylic_app.set_fb_size(app.size) {
                         app.frame_buffer.resize(app.size);
                         app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
                     }
@@ -201,55 +196,21 @@ impl WaylandApp {
     pub fn frame(&mut self) {
         let age = self.acrylic_app_dob.elapsed();
         self.acrylic_app.set_age(age.as_millis() as usize);
-        while let Some(request) = self.acrylic_app.data_requests.pop() {
+        while self.acrylic_app.data_requests.len() > 0 {
+            let request = self.acrylic_app.data_requests.last();
+            let request = request.as_ref().unwrap();
             println!("loading {}", request.name);
             let data = read(&format!("{}{}", &self.assets, request.name)).unwrap();
-            let node = self.acrylic_app.get_node(&request.node).unwrap();
-            let mut node = node.lock().unwrap();
-            let _ = node.loaded(
-                &mut self.acrylic_app,
-                &request.node,
-                &request.name,
-                0,
-                &data,
-            );
+            let request = self.acrylic_app.data_requests.len() - 1;
+            self.acrylic_app.data_response(request, &data).unwrap();
         }
-        self.acrylic_app.render();
-        let blits = unsafe { BLITS_PIXELS.as_ref().unwrap() };
-        let mut keys = blits.keys().collect::<Vec<&BlitKey>>();
-        keys.sort();
-        if let Some(bg_key) = keys.first() {
-            if let Some(((_, size), pixels)) = blits.get(bg_key) {
-                if self.size == *size {
-                    self.frame_buffer.data.copy_from_slice(pixels);
-                } else {
-                    println!("wrong bg size: {:?}, {:?}", bg_key, size);
-                }
-            }
-        }
-        let keys = keys.get(1..).unwrap_or(&[]);
-        let fb_pixels = &mut self.frame_buffer.data;
-        for key in keys {
-            if let Some((spot, src)) = blits.get(key) {
-                let app_spot = (Point::zero(), self.size);
-                if let Some(dst) = sub_spot(fb_pixels, 0, [app_spot, *spot]) {
-                    let (slice, pitch) = dst;
-                    let (mut a, mut b) = (0, 0);
-                    let mut j = 0;
-                    for_each_line(slice, spot.1, pitch, |_, line| {
-                        for i in (0..line.len()).rev() {
-                            let (dst, src) = (&mut line[i], &(src[j + i] as u32));
-                            if (i % RGBA) == 3 {
-                                a = *src as u32;
-                                b = 255 - a;
-                            }
-                            *dst = ((*src * a + (*dst as u32) * b) / 255) as u8;
-                        }
-                        j += line.len();
-                    });
-                }
-            }
-        }
+        let size = self.size;
+        let mut spot = NewSpot {
+            window: (Point::zero(), size, None),
+            framebuffer: &mut self.frame_buffer.data,
+            fb_size: size,
+        };
+        self.acrylic_app.render(&mut spot, &mut Vec::new());
         self.ready_to_draw = true;
     }
 
@@ -264,28 +225,7 @@ impl WaylandApp {
     }
 }
 
-pub static mut BLITS_PIXELS: Option<HashMap<BlitKey, (Spot, Vec<u8>)>> = None;
-
-pub fn blit(spot: Spot, key: BlitKey) -> Option<(&'static mut [u8], usize, bool)> {
-    let (_, size) = spot;
-    let (saved_spot, slice) = unsafe {
-        let total_pixels = size.w * size.h * RGBA;
-        let blits = BLITS_PIXELS.as_mut().unwrap();
-        if let None = blits.get(&key) {
-            let pixels = vec![0; total_pixels];
-            let spot = (Point::zero(), Size::zero());
-            blits.insert(key, (spot, pixels));
-        }
-        let (spot, vec) = blits.get_mut(&key).unwrap();
-        vec.resize(total_pixels, 0);
-        (spot, vec.as_mut_slice())
-    };
-    *saved_spot = spot;
-    Some((slice, 0, true))
-}
-
 pub fn run(app: Application, assets: &str) {
-    unsafe { BLITS_PIXELS = Some(HashMap::new()) };
     let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {
         event_queue

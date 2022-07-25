@@ -1,48 +1,24 @@
 use acrylic::app::Application;
-use acrylic::bitmap::RGBA;
 use acrylic::node::Event;
 use acrylic::node::EventType;
 use acrylic::node::Direction;
-use acrylic::BlitKey;
+use acrylic::bitmap::RGBA;
+use acrylic::NewSpot;
 use acrylic::Point;
 use acrylic::Size;
-use acrylic::Spot;
-
-use std::collections::HashMap;
 
 extern "C" {
     fn raw_log(s: *const u8, l: usize);
     fn raw_set_request_url(s: *const u8, l: usize);
     fn raw_set_request_url_prefix(s: *const u8, l: usize);
-    fn raw_update_blit(
-        x: isize,
-        y: isize,
-        w: isize,
-        h: isize,
-        px: *const u8,
-        d: isize,
-        s: *const u8,
-        l: usize,
+    fn raw_set_buffer_address(
+        framebuffer: *const u8,
     );
-    fn raw_set_blit_dirty(s: *const u8, l: usize);
     fn raw_is_request_pending() -> usize;
 }
 
 pub fn log(s: &str) {
     unsafe { raw_log(s.as_ptr(), s.len()) };
-}
-
-pub fn set_blit_dirty(h: u64) {
-    let s = format!("{:#02X}", h);
-    unsafe { raw_set_blit_dirty(s.as_ptr(), s.len()) };
-}
-
-pub fn update_blit(p: Point, s: Size, px: &[u8], d: usize, hash: u64) {
-    let w = s.w as isize;
-    let h = s.h as isize;
-    let d = d as isize;
-    let s = format!("{:#02X}", hash);
-    unsafe { raw_update_blit(p.x, p.y, w, h, px.as_ptr(), d, s.as_ptr(), s.len()) };
 }
 
 pub fn set_request_url(s: &str) {
@@ -68,35 +44,6 @@ pub fn ensure_pending_request(app: &Application) {
 #[allow(dead_code)]
 pub static mut APPLICATION: Option<Application> = None;
 pub static mut RESPONSE_BYTES: Option<Vec<u8>> = None;
-pub static mut BLITS_PIXELS: Option<HashMap<BlitKey, (Spot, Vec<u8>)>> = None;
-
-pub fn blit(spot: Spot, key: BlitKey) -> Option<(&'static mut [u8], usize, bool)> {
-    let (position, size) = spot;
-    let (depth, hash) = match key {
-        BlitKey::Node(depth, hash) => (depth, hash),
-        BlitKey::Overlay => (0, 0),
-        BlitKey::Background => (999999, u64::MAX),
-    };
-    let (saved_spot, slice) = unsafe {
-        let total_pixels = size.w * size.h * RGBA;
-        let blits = BLITS_PIXELS.as_mut().unwrap();
-        if let None = blits.get(&key) {
-            let pixels = vec![0; total_pixels];
-            let spot = (Point::zero(), Size::zero());
-            blits.insert(key, (spot, pixels));
-        }
-        let (spot, vec) = blits.get_mut(&key).unwrap();
-        vec.resize(total_pixels, 0);
-        (spot, vec.as_mut_slice())
-    };
-    if *saved_spot != spot {
-        *saved_spot = spot;
-        update_blit(position, size, slice, depth, hash);
-    } else {
-        set_blit_dirty(hash);
-    }
-    Some((slice, 0, true))
-}
 
 #[export_name = "alloc_response_bytes"]
 pub extern "C" fn alloc_response_bytes(len: usize) -> *const u8 {
@@ -109,11 +56,9 @@ pub extern "C" fn alloc_response_bytes(len: usize) -> *const u8 {
 
 #[export_name = "process_response"]
 pub extern "C" fn process_response(app: &mut Application) {
-    let request = app.data_requests.pop().unwrap();
-    let node = app.get_node(&request.node).unwrap();
-    let mut node = node.lock().unwrap();
+    let request = app.data_requests.len() - 1;
     let data = unsafe { RESPONSE_BYTES.as_ref().unwrap() };
-    let _ = node.loaded(app, &request.node, &request.name, 0, data);
+    app.data_response(request, data).unwrap();
 }
 
 #[export_name = "drop_response_bytes"]
@@ -128,10 +73,41 @@ pub extern "C" fn discard_request(app: &mut Application) {
     app.data_requests.pop().unwrap();
 }
 
+pub static mut MAIN_FB: Option<Vec<u8>> = None;
+pub static mut SCRATCH: Option<Vec<u8>> = None;
+pub static mut FB_SIZE: Size = Size::zero();
+
 #[export_name = "set_output_size"]
 pub extern "C" fn set_output_size(app: &mut Application, w: usize, h: usize) {
-    let spot = (Point::zero(), Size::new(w, h));
-    app.set_spot(spot);
+    let fb_size = Size::new(w, h);
+    app.set_fb_size(fb_size);
+    let pixels = w * h;
+    let subpx = pixels * RGBA;
+    unsafe {
+        FB_SIZE = fb_size;
+        if MAIN_FB.is_some() {
+            MAIN_FB.as_mut().unwrap().resize(subpx, 0);
+        } else {
+            MAIN_FB = Some(vec![0; subpx]);
+            SCRATCH = Some(Vec::new());
+        }
+        raw_set_buffer_address(
+            MAIN_FB.as_ref().unwrap().as_ptr(),
+        );
+    };
+}
+
+#[export_name = "frame"]
+pub extern "C" fn frame(app: &mut Application, age_ms: usize) {
+    app.set_age(age_ms);
+    let size = unsafe { FB_SIZE };
+    let mut spot = NewSpot {
+        window: (Point::zero(), size, None),
+        framebuffer: unsafe { &mut MAIN_FB.as_mut().unwrap() },
+        fb_size: size,
+    };
+    app.render(&mut spot, &mut Vec::new());
+    ensure_pending_request(app);
 }
 
 pub static mut TEXT_INPUT: [u8; 16] = [0; 16];
@@ -208,17 +184,9 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize) {
     }
 }
 
-#[export_name = "frame"]
-pub extern "C" fn frame(app: &mut Application, age_ms: usize) {
-    app.set_age(age_ms);
-    app.render();
-    ensure_pending_request(app);
-}
-
 pub fn wasm_init(assets: &str, app: Application) -> &'static Application {
     unsafe {
         set_request_url_prefix(&String::from(assets));
-        BLITS_PIXELS = Some(HashMap::new());
         APPLICATION = Some(app);
         &APPLICATION.as_ref().unwrap()
     }

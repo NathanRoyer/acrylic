@@ -1,32 +1,21 @@
 use bitflags::bitflags;
 
-use crate::app::for_each_line;
 use crate::app::Application;
-use crate::bitmap::RGBA;
-use crate::BlitPath;
+use crate::app::ScratchBuffer;
+use crate::flexbox::Cursor;
+use crate::format;
 use crate::Point;
 use crate::Size;
-use crate::Spot;
+use crate::NewSpot;
 use crate::Status;
-
-#[cfg(feature = "railway")]
-use crate::railway::arg;
-#[cfg(feature = "railway")]
-use crate::railway::LoadedRailwayProgram;
-#[cfg(feature = "railway")]
-use lazy_static::lazy_static;
-#[cfg(feature = "railway")]
-use railway::Couple;
-#[cfg(feature = "railway")]
-use railway::Program;
 
 use core::any::Any;
 use core::fmt::Debug;
+use core::mem::swap;
 
-use std::string::String;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 /// Nodes specify a policy to be layed out in various ways
 /// by the [layout functions](`crate::flexbox::compute_tree`).
@@ -69,15 +58,32 @@ pub enum Axis {
     Vertical,
 }
 
+/// General-purpose axis enumeration
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RenderLayer {
+    Background,
+    Foreground,
+}
+
+/// Nodes use this internally to know when to render
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RenderReason {
+    None,
+    Computation,
+    Resized,
+}
+
+pub type RenderCache = [Option<Vec<u8>>; 2];
+
 /// This can be used by [`Node`] implementations
 /// to offset the boundaries of their original
 /// rendering spot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Margin {
-    pub top: isize,
-    pub bottom: isize,
-    pub left: isize,
-    pub right: isize,
+    pub top: usize,
+    pub bottom: usize,
+    pub left: usize,
+    pub right: usize,
 }
 
 bitflags! {
@@ -109,12 +115,10 @@ bitflags! {
         const TEXT_DELETE    = 0b1000000000000000000;
     }
 
-    /// Utility bit field to keep track of what you
-    /// need to repaint
-    pub struct NeedsRepaint: u8 {
-        const BACKGROUND = 0b001;
-        const FOREGROUND = 0b010;
-        const OVERLAY    = 0b100;
+    /// Which render layer should be cached
+    pub struct LayerCaching: u8 {
+        const BACKGROUND = 0b01;
+        const FOREGROUND = 0b10;
     }
 }
 
@@ -152,95 +156,76 @@ pub enum Event {
     TextDelete(isize),
 }
 
-/// A path to a node in a view
+/// An owned path to a node in a view
 pub type NodePath = Vec<usize>;
 
-pub type NodePathHash = u64;
+/// A path to a node in a view
+pub type NodePathSlice<'a> = &'a [usize];
 
 /// Trait for elements of a view
-pub trait Node: Debug + Any + 'static {
+pub trait Node: Debug + Any {
     /// `as_any` is required for downcasting.
     fn as_any(&mut self) -> &mut dyn Any;
 
-    #[allow(unused)]
-    /// This method is called each time a new frame
-    /// is being created for display.
-    ///
-    /// The `style` parameter is an index into `app.styles`.
-    /// Nodes should follow this style when applicable.
-    /// For containers, the returned `usize` is the style
-    /// index which will be passed to its children. For
-    /// non-containers, this `usize` has no effect.
-    ///
-    /// Example implementation filling the spot with white:
+    /// Implement this if in the following way:
     /// ```rust
-    /// use acrylic::Spot;
-    /// use acrylic::node::Node;
-    /// use acrylic::node::NodePath;
-    /// use acrylic::node::NeedsRepaint;
-    /// use acrylic::node::LengthPolicy;
-    /// use acrylic::app::Application;
-    /// use acrylic::app::for_each_line;
-    /// use core::any::Any;
-    ///
-    /// #[derive(Debug, Copy, Clone)]
-    /// struct MyNode {
-    ///     repaint: NeedsRepaint,
-    ///     spot: Spot,
-    /// }
-    ///
-    /// impl Node for MyNode {
-    ///     fn render(&mut self, app: &mut Application, path: &mut NodePath, _: usize) -> Result<usize, ()> {
-    ///         if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-    ///             if let Ok((dst, pitch, _)) = app.blit(&self.spot, Some(path)) {
-    ///                 let (_, size) = self.spot;
-    ///                 for_each_line(dst, size, pitch, |_, line| {
-    ///                     line.fill(255);
-    ///                 });
-    ///             } else {
-    ///                 app.log("rendering failed.");
-    ///             }
-    ///             self.repaint.remove(NeedsRepaint::FOREGROUND);
-    ///         }
-    ///         Ok(0)
-    ///     }
-    ///
-    ///     // other methods necessary for rendering:
-    ///
-    ///     fn as_any(&mut self) -> &mut dyn Any {
-    ///         self
-    ///     }
-    ///
-    ///     fn describe(&self) -> String {
-    ///         String::from("White Square")
-    ///     }
-    ///
-    ///     fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-    ///         self.repaint.insert(repaint);
-    ///     }
-    ///
-    ///     fn policy(&self) -> LengthPolicy {
-    ///         LengthPolicy::AspectRatio(1.0)
-    ///     }
-    ///
-    ///     fn get_spot(&self) -> Spot {
-    ///         self.spot
-    ///     }
-    ///
-    ///     fn set_spot(&mut self, spot: Spot) {
-    ///         self.spot = spot;
-    ///         // we could need a repaint:
-    ///         self.repaint.insert(NeedsRepaint::FOREGROUND);
-    ///     }
+    /// fn please_clone(&self) -> NodeBox {
+    ///     node_box(self.clone())
     /// }
     /// ```
+    fn please_clone(&self) -> NodeBox;
+
+    /// ret = Ok(use_buffer_for_children)
+    #[allow(unused)]
     fn render(
         &mut self,
+        layer: RenderLayer,
         app: &mut Application,
-        path: &mut NodePath,
+        path: NodePathSlice,
         style: usize,
-    ) -> Result<usize, ()> {
-        Err(())
+        spot: &mut NewSpot,
+        scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+        match layer {
+            RenderLayer::Background => self.render_background(app, path, style, spot, scratch),
+            RenderLayer::Foreground => self.render_foreground(app, path, style, spot, scratch),
+        }
+    }
+
+    /// ret = Ok(use_buffer_for_children)
+    #[allow(unused)]
+    fn render_background(
+        &mut self,
+        app: &mut Application,
+        path: NodePathSlice,
+        style: usize,
+        spot: &mut NewSpot,
+        scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+        Ok(())
+    }
+
+    #[allow(unused)]
+    fn render_foreground(
+        &mut self,
+        app: &mut Application,
+        path: NodePathSlice,
+        style: usize,
+        spot: &mut NewSpot,
+        scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+        Ok(())
+    }
+
+    #[allow(unused)]
+    fn tick(
+        &mut self,
+        app: &mut Application,
+        path: NodePathSlice,
+        style: usize,
+        scratch: ScratchBuffer,
+    ) -> Result<bool, ()> {
+        Ok(false)
     }
 
     /// The `handle` method is called when the platform forwards an event
@@ -254,7 +239,7 @@ pub trait Node: Debug + Any + 'static {
     fn handle(
         &mut self,
         app: &mut Application,
-        path: &NodePath,
+        path: NodePathSlice,
         event: &Event,
     ) -> Result<Option<String>, ()> {
         Err(())
@@ -268,7 +253,7 @@ pub trait Node: Debug + Any + 'static {
     fn loaded(
         &mut self,
         app: &mut Application,
-        path: &NodePath,
+        path: NodePathSlice,
         name: &str,
         offset: usize,
         data: &[u8],
@@ -283,14 +268,14 @@ pub trait Node: Debug + Any + 'static {
     /// your node is attached to an app's view, to do such
     /// things.
     #[allow(unused)]
-    fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
         Ok(())
     }
 
     /// General-purpose containers must implement this method
     /// to receive children (for instance while parsing views).
     #[allow(unused)]
-    fn add_node(&mut self, child: RcNode) -> Result<usize, String> {
+    fn add_node(&mut self, child: NodeBox) -> Result<usize, String> {
         Err(String::from("Not a container"))
     }
 
@@ -298,7 +283,7 @@ pub trait Node: Debug + Any + 'static {
     /// be replaced. All General-purpose containers must implement
     /// this.
     #[allow(unused)]
-    fn replace_node(&mut self, index: usize, child: RcNode) -> Result<(), String> {
+    fn replace_node(&mut self, index: usize, child: NodeBox) -> Result<(), String> {
         Err(String::from("Not a container"))
     }
 
@@ -338,11 +323,35 @@ pub trait Node: Debug + Any + 'static {
         LengthPolicy::Fixed(0)
     }
 
-    /// Used by [`Application`] code to force a node
-    /// to repaint during next frame rendering.
+    /// Used by [`Application`] code to cache
+    /// rendered layers efficiently.
+    fn layers_to_cache(&self) -> LayerCaching {
+        LayerCaching::empty()
+    }
+
+    fn render_cache(&mut self) -> Result<&mut RenderCache, ()> {
+        Err(())
+    }
+
     #[allow(unused)]
-    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-        // do nothing by default
+    fn store_cache(&mut self, layer: RenderLayer, cache: Vec<u8>) -> Result<(), ()> {
+        let index = match layer {
+            RenderLayer::Foreground => 0,
+            RenderLayer::Background => 1,
+        };
+        self.render_cache()?[index] = Some(cache);
+        Ok(())
+    }
+
+    #[allow(unused)]
+    fn restore_cache(&mut self, layer: RenderLayer) -> Option<Vec<u8>> {
+        let index = match layer {
+            RenderLayer::Foreground => 0,
+            RenderLayer::Background => 1,
+        };
+        let mut tmp = None;
+        swap(&mut tmp, &mut self.render_cache().ok()?[index]);
+        tmp
     }
 
     /// The `describe` method is called when the platform needs a
@@ -353,36 +362,25 @@ pub trait Node: Debug + Any + 'static {
     /// A getter for a node's children. General-purpose
     /// containers must implement this.
     #[allow(unused)]
-    fn children(&self) -> &[RcNode] {
+    fn children(&self) -> &[Option<NodeBox>] {
         &[]
+    }
+
+    /// A mutable getter for a node's children. General-purpose
+    /// containers must implement this.
+    #[allow(unused)]
+    fn children_mut(&mut self) -> &mut [Option<NodeBox>] {
+        &mut []
+    }
+
+    fn style_override(&self) -> Option<usize> {
+        None
     }
 
     /// A getter for a node's spot. The spot
     /// is set by layout code via [`Node::set_spot`].
-    fn get_spot(&self) -> Spot {
-        (Point::zero(), Size::zero())
-    }
-
-    /// Offsets a spot by a node's margin. It should
-    /// never be required to implement this.
-    fn get_content_spot_at(&self, mut spot: Spot) -> Option<Spot> {
-        if let Some(margin) = self.margin() {
-            spot.0.x += margin.left;
-            spot.0.y += margin.top;
-            let w = ((spot.1.w as isize) - margin.total_on(Axis::Horizontal)).try_into();
-            let h = ((spot.1.h as isize) - margin.total_on(Axis::Vertical)).try_into();
-            match (w, h) {
-                (Ok(w), Ok(h)) => spot.1 = Size::new(w, h),
-                _ => None?,
-            }
-        }
-        Some(spot)
-    }
-
-    /// Offsets a node's spot by that node's margin.
-    /// It should never be required to implement this.
-    fn get_content_spot(&self) -> Option<Spot> {
-        self.get_content_spot_at(self.get_spot())
+    fn get_spot_size(&self) -> Size {
+        Size::zero()
     }
 
     /// The layout code may call this method many times
@@ -390,13 +388,14 @@ pub trait Node: Debug + Any + 'static {
     /// given spot and give it back when [`Node::get_spot`]
     /// is called.
     #[allow(unused)]
-    fn set_spot(&mut self, spot: Spot) {
+    fn set_spot_size(&mut self, size: Size) {
         // do nothing
     }
 
     /// This is called exactly once after layout so that
     /// nodes can detect spot changes.
-    fn validate_spot(&mut self) {
+    #[allow(unused)]
+    fn validate_spot_size(&mut self, prev_size: Size) {
         // do nothing
     }
 
@@ -417,6 +416,25 @@ pub trait Node: Debug + Any + 'static {
         None
     }
 
+    fn cursor(&self, top_left: Point) -> Option<Cursor> {
+        let (axis, gap) = self.container()?;
+        let row = match self.policy() {
+            LengthPolicy::Chunks(row) => Some(row),
+            _ => None,
+        };
+        let size = self.get_spot_size();
+        let max_chunk_length = size.get_for_axis(axis);
+        Some(Cursor {
+            axis,
+            gap,
+            top_left,
+            line_start: top_left,
+            row,
+            max_chunk_length,
+            chunk_length: 0,
+        })
+    }
+
     /// The `supported_events` method is called during hit
     /// testing, for platforms with absolute input devices
     /// like mice.
@@ -433,222 +451,83 @@ pub trait Node: Debug + Any + 'static {
     fn describe_supported_events(&self) -> Vec<(EventType, String)> {
         Vec::new()
     }
+
+    fn push_spot_sizes(&self, sizes: &mut Vec<Size>) {
+        sizes.push(self.get_spot_size());
+        for child in self.children() {
+            if let Some(child) = child.as_ref() {
+                child.push_spot_sizes(sizes);
+            }
+        }
+    }
+
+    fn detect_size_changes(&mut self, sizes: &mut Vec<Size>) {
+        for child in self.children_mut().iter_mut().rev() {
+            if let Some(child) = child.as_mut() {
+                child.detect_size_changes(sizes);
+            }
+        }
+        if let Some(prev_size) = sizes.pop() {
+            let curr_size = self.get_spot_size();
+            if curr_size != prev_size {
+                self.validate_spot_size(prev_size);
+            }
+        }
+    }
+
+    /// Debug utility
+    fn tree_log(&self, app: &Application, tabs: usize) {
+        let prefix = "    ".repeat(tabs);
+        let size = self.get_spot_size();
+        app.log(&format!("{}<{}> ({}x{})", prefix, self.describe(), size.w, size.h));
+        for child in self.children() {
+            if let Some(child) = child {
+                child.tree_log(app, tabs + 1);
+            } else {
+                app.log(&format!("{}    <kidnapped>", prefix));
+            }
+        }
+    }
+}
+
+impl RenderReason {
+    pub fn downgrade(&mut self) {
+        *self = match *self {
+            RenderReason::None => RenderReason::None,
+            RenderReason::Computation => RenderReason::None,
+            RenderReason::Resized => RenderReason::Computation,
+        }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self != RenderReason::None
+    }
+}
+
+impl RenderLayer {
+    pub fn cached(self, cached: LayerCaching) -> bool {
+        match self {
+            Self::Background => cached.contains(LayerCaching::BACKGROUND),
+            Self::Foreground => cached.contains(LayerCaching::FOREGROUND),
+        }
+    }
 }
 
 /// A handle to a [`Node`] implementor.
-pub type RcNode = Arc<Mutex<dyn Node>>;
+pub type NodeBox = Box<dyn Node>;
 
 /// This utility function wraps a node
-/// implementor in an [`RcNode`].
-pub fn rc_node<W: Node>(node: W) -> RcNode {
-    Arc::new(Mutex::new(node))
+/// implementor in an [`NodeBox`].
+pub fn node_box<W: Node>(node: W) -> NodeBox {
+    Box::new(node)
 }
 
-#[cfg(feature = "railway")]
-lazy_static! {
-    static ref CONTAINER_RWY: LoadedRailwayProgram<4> = {
-        let program = Program::parse(include_bytes!("container.rwy")).unwrap();
-        let mut stack = program.create_stack();
-        program.valid().unwrap();
-        let mut addresses = [0; 4];
-        {
-            let arg = |s| arg(&program, s, true).unwrap();
-            addresses[0] = arg("size");
-            addresses[1] = arg("margin-radius");
-            addresses[2] = arg("background-color-red-green");
-            addresses[3] = arg("background-color-blue-alpha");
-            stack[arg("border-width")].x = 0.0;
-            stack[arg("border-pattern")].x = 0.0;
-            stack[arg("border-pattern")].y = 10.0;
-            stack[arg("border-color-blue-alpha")].y = 0.0;
-        }
-        LoadedRailwayProgram {
-            program,
-            stack,
-            mask: Vec::new(),
-            addresses,
-        }
-    };
-}
-
-/// General-purpose container
-#[derive(Debug, Clone)]
-pub struct Container {
-    pub children: Vec<RcNode>,
-    pub policy: LengthPolicy,
-    pub on_click: Option<String>,
-    pub spot: Spot,
-    pub prev_spot: Spot,
-    pub axis: Axis,
-    pub gap: usize,
-    pub margin: Option<usize>,
-    /// For rounded-corners
-    pub radius: Option<usize>,
-    /// Initialize to `NeedsRepaint::all()`
-    pub repaint: NeedsRepaint,
-    pub focused: bool,
-    /// Style override
-    pub normal_style: Option<usize>,
-    /// Style override when focused
-    pub focus_style: Option<usize>,
-    /// Initialize to `None`
-    #[cfg(feature = "railway")]
-    pub style_rwy: Option<LoadedRailwayProgram<4>>,
-}
-
-impl Container {
-    fn style(&self) -> Option<usize> {
-        match self.focused {
-            true => self.focus_style.or(self.normal_style),
-            false => self.normal_style,
-        }
+pub fn please_clone_vec(orig_nodes: &Vec<Option<NodeBox>>) -> Vec<Option<NodeBox>> {
+    let mut nodes = Vec::with_capacity(orig_nodes.len());
+    for node in orig_nodes {
+        nodes.push(node.as_ref().map(|node| node.please_clone()));
     }
-}
-
-impl Node for Container {
-    fn render(
-        &mut self,
-        app: &mut Application,
-        path: &mut NodePath,
-        style: usize,
-    ) -> Result<usize, ()> {
-        let (_, size) = self.spot;
-        let px_width = RGBA * size.w;
-        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            self.repaint.remove(NeedsRepaint::FOREGROUND);
-            #[cfg(feature = "railway")]
-            if self.margin.is_some() || self.radius.is_some() {
-                if self.style_rwy.is_none() {
-                    self.style_rwy = Some(CONTAINER_RWY.clone());
-                }
-                if let Some(rwy) = &mut self.style_rwy {
-                    let parent_bg = app.theme.styles[style].background;
-                    let c = |i| parent_bg[i] as f32 / 255.0;
-                    let margin = self.margin.unwrap_or(1);
-                    let radius = self.radius.unwrap_or(1);
-                    // size
-                    rwy.stack[rwy.addresses[0]] = Couple::new(size.w as f32, size.h as f32);
-                    // margin and radius
-                    rwy.stack[rwy.addresses[1]] = Couple::new(margin as f32, radius as f32);
-                    // parent RG and BA
-                    rwy.stack[rwy.addresses[2]] = Couple::new(c(0), c(1));
-                    rwy.stack[rwy.addresses[3]] = Couple::new(c(2), c(3));
-                    let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Node(path))?;
-                    rwy.render(dst, pitch, size)?;
-                }
-            }
-            if app.debug_containers {
-                let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Node(path))?;
-                for_each_line(dst, size, pitch, |i, line_dst| {
-                    if i == 0 {
-                        line_dst.fill(255);
-                    } else {
-                        line_dst[RGBA..].fill(0);
-                        line_dst[..RGBA].fill(255);
-                    }
-                });
-            }
-        }
-        if self.repaint.contains(NeedsRepaint::BACKGROUND) {
-            self.repaint.remove(NeedsRepaint::BACKGROUND);
-            if let Some(i) = self.style() {
-                let this_bg = app.theme.styles[i].background;
-                let (dst, pitch, _) = app.blit(&self.spot, BlitPath::Background)?;
-                for_each_line(dst, size, pitch, |_, line_dst| {
-                    for i in 0..px_width {
-                        line_dst[i] = this_bg[i % RGBA];
-                    }
-                });
-            }
-        }
-        Ok(self.style().unwrap_or(style))
-    }
-
-    fn as_any(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn margin(&self) -> Option<Margin> {
-        self.margin.map(|l| Margin::quad(l as isize))
-    }
-
-    fn children(&self) -> &[RcNode] {
-        &self.children
-    }
-
-    fn policy(&self) -> LengthPolicy {
-        self.policy
-    }
-
-    fn add_node(&mut self, child: RcNode) -> Result<usize, String> {
-        let index = self.children.len();
-        self.children.push(child);
-        Ok(index)
-    }
-
-    fn replace_node(&mut self, index: usize, child: RcNode) -> Result<(), String> {
-        match self.children.get_mut(index) {
-            Some(addr) => *addr = child,
-            None => Err(String::from("No such child :|"))?,
-        };
-        Ok(())
-    }
-
-    fn get_spot(&self) -> Spot {
-        self.spot
-    }
-
-    fn set_spot(&mut self, spot: Spot) {
-        self.spot = spot;
-    }
-
-    fn validate_spot(&mut self) {
-        if self.spot != self.prev_spot {
-            self.repaint = NeedsRepaint::all();
-        }
-        self.prev_spot = self.spot;
-    }
-
-    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-        self.repaint.insert(repaint);
-    }
-
-    fn set_focused(&mut self, focused: bool) -> bool {
-        self.focused = focused;
-        self.focus_style.is_some()
-    }
-
-    fn container(&self) -> Option<(Axis, usize)> {
-        Some((self.axis, self.gap))
-    }
-
-    fn describe(&self) -> String {
-        String::from(match self.axis {
-            Axis::Vertical => "Vertical Container",
-            Axis::Horizontal => "Horizontal Container",
-        })
-    }
-
-    fn handle(
-        &mut self,
-        _: &mut Application,
-        _: &NodePath,
-        _: &Event,
-    ) -> Result<Option<String>, ()> {
-        Ok(self.on_click.clone())
-    }
-
-    fn supported_events(&self) -> EventType {
-        EventType::QUICK_ACTION_1
-    }
-
-    fn describe_supported_events(&self) -> Vec<(EventType, String)> {
-        let mut events = Vec::new();
-        if self.on_click.is_some() {
-            events.push((EventType::QUICK_ACTION_1, String::from("Some action")));
-        }
-        events
-    }
+    nodes
 }
 
 impl Event {
@@ -678,7 +557,7 @@ impl Event {
 }
 
 impl Margin {
-    pub fn new(top: isize, bottom: isize, left: isize, right: isize) -> Self {
+    pub fn new(top: usize, bottom: usize, left: usize, right: usize) -> Self {
         Self {
             top,
             bottom,
@@ -687,7 +566,7 @@ impl Margin {
         }
     }
 
-    pub fn quad(value: isize) -> Self {
+    pub fn quad(value: usize) -> Self {
         Self {
             top: value,
             bottom: value,
@@ -696,7 +575,7 @@ impl Margin {
         }
     }
 
-    pub fn total_on(&self, axis: Axis) -> isize {
+    pub fn total_on(&self, axis: Axis) -> usize {
         match axis {
             Axis::Horizontal => self.left + self.right,
             Axis::Vertical => self.top + self.bottom,
@@ -717,20 +596,6 @@ impl Axis {
         match self {
             Axis::Horizontal => Axis::Vertical,
             Axis::Vertical => Axis::Horizontal,
-        }
-    }
-}
-
-pub(crate) trait SameAxisContainerOrNone {
-    fn same_axis_or_both_none(self) -> bool;
-}
-
-impl SameAxisContainerOrNone for (Option<(Axis, usize)>, Option<(Axis, usize)>) {
-    fn same_axis_or_both_none(self) -> bool {
-        match self {
-            (Some((a, _)), Some((b, _))) => a == b,
-            (None, None) => true,
-            _ => false,
         }
     }
 }

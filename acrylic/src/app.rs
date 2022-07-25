@@ -1,47 +1,45 @@
-use crate::bitmap::RGBA;
 use crate::flexbox::compute_tree;
 use crate::lock;
 use crate::style::Theme;
-use crate::node::rc_node;
+use crate::node::node_box;
 use crate::node::Event;
 use crate::node::EventType;
-use crate::node::NeedsRepaint;
+use crate::node::RenderLayer;
 use crate::node::Node;
 use crate::node::NodePath;
-use crate::node::RcNode;
+use crate::node::NodePathSlice;
+use crate::node::NodeBox;
+use crate::bitmap::RGBA;
 use crate::status;
-use crate::BlitKey;
-use crate::BlitPath;
-use crate::PlatformBlit;
 use crate::PlatformLog;
 use crate::Point;
 use crate::Size;
-use crate::Spot;
+use crate::NewSpot;
 use crate::Status;
-
-#[cfg(feature = "text")]
-use crate::font::Font;
+use crate::format;
 
 use core::any::Any;
 use core::fmt::Debug;
 use core::mem::swap;
-use core::ops::DerefMut;
 use core::ops::Range;
 
-use std::boxed::Box;
-use std::string::String;
-use std::vec::Vec;
-use std::collections::HashMap;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use hashbrown::hash_map::HashMap;
 
 #[cfg(feature = "text")]
-use std::sync::Arc;
-#[cfg(feature = "text")]
-use std::sync::Mutex;
+use crate::font::GlyphCache;
 
 /// Event Handlers added to the app via
 /// [`Application::add_handler`] must
 /// have this signature.
-pub type EventHandler = Box<dyn FnMut(&mut Application, &NodePath, &Event) -> Status>;
+pub type EventHandler = Box<dyn FnMut(&mut Application, NodePathSlice, &Event) -> Status>;
+
+/// A scratch buffer is required for certain rendering
+/// operations.
+pub type ScratchBuffer<'a> = &'a mut Vec<u8>;
 
 /// The Application structure represents your application.
 ///
@@ -49,15 +47,33 @@ pub type EventHandler = Box<dyn FnMut(&mut Application, &NodePath, &Event) -> St
 /// some platform functions
 pub struct Application {
     /// This is the root node of the currently displayed view.
-    pub view: RcNode,
+    pub view: Option<NodeBox>,
 
     /// The spot where our view should be displayed on the
     /// output. It is set by [`Application::set_spot`].
-    pub view_spot: Spot,
+    pub fb_size: Size,
 
-    /// Fonts that can be used by nodes to draw glyphs
+    /// Hashmap to translate font names into their index
+    /// in `self.fonts`.
     #[cfg(feature = "text")]
-    pub fonts: HashMap<Option<String>, Arc<Mutex<Font>>>,
+    pub font_ns: HashMap<String, usize>,
+
+    /// Fonts that can be used by nodes to draw glyphs.
+    ///
+    /// The byte array is parsed each time we need to create
+    /// renderings for glyphs, which is not often due to
+    /// caching of these renders. Additionally, `ttf-parser`,
+    /// which is the crate we use to parse the fonts, says
+    /// it shouldn't be a bottleneck. `¯\_(ツ)_/¯`
+    ///
+    /// If you enabled the `noto-default-font` feature,
+    /// the font will be present at index 0.
+    #[cfg(feature = "text")]
+    pub fonts: Vec<Vec<u8>>,
+
+    /// A cache of rendered glyphs
+    #[cfg(feature = "text")]
+    pub glyph_cache: GlyphCache,
 
     /// Some nodes support custom event handlers; when
     /// they need to call the handler, they will use this
@@ -89,26 +105,9 @@ pub struct Application {
     /// [`Application::log`] method.
     pub platform_log: PlatformLog,
 
-    /// A platform-specific function which is used to request
-    /// buffers where nodes are rendered. Do not use it
-    /// directly, prefer the [`Application::blit`] method.
-    pub platform_blit: PlatformBlit,
-
-    /// Nodes can prevent children (direct or indirect) from
-    /// requesting new buffers to be rendered in by pushing
-    /// to this vector; When these children would request a
-    /// buffer, that node's buffer will be returned instead.
-    /// [`Paragraph`](`crate::text::Paragraph`) nodes use this, for instance,
-    /// so that its contained [`GlyphNode`](`crate::text::GlyphNode`) render
-    /// in the paragraph's buffer.
-    pub blit_hooks: Vec<(NodePath, Spot)>,
-
     /// The platform can set the theme to use via the
     /// [`Application::set_theme`] method.
     pub theme: Theme,
-
-    /// Global override for node's repaint flags
-    pub global_repaint: NeedsRepaint,
 
     /// Setting this to `true` will trigger a new computation
     /// of the layout at the beginning of the next frame's
@@ -158,37 +157,37 @@ impl Application {
     /// ```
     pub fn new<M: Any + 'static>(
         log: PlatformLog,
-        blit: PlatformBlit,
         model: M,
         view: impl Node,
     ) -> Self {
         #[allow(unused_mut)]
         let mut app = Self {
-            view: rc_node(view),
-            view_spot: (Point::zero(), Size::zero()),
+            view: Some(node_box(view)),
+            fb_size: Size::zero(),
             event_handlers: HashMap::new(),
             #[cfg(feature = "text")]
-            fonts: HashMap::new(),
+            font_ns: HashMap::new(),
+            #[cfg(feature = "text")]
+            fonts: Vec::new(),
+            #[cfg(feature = "text")]
+            glyph_cache: GlyphCache::new(),
             #[cfg(feature = "text")]
             default_font_size: 30,
             data_requests: Vec::new(),
             model: Box::new(model),
             should_recompute: true,
-            global_repaint: NeedsRepaint::empty(),
             debug_containers: false,
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             platform_log: log,
-            platform_blit: blit,
-            blit_hooks: Vec::new(),
             focus: None,
             instance_age_ms: 0,
         };
-        app.initialize_node(app.view.clone(), &mut NodePath::new())
+        app.initialize_node(&mut NodePath::new())
             .unwrap();
         #[cfg(all(feature = "text", feature = "noto-default-font"))]
         {
-            let font = Font::from_bytes(include_bytes!("noto-sans.ttf").to_vec());
-            app.fonts.insert(None, font);
+            app.fonts.push(include_bytes!("noto-sans.ttf").to_vec());
+            app.font_ns.insert("noto-sans".into(), 0);
         }
         app
     }
@@ -207,11 +206,17 @@ impl Application {
     /// are created without a specific font.
     #[cfg(feature = "text")]
     pub fn add_font(&mut self, name: String, data: Vec<u8>, default: bool) {
-        let font = Font::from_bytes(data);
-        self.fonts.insert(Some(name), font.clone());
-        if default {
-            self.fonts.insert(None, font);
-        }
+        let len = self.fonts.len();
+        match (default, len) {
+            (false, _) => self.fonts.push(data),
+            (true, 0) => self.fonts.push(data),
+            (true, _) => self.fonts[0] = data,
+        };
+        let index = match default {
+            true => 0,
+            false => len,
+        };
+        self.font_ns.insert(name, index);
     }
 
     /// Platforms should update the instance's age via this
@@ -235,11 +240,9 @@ impl Application {
         if focus != self.focus {
             if let Some((_, mut path)) = focus {
                 loop {
-                    if let Some(rc_node) = self.get_node(&path) {
-                        let visible_change = { lock(&rc_node).unwrap().set_focused(false) };
-                        if visible_change {
-                            let _ = self.repaint_needed(rc_node, NeedsRepaint::all());
-                        }
+                    if let Some(mut node) = self.kidnap_node(&path) {
+                        node.set_focused(false);
+                        self.restore_node(&path, node).unwrap();
                     }
                     if let None = path.pop() {
                         break;
@@ -248,11 +251,9 @@ impl Application {
             }
             if let Some((_, mut path)) = self.focus.clone() {
                 loop {
-                    if let Some(rc_node) = self.get_node(&path) {
-                        let visible_change = { lock(&rc_node).unwrap().set_focused(true) };
-                        if visible_change {
-                            let _ = self.repaint_needed(rc_node, NeedsRepaint::all());
-                        }
+                    if let Some(mut node) = self.kidnap_node(&path) {
+                        node.set_focused(true);
+                        self.restore_node(&path, node).unwrap();
                     }
                     if let None = path.pop() {
                         break;
@@ -296,10 +297,12 @@ impl Application {
         if let Some((_, mut path)) = self.focus.clone() {
             let handler_name = loop {
                 if let Some(node) = self.get_node(&path) {
-                    let mut node = lock(&node).unwrap();
                     let event_mask = node.supported_events();
                     if event_mask.contains(event.event_type()) {
-                        break node.handle(self, &path, event)?;
+                        let mut node = self.kidnap_node(&path).unwrap();
+                        let result = node.handle(self, &path, event)?;
+                        let _ = self.restore_node(&path, node);
+                        break result;
                     }
                 }
                 if let None = path.pop() {
@@ -343,26 +346,38 @@ impl Application {
 
     pub fn hit_test(&mut self, point: Point) -> NodePath {
         let mut path = NodePath::new();
-        if !Self::hit_test_for(self.view.clone(), point, &mut path) {
-            path.clear()
+        if let Some(view) = self.view.as_ref() {
+            let min = Point::zero();
+            let size = view.get_spot_size();
+            if !Self::hit_test_for(view, min, size, point, &mut path) {
+                path.clear()
+            }
         }
         path
     }
 
-    fn hit_test_for(node: RcNode, p: Point, path: &mut NodePath) -> bool {
-        let ((min, size), children) = {
-            let node = lock(&node).unwrap();
-            (node.get_spot(), node.children().to_vec())
-        };
+    fn hit_test_for(
+        node: &NodeBox,
+        min: Point,
+        size: Size,
+        p: Point,
+        path: &mut NodePath,
+    ) -> bool {
         let max_x = min.x + size.w as isize;
         let max_y = min.y + size.h as isize;
         if (min.x..max_x).contains(&p.x) && (min.y..max_y).contains(&p.y) {
-            for i in 0..children.len() {
-                path.push(i);
-                if Self::hit_test_for(children[i].clone(), p, path) {
-                    return true;
+            if let Some(mut cursor) = node.cursor(min) {
+                let children = node.children();
+                for i in 0..children.len() {
+                    path.push(i);
+                    if let Some(child) = children[i].as_ref() {
+                        let (min, size, _) = cursor.advance(child);
+                        if Self::hit_test_for(child, min, size, p, path) {
+                            return true;
+                        }
+                    }
+                    path.pop();
                 }
-                path.pop();
             }
             return true;
         }
@@ -374,256 +389,264 @@ impl Application {
     /// [`Application::render`] to change the theme.
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
-        self.global_repaint = NeedsRepaint::all();
+        // self.global_repaint = NeedsRepaint::all();
     }
 
     /// Use this method to find a node in the view based
     /// on its path.
-    pub fn get_node(&self, path: &NodePath) -> Option<RcNode> {
-        let mut node = self.view.clone();
-        for i in path.as_slice() {
-            // todo: get rid of these locks
-            let child = {
-                let tmp = lock(&node)?;
-                tmp.children().get(*i)?.clone()
-            };
-            node = child;
+    pub fn get_node(&self, path: NodePathSlice) -> Option<&NodeBox> {
+        let mut node = &self.view;
+        for i in path {
+            node = node.as_ref()?.children().get(*i)?;
         }
-        Some(node)
+        node.as_ref()
     }
 
-    pub fn replace_node(&mut self, path: &NodePath, new_node: RcNode) -> Result<(), String> {
+    pub fn kidnap_node(&mut self, path: NodePathSlice) -> Option<NodeBox> {
+        let mut node = &mut self.view;
+        for i in path {
+            node = node.as_mut()?.children_mut().get_mut(*i)?;
+        }
+        let mut result = None;
+        swap(&mut result, node);
+        result
+    }
+
+    pub fn replace_kidnapped(
+        &mut self,
+        path: NodePathSlice,
+        replacement: NodeBox,
+    ) {
+        self.restore_node(path, replacement).expect("Node has not been kidnapped.");
+        let mut path = path.to_vec();
+        self.initialize_node(&mut path).unwrap();
         self.should_recompute = true;
-        if let Some(j) = path.last() {
-            let mut node = self.view.clone();
-            for i in &path[..path.len() - 1] {
-                // todo: get rid of these locks
-                let child = {
-                    let tmp = lock(&node).unwrap();
-                    tmp.children()[*i].clone()
-                };
-                node = child;
-            }
-            let mut tmp = lock(&node).unwrap();
-            tmp.replace_node(*j, new_node.clone())?;
-        } else {
-            self.view = new_node.clone();
-            let mut view = lock(&self.view).unwrap();
-            view.set_spot(self.view_spot);
-        }
-        let mut path = path.clone();
-        self.initialize_node(new_node, &mut path)
     }
 
-    /// Signals that part of the view needs to be repainted.
-    ///
-    /// The node at path and its children (direct and
-    /// indirect) will be affected.
-    pub fn repaint_needed(&mut self, node: RcNode, mut r: NeedsRepaint) -> Status {
-        let mut path = Vec::new();
-        for_each_node(node, &mut path, &mut r, (), |n, r, _, _| {
-            n.repaint_needed(*r)
-        })
+    pub fn restore_node(&mut self, path: NodePathSlice, kidnapped: NodeBox) -> Result<(), ()> {
+        let mut node = &mut self.view;
+        for i in path {
+            node = node.as_mut().ok_or(())?.children_mut().get_mut(*i).ok_or(())?;
+        }
+        if node.is_none() {
+            let mut result = Some(kidnapped);
+            swap(&mut result, node);
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// Platforms should use this method to set the position
     /// and size of the view in the output buffer.
     ///
     /// Returns `true` if the previous and new values differ.
-    pub fn set_spot(&mut self, spot: Spot) -> bool {
-        if self.view_spot != spot {
-            self.view_spot = spot;
-            let mut view = lock(&self.view).unwrap();
-            let view = view.deref_mut();
-            view.set_spot(spot);
+    pub fn set_fb_size(&mut self, size: Size) -> bool {
+        if self.fb_size != size {
+            self.fb_size = size;
             self.should_recompute = true;
-            self.global_repaint = NeedsRepaint::BACKGROUND | NeedsRepaint::OVERLAY;
+            // self.global_repaint = NeedsRepaint::BACKGROUND | NeedsRepaint::OVERLAY;
             true
         } else {
             false
         }
     }
 
-    /// This method is called by the platform to request a refresh
-    /// of the output. It should be called for every frame.
-    pub fn render(&mut self) {
-        let mut path = Vec::new();
-        let max_runs = 5;
-        let mut runs = 0;
-        loop {
-            if self.should_recompute {
-                self.log("recomputing layout");
-                {
-                    let mut view = lock(&self.view).unwrap();
-                    let _ = compute_tree(view.deref_mut());
-                    view.validate_spot();
-                }
-                path.clear();
-                let _ = for_each_node(self.view.clone(), &mut path, &mut (), (), |n, _, _, _| {
-                    n.validate_spot()
-                });
-                for i in 0..self.blit_hooks.len() {
-                    if let Some(node) = self.get_node(&self.blit_hooks[i].0) {
-                        let node = lock(&node).unwrap();
-                        let spot = node.get_content_spot();
-                        let spot = spot.unwrap_or((Point::zero(), Size::zero()));
-                        self.blit_hooks[i].1 = spot;
-                    }
-                }
-                self.global_repaint |= NeedsRepaint::BACKGROUND;
-                self.global_repaint |= NeedsRepaint::OVERLAY;
-                self.should_recompute = false;
-            }
-            if !self.global_repaint.is_empty() {
-                if self.global_repaint.contains(NeedsRepaint::OVERLAY) {
-                    let spot = self.view_spot;
-                    let (dst, pitch, _) = self.blit(&spot, BlitPath::Overlay).unwrap();
-                    for_each_line(dst, spot.1, pitch, |_, line_dst| line_dst.fill(0));
-                }
-                let _ = self.repaint_needed(self.view.clone(), self.global_repaint);
-                self.global_repaint = NeedsRepaint::empty();
-            }
-            path.clear();
-            let _ = for_each_node(self.view.clone(), &mut path, self, 0, |n, a, s, p| {
-                n.render(a, p, s).unwrap_or(s)
-            });
-            if (!self.should_recompute && self.global_repaint.is_empty()) || max_runs == runs {
-                if max_runs == runs {
-                    self.log("warning: runs == max_runs in app::render()");
-                }
-                break;
-            } else {
-                runs += 1;
-            }
+    pub fn for_each_node<T, U: Copy>(
+        &self,
+        path: &mut NodePath,
+        arg1: &T,
+        arg2: U,
+        f: impl Copy + Fn(&NodeBox, &T, U, NodePathSlice) -> U,
+    ) {
+        let node = self.get_node(path).expect("invalid path");
+        let arg2 = f(node, arg1, arg2, path);
+        let children = node.children().len();
+        for i in 0..children {
+            path.push(i);
+            self.for_each_node(path, arg1, arg2, f);
+            path.pop();
         }
     }
 
-    fn initialize_node(&mut self, node: RcNode, path: &mut NodePath) -> Result<(), String> {
-        let children = {
-            let mut node = lock(&node).unwrap();
-            node.initialize(self, path)?;
-            node.children().to_vec()
-        };
-        for i in 0..children.len() {
+    pub fn for_each_kidnapped_node(
+        &mut self,
+        path: &mut NodePath,
+        f: impl Copy + Fn(&mut NodeBox, NodePathSlice),
+    ) {
+        let mut node = self.kidnap_node(path).expect("invalid path");
+        f(&mut node, path);
+        let children = node.children().len();
+        self.restore_node(path, node).unwrap();
+        for i in 0..children {
             path.push(i);
-            self.initialize_node(children[i].clone(), path)?;
+            self.for_each_kidnapped_node(path, f);
             path.pop();
         }
+    }
+
+    fn render_node_layer(
+        &mut self,
+        spot: &mut NewSpot,
+        scratch: ScratchBuffer,
+        path: &mut NodePath,
+        style: usize,
+        layer: RenderLayer,
+    ) -> Result<(), ()> {
+        let mut node = status(self.kidnap_node(path)).unwrap();
+        if layer.cached(node.layers_to_cache()) {
+            let mut cache = match node.restore_cache(layer) {
+                Some(cache) => cache,
+                None => Vec::new(),
+            };
+            {
+                let (_, size, margin) = spot.window;
+                cache.resize(size.w * size.h * RGBA, 0);
+                let mut tmp_spot = NewSpot {
+                    window: (Point::zero(), size, margin),
+                    framebuffer: cache.as_mut_slice(),
+                    fb_size: size,
+                };
+                node.render(layer, self, path, style, &mut tmp_spot, scratch).unwrap();
+            }
+            spot.blit(&cache, false);
+            if let Err(()) = node.store_cache(layer, cache) {
+                panic!("{} does not implement Node::render_cache", node.describe());
+            }
+        } else {
+            node.render(layer, self, path, style, spot, scratch).unwrap();
+        }
+        self.restore_node(path, node).unwrap();
         Ok(())
+    }
+
+    fn render_node(
+        &mut self,
+        spot: &mut NewSpot,
+        scratch: ScratchBuffer,
+        path: &mut NodePath,
+        style: usize,
+    ) -> Result<(), ()> {
+        let node = status(self.get_node(path)).unwrap();
+        if let Some((top_left, _)) = spot.inner_crop(true) {
+            if let Some(mut cursor) = node.cursor(top_left) {
+                let backup = spot.window;
+
+                self.render_node_layer(spot, scratch, path, style, RenderLayer::Background).unwrap();
+
+                let node = self.get_node(path).unwrap();
+                let children = node.children().len();
+                let style_ovrd = node.style_override().unwrap_or(style);
+
+                for i in 0..children {
+                    path.push(i);
+
+                    let child = status(self.get_node(path)).unwrap();
+                    spot.set_window(cursor.advance(child));
+                    self.render_node(spot, scratch, path, style_ovrd).unwrap();
+
+                    path.pop();
+                }
+
+                spot.set_window(backup);
+            }
+        }
+
+        self.render_node_layer(spot, scratch, path, style, RenderLayer::Foreground).unwrap();
+
+        Ok(())
+    }
+
+    fn tick_node(
+        &mut self,
+        scratch: ScratchBuffer,
+        path: &mut NodePath,
+        style: usize,
+    ) -> Result<bool, ()> {
+        let mut node = status(self.kidnap_node(path)).unwrap();
+
+        let mut dirty = node.tick(self, path, style, scratch).unwrap();
+
+        let style = node.style_override().unwrap_or(style);
+        let children = node.children().len();
+
+        self.restore_node(path, node).unwrap();
+
+        for i in 0..children {
+            path.push(i);
+            dirty |= self.tick_node(scratch, path, style).unwrap();
+            path.pop();
+        }
+
+        Ok(dirty)
+    }
+
+    /// This method is called by the platform to request a refresh
+    /// of the output. It should be called for every frame.
+    pub fn render(&mut self, spot: &mut NewSpot, scratch: ScratchBuffer) {
+        let mut path = Vec::new();
+        let mut count = 0;
+        while count < 5 {
+            if self.should_recompute {
+                self.log("recomputing layout");
+                let fb_size = self.fb_size;
+                if let Some(view) = self.view.as_mut() {
+                    let mut sizes = Vec::new();
+                    view.push_spot_sizes(&mut sizes);
+                    view.set_spot_size(fb_size);
+                    compute_tree(view).unwrap();
+                    view.detect_size_changes(&mut sizes);
+                }
+
+                /*if let Some(view) = self.view.as_ref() {
+                    view.tree_log(self, 0);
+                }*/
+
+                path.clear();
+                self.should_recompute = false;
+            } else if count > 0 {
+                break;
+            }
+
+            if self.tick_node(scratch, &mut path, 0).unwrap() {
+                // self.log("render");
+                spot.fill([0; RGBA], false);
+                self.render_node(spot, scratch, &mut path, 0).unwrap();
+            }
+
+            count += 1;
+        }
+    }
+
+    pub fn data_response(&mut self, request: usize, data: &[u8]) -> Result<(), ()> {
+        let request = self.data_requests.swap_remove(request);
+        let mut node = self.kidnap_node(&request.node).unwrap();
+        let result = node.loaded(self, &request.node, &request.name, 0, data);
+        let _ = self.restore_node(&request.node, node);
+        result
+    }
+
+    pub fn initialize_node(&mut self, path: &mut NodePath) -> Result<(), String> {
+        if let Some(mut node) = self.kidnap_node(path) {
+            node.initialize(self, path)?;
+            let children = node.children().len();
+            if let Err(()) = self.restore_node(path, node) {
+                self.log("node has replaced itself");
+                return Ok(());
+            }
+            for i in 0..children {
+                path.push(i);
+                self.initialize_node(path)?;
+                path.pop();
+            }
+            Ok(())
+        } else {
+            Err(format!("App::initialize_node: invalid path ({:?})", path))
+        }
     }
 
     /// Anyone can use this method to log messages.
     pub fn log(&self, message: &str) {
         (self.platform_log)(message)
-    }
-
-    /// Nodes can use this method to request a buffer where
-    /// they can then be rendered.
-    ///
-    /// On success, the return value is a tuple containing:
-    /// 1. the buffer slice
-    /// 2. the pitch (number of bytes that you should skip between lines)
-    /// 3. false if this buffer is shared between nodes at this spot, true otherwise
-    ///
-    /// You should use these values with [`for_each_line`]
-    /// in your rendering code instead of using them directly,
-    /// as it is easy to trigger panics when doing so.
-    pub fn blit<'a>(
-        &'a self,
-        node_spot: &'a Spot,
-        path: BlitPath<'a>,
-    ) -> Result<(&'a mut [u8], usize, bool), ()> {
-        if let BlitPath::Node(path) = &path {
-            for (hook_path, hook_spot) in &self.blit_hooks {
-                if path.starts_with(hook_path) {
-                    let key = BlitPath::Node(hook_path).to_key();
-                    let (slice, pitch, owned) = status((self.platform_blit)(*hook_spot, key))?;
-                    let (slice, pitch) = status(sub_spot(slice, pitch, [*hook_spot, *node_spot]))?;
-                    return Ok((slice, pitch, owned));
-                }
-            }
-        }
-        let key = path.to_key();
-        let spot = match key {
-            BlitKey::Background => self.view_spot,
-            BlitKey::Overlay => self.view_spot,
-            _ => *node_spot,
-        };
-        let (mut slice, mut pitch, owned) = status((self.platform_blit)(spot, key))?;
-        if let BlitKey::Background | BlitKey::Overlay = key {
-            (slice, pitch) = status(sub_spot(slice, pitch, [spot, *node_spot]))?;
-        }
-        Ok((slice, pitch, owned))
-    }
-}
-
-pub fn for_each_node<T, U: Copy>(
-    node: RcNode,
-    path: &mut NodePath,
-    arg1: &mut T,
-    arg2: U,
-    f: impl Copy + Fn(&mut dyn Node, &mut T, U, &mut NodePath) -> U,
-) -> Status {
-    let (children, arg2) = {
-        let mut node = status(lock(&node))?;
-        let arg2 = f(node.deref_mut(), arg1, arg2, path);
-        (node.children().to_vec(), arg2)
-    };
-    for i in 0..children.len() {
-        path.push(i);
-        for_each_node(children[i].clone(), path, arg1, arg2, f)?;
-        path.pop();
-    }
-    Ok(())
-}
-
-/// This utility function tries to crop a buffer
-/// into a smaller view of this buffer.
-///
-/// `spots` should contain the original spot of the
-/// buffer and the smaller spot, in that order respectively.
-pub fn sub_spot<'a>(
-    slice: &'a mut [u8],
-    mut pitch: usize,
-    spots: [Spot; 2],
-) -> Option<(&'a mut [u8], usize)> {
-    let [(hp, hs), (np, ns)] = spots;
-    if ns.w != 0 && ns.h != 0 {
-        if ns.w <= hs.w && ns.h <= hs.h {
-            let x: usize = (np.x - hp.x).try_into().ok()?;
-            let y: usize = (np.y - hp.y).try_into().ok()?;
-            pitch += RGBA * (hs.w - ns.w);
-            let line = pitch + RGBA * ns.w;
-            let start = RGBA * x + y * line;
-            let stop = start + ns.h * line - pitch;
-            Some((slice.get_mut(start..stop)?, pitch))
-        } else {
-            None
-        }
-    } else {
-        Some((&mut [], 0))
-    }
-}
-
-/// This utility function calls `f` for each line
-/// in a buffer.
-///
-/// These line will have a length of `size.w` and
-/// there will be `size.h` calls. The first argument
-/// of `f` is the line number, starting from `0`.
-pub fn for_each_line(
-    slice: &mut [u8],
-    size: Size,
-    pitch: usize,
-    mut f: impl FnMut(usize, &mut [u8]),
-) {
-    let px_width = size.w * RGBA;
-    let mut start = 0;
-    let mut stop = px_width;
-    let advance = px_width + pitch;
-    for i in 0..size.h {
-        f(i, &mut slice[start..stop]);
-        start += advance;
-        stop += advance;
     }
 }

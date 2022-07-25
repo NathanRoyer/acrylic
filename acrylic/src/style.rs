@@ -2,8 +2,8 @@ use crate::bitmap::RGBA;
 
 use microjson::JSONValue;
 
-use std::string::String;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// A color represented as four bytes.
 pub type Color = [u8; RGBA];

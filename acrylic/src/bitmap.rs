@@ -1,28 +1,29 @@
-use crate::app::for_each_line;
+use crate::app::ScratchBuffer;
 use crate::app::Application;
 use crate::geometry::aspect_ratio;
 use crate::node::Axis::Horizontal;
 use crate::node::Axis::Vertical;
+use crate::node::RenderCache;
+use crate::node::RenderReason;
+use crate::node::LayerCaching;
 use crate::node::LengthPolicy;
 use crate::node::Margin;
-use crate::node::NeedsRepaint;
 use crate::node::Node;
-use crate::node::NodePath;
-use crate::status;
-use crate::BlitPath;
-use crate::Point;
+use crate::node::NodeBox;
+use crate::node::node_box;
+use crate::node::NodePathSlice;
+use crate::round;
 use crate::Size;
-use crate::Spot;
-use crate::Status;
+use crate::NewSpot;
 
 use core::any::Any;
 use core::fmt::Debug;
 use core::fmt::Formatter;
 use core::fmt::Result as FmtResult;
 
-use std::prelude::v1::vec;
-use std::string::String;
-use std::vec::Vec;
+use alloc::vec;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Number of channels
 pub type Channels = usize;
@@ -51,14 +52,14 @@ pub struct Bitmap {
     /// The original size (width and height) of the image
     pub size: Size,
     /// The output spot of the node
-    pub spot: Spot,
+    pub spot_size: Size,
     /// Optional margin for the node
     pub margin: Option<Margin>,
     /// aspect ratio of the node (taking
     /// the margin into account)
     pub ratio: f64,
-    /// determines if rendering is necessary
-    pub repaint: NeedsRepaint,
+    pub render_cache: RenderCache,
+    pub render_reason: RenderReason,
 }
 
 impl Debug for Bitmap {
@@ -66,24 +67,11 @@ impl Debug for Bitmap {
         f.debug_struct("Bitmap")
             .field("channels", &self.channels)
             .field("size", &self.size)
-            .field("spot", &self.spot)
+            .field("spot_size", &self.spot_size)
             .field("margin", &self.margin)
             .field("ratio", &self.ratio)
             .finish()
     }
-}
-
-const TRANSPARENT_PIXEL: [u8; 4] = [0; 4];
-
-pub fn aspect_ratio_with_m(size: Size, margin: Option<Margin>) -> f64 {
-    let (add_w, add_h) = match margin {
-        Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
-        None => (0, 0),
-    };
-    aspect_ratio(
-        (size.w as isize + add_w) as usize,
-        (size.h as isize + add_h) as usize,
-    )
 }
 
 impl Bitmap {
@@ -96,119 +84,80 @@ impl Bitmap {
             channels,
             pixels: vec![0; channels * size.w * size.h],
             cache: Vec::new(),
-            spot: (Point::zero(), Size::zero()),
+            spot_size: Size::zero(),
             margin,
-            repaint: NeedsRepaint::all(),
             ratio: aspect_ratio_with_m(size, margin),
+            render_cache: [None, None],
+            render_reason: RenderReason::Resized,
         }
-    }
-
-    fn update_cache(&mut self, spot: Spot, owned: bool) -> Status {
-        assert!(self.channels == RGBA);
-        let (_, size) = spot;
-        let len = size.w * size.h * RGBA;
-        if len != 0 && len != self.cache.len() {
-            self.cache.resize(len, 0);
-            let spot_factor = (size.w - 1) as f64;
-            let img_factor = (self.size.w - 1) as f64;
-            let ratio = img_factor / spot_factor;
-            for y in 0..size.h {
-                for x in 0..size.w {
-                    let i = (y * size.w + x) * RGBA;
-                    let x = round((x as f64) * ratio);
-                    let y = round((y as f64) * ratio);
-                    let j = (y * self.size.w + x) * RGBA;
-                    let src = self.pixels.get(j..(j + RGBA)).unwrap_or(&TRANSPARENT_PIXEL);
-                    let dst = self.cache.get_mut(i..(i + RGBA)).unwrap();
-                    if owned {
-                        dst.copy_from_slice(src);
-                    } else {
-                        // premultiplied alpha
-                        let a = src[3] as u32;
-                        for i in 0..3 {
-                            dst[i] = ((src[i] as u32 * a) / 255) as u8;
-                        }
-                        dst[3] = a as u8;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Updates the cache and tries to render it at `spot`,
-    /// regardless of `self.dirty`.
-    ///
-    /// This method is called manually by nodes embedding
-    /// [`Bitmap`]s, such as [`GlyphNode`](`crate::text::GlyphNode`).
-    pub fn render_at(&mut self, app: &mut Application, path: &NodePath, spot: Spot) -> Status {
-        let (dst, pitch, owned) = app.blit(&spot, BlitPath::Node(path))?;
-        self.update_cache(spot, owned)?;
-        let (_, size) = spot;
-        let px_width = RGBA * size.w;
-        if px_width > 0 {
-            let mut src = self.cache.chunks(px_width);
-            for_each_line(dst, size, pitch, |_, line_dst| {
-                let line_src = src.next().unwrap();
-                if owned {
-                    line_dst.copy_from_slice(line_src);
-                } else {
-                    let mut i = px_width as isize - 1;
-                    let mut a = 0;
-                    while i >= 0 {
-                        let j = i as usize;
-                        let (dst, src) = (&mut line_dst[j], &(line_src[j] as u32));
-                        if (j & 0b11) == 3 {
-                            a = (255 - *src) as u32;
-                        }
-                        *dst = (*src + (((*dst as u32) * a) / 255)) as u8;
-                        i -= 1;
-                    }
-                }
-            });
-        }
-        Ok(())
     }
 }
 
 impl Node for Bitmap {
-    fn render(
+    fn tick(
         &mut self,
-        app: &mut Application,
-        path: &mut NodePath,
-        _: usize,
-    ) -> Result<usize, ()> {
-        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            let spot = status(self.get_content_spot_at(self.spot))?;
-            self.render_at(app, path, spot)?;
-            self.repaint.remove(NeedsRepaint::FOREGROUND);
+        _app: &mut Application,
+        _path: NodePathSlice,
+        _style: usize,
+        _scratch: ScratchBuffer,
+    ) -> Result<bool, ()> {
+        self.render_reason.downgrade();
+        Ok(self.render_reason.is_valid())
+    }
+
+    fn render_foreground(
+        &mut self,
+        _app: &mut Application,
+        _path: NodePathSlice,
+        _style: usize,
+        spot: &mut NewSpot,
+        _scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+        if self.render_reason.is_valid() {
+            blit_rgba::<true, 2>(
+                &self.pixels,
+                self.channels,
+                self.size,
+                spot,
+            );
         }
-        Ok(0)
+        Ok(())
+    }
+
+    fn render_cache(&mut self) -> Result<&mut RenderCache, ()> {
+        Ok(&mut self.render_cache)
+    }
+
+    fn layers_to_cache(&self) -> LayerCaching {
+        LayerCaching::FOREGROUND
+    }
+
+    fn validate_spot_size(&mut self, _: Size) {
+        self.render_reason = RenderReason::Resized;
     }
 
     fn policy(&self) -> LengthPolicy {
         LengthPolicy::AspectRatio(self.ratio)
     }
 
-    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-        self.repaint.insert(repaint);
-    }
-
     fn margin(&self) -> Option<Margin> {
         self.margin
     }
 
-    fn get_spot(&self) -> Spot {
-        self.spot
+    fn get_spot_size(&self) -> Size {
+        self.spot_size
     }
 
-    fn set_spot(&mut self, spot: Spot) {
-        self.repaint = NeedsRepaint::all();
-        self.spot = spot;
+    fn set_spot_size(&mut self, size: Size) {
+        self.spot_size = size;
     }
 
     fn describe(&self) -> String {
         String::from("Image")
+    }
+
+    fn please_clone(&self) -> NodeBox {
+        node_box(self.clone())
     }
 
     fn as_any(&mut self) -> &mut dyn Any {
@@ -216,20 +165,79 @@ impl Node for Bitmap {
     }
 }
 
-#[cfg(feature = "std")]
-#[inline(always)]
-fn round(float: f64) -> usize {
-    float.round() as usize
+pub fn aspect_ratio_with_m(size: Size, margin: Option<Margin>) -> f64 {
+    let (add_w, add_h) = match margin {
+        Some(m) => (m.total_on(Horizontal), m.total_on(Vertical)),
+        None => (0, 0),
+    };
+    aspect_ratio(size.w + add_w, size.h + add_h)
 }
 
-#[cfg(not(feature = "std"))]
-#[inline(always)]
-fn round(mut float: f64) -> usize {
-    // given float > 0
-    let integer = float as usize;
-    float -= integer as f64;
-    match float > 0.5 {
-        true => integer + 1,
-        false => integer,
+pub fn blit_rgba<
+    const OWNED_DST: bool,
+    const SUBPX: usize,
+>(
+    src: &[u8],
+    src_channels: Channels,
+    src_size: Size,
+    dst: &mut NewSpot,
+) {
+    let aa_unit = 1.0 / (SUBPX as f32);
+    let aa_sq = (SUBPX * SUBPX) as u32;
+    let dst_size = match dst.inner_crop(true) {
+        Some((_, size)) => size,
+        None => Size::zero(),
+    };
+    if dst_size.w > 0 && src_size.w > 0 {
+        let dst_w = (dst_size.w - 1) as f32;
+        let src_w = (src_size.w - 1) as f32;
+        let ratio = src_w / dst_w;
+        dst.for_each_line(true, |y, dst_line| {
+            for x in 0..dst_size.w {
+                let i = x * RGBA;
+                let dst_pixel = dst_line.get_mut(i..(i + RGBA)).unwrap();
+
+                let mut src_pixel_u32 = [0; RGBA];
+                let mut y_aa = y as f32;
+                for _ in 0..SUBPX {
+                    let mut x_aa = x as f32;
+                    for _ in 0..SUBPX {
+                        let x = round!(x_aa * ratio, f32, usize);
+                        let y = round!(y_aa * ratio, f32, usize);
+                        let j = (y * src_size.w + x) * src_channels;
+                        if let Some(p) = src.get(j..(j + src_channels)) {
+                            let rgba = match src_channels {
+                                BW => [p[0], p[0], p[0], 255],
+                                RGB => [p[0], p[1], p[2], 255],
+                                RGBA => [p[0], p[1], p[2], p[3]],
+                                _ => panic!("could not blit image with {} channels", src_channels),
+                            };
+                            for c in 0..RGBA {
+                                src_pixel_u32[c] += rgba[c] as u32;
+                            }
+                        }
+                        x_aa += aa_unit;
+                    }
+                    y_aa += aa_unit;
+                }
+
+                let mut src_pixel = [0; RGBA];
+                for c in 0..RGBA {
+                    src_pixel[c] = (src_pixel_u32[c] / aa_sq) as u8;
+                }
+                if OWNED_DST {
+                    dst_pixel.copy_from_slice(&src_pixel);
+                } else {
+                    let dst_alpha = dst_pixel[3] as u32;
+                    let src_alpha = 255 - dst_alpha;
+                    for c in 0..RGBA {
+                        let src = src_pixel[c] as u32;
+                        let dst = dst_pixel[c] as u32;
+                        let sum = src * src_alpha + dst * dst_alpha;
+                        dst_pixel[c] = (sum / 255) as u8;
+                    }
+                }
+            }
+        });
     }
 }

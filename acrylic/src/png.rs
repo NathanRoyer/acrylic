@@ -1,18 +1,16 @@
 use crate::app::Application;
+use crate::app::DataRequest;
 use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
 use crate::geometry::aspect_ratio;
-use crate::node::rc_node;
-use crate::node::NeedsRepaint;
+use crate::node::node_box;
 use crate::node::Node;
-use crate::node::NodePath;
-use crate::node::RcNode;
-use crate::Point;
+use crate::node::NodePathSlice;
+use crate::node::NodeBox;
+use crate::node::RenderReason;
 use crate::Size;
 use crate::Status;
 
-#[cfg(feature = "xml")]
-use crate::app::DataRequest;
 #[cfg(feature = "xml")]
 use crate::xml::unexpected_attr;
 #[cfg(feature = "xml")]
@@ -25,8 +23,8 @@ use png::Decoder;
 
 use core::any::Any;
 
-use std::string::String;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// [`Node`] implementor which makes a request to
 /// the contained source then replaces itself with
@@ -62,12 +60,13 @@ fn read_png(bytes: &[u8]) -> Bitmap {
     Bitmap {
         size,
         channels: RGBA,
-        spot: (Point::zero(), Size::zero()),
+        spot_size: Size::zero(),
         pixels,
-        repaint: NeedsRepaint::all(),
         cache: Vec::new(),
         margin: None,
         ratio: aspect_ratio(size.w, size.h),
+        render_cache: [None, None],
+        render_reason: RenderReason::Resized,
     }
 }
 
@@ -76,13 +75,17 @@ impl Node for PngLoader {
         self
     }
 
+    fn please_clone(&self) -> NodeBox {
+        node_box(self.clone())
+    }
+
     fn describe(&self) -> String {
         String::from("Loading PNG image...")
     }
 
-    fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
         app.data_requests.push(DataRequest {
-            node: path.clone(),
+            node: path.to_vec(),
             name: self.source.clone(),
             range: None,
         });
@@ -92,12 +95,12 @@ impl Node for PngLoader {
     fn loaded(
         &mut self,
         app: &mut Application,
-        path: &NodePath,
+        path: NodePathSlice,
         _: &str,
         _: usize,
         data: &[u8],
     ) -> Status {
-        app.replace_node(path, rc_node(read_png(data))).unwrap();
+        app.replace_kidnapped(path, node_box(read_png(data)));
         Ok(())
     }
 }
@@ -117,7 +120,7 @@ impl Node for PngLoader {
 pub fn xml_load_png(
     _: &mut TreeParser,
     attributes: &[Attribute],
-) -> Result<Option<RcNode>, String> {
+) -> Result<Option<NodeBox>, String> {
     let mut source = Err(String::from("missing src attribute"));
 
     for Attribute { name, value } in attributes {
@@ -127,5 +130,5 @@ pub fn xml_load_png(
         }
     }
 
-    Ok(Some(rc_node(PngLoader { source: source? })))
+    Ok(Some(node_box(PngLoader { source: source? })))
 }

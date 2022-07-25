@@ -1,28 +1,27 @@
-use crate::app::for_each_line;
 use crate::app::Application;
+use crate::app::ScratchBuffer;
 use crate::style::Color;
-// use crate::bitmap::Bitmap;
-// use crate::bitmap::aspect_ratio_with_m;
 use crate::bitmap::RGBA;
-use crate::lock;
-use crate::node::rc_node;
+use crate::node::node_box;
 use crate::node::Axis;
 use crate::node::LengthPolicy;
+use crate::node::LayerCaching;
+use crate::node::RenderCache;
+use crate::node::RenderReason;
 use crate::node::Margin;
-use crate::node::NeedsRepaint;
 use crate::node::Node;
-use crate::node::NodePath;
-use crate::node::RcNode;
+use crate::node::NodePathSlice;
+use crate::node::NodeBox;
+use crate::node::please_clone_vec;
 use crate::node::Event;
 use crate::node::EventType;
 use crate::node::Direction;
 use crate::font::Font;
+use crate::font::get_glyph;
 use crate::font::FontConfig;
 use crate::status;
-use crate::BlitPath;
-use crate::Point;
+use crate::NewSpot;
 use crate::Size;
-use crate::Spot;
 
 #[cfg(feature = "xml")]
 use crate::format;
@@ -41,23 +40,28 @@ use core::mem::swap;
 // use core::ops::DerefMut;
 use core::str::Chars;
 
-use std::string::String;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::vec::Vec;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// A wrapping container for glyphs which should
 /// not be separated.
-#[derive(Clone)]
 pub struct Unbreakable {
-    pub glyphs: Vec<RcNode>,
+    pub glyphs: Vec<Option<NodeBox>>,
     pub text: String,
-    pub spot: Spot,
+    pub spot_size: Size,
 }
 
 impl Node for Unbreakable {
     fn as_any(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn please_clone(&self) -> NodeBox {
+        node_box(Self {
+            glyphs: please_clone_vec(&self.glyphs),
+            text: self.text.clone(),
+            spot_size: self.spot_size,
+        })
     }
 
     fn describe(&self) -> String {
@@ -72,16 +76,34 @@ impl Node for Unbreakable {
         Some((Axis::Horizontal, 0))
     }
 
-    fn children(&self) -> &[RcNode] {
+    fn children(&self) -> &[Option<NodeBox>] {
         &self.glyphs
     }
 
-    fn get_spot(&self) -> Spot {
-        self.spot
+    fn children_mut(&mut self) -> &mut [Option<NodeBox>] {
+        &mut self.glyphs
     }
 
-    fn set_spot(&mut self, spot: Spot) {
-        self.spot = spot;
+    fn get_spot_size(&self) -> Size {
+        self.spot_size
+    }
+
+    fn set_spot_size(&mut self, size: Size) {
+        self.spot_size = size;
+    }
+
+    fn tree_log(&self, _: &Application, _: usize) {
+        // do nothin
+    }
+}
+
+impl Clone for Unbreakable {
+    fn clone(&self) -> Self {
+        Self {
+            glyphs: please_clone_vec(&self.glyphs),
+            text: self.text.clone(),
+            spot_size: self.spot_size,
+        }
     }
 }
 
@@ -89,7 +111,7 @@ impl Debug for Unbreakable {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("Unbreakable")
             .field("text", &self.text)
-            .field("spot", &self.spot)
+            .field("spot_size", &self.spot_size)
             .finish()
     }
 }
@@ -100,7 +122,7 @@ impl Debug for Unbreakable {
 #[derive(Debug, Clone)]
 pub struct Placeholder {
     pub ratio: f64,
-    pub spot: Spot,
+    pub spot_size: Size,
 }
 
 impl Node for Placeholder {
@@ -112,16 +134,20 @@ impl Node for Placeholder {
         String::from("Loading glyphs...")
     }
 
+    fn please_clone(&self) -> NodeBox {
+        node_box(self.clone())
+    }
+
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }
 
-    fn get_spot(&self) -> Spot {
-        self.spot
+    fn get_spot_size(&self) -> Size {
+        self.spot_size
     }
 
-    fn set_spot(&mut self, spot: Spot) {
-        self.spot = spot;
+    fn set_spot_size(&mut self, size: Size) {
+        self.spot_size = size;
     }
 }
 
@@ -130,14 +156,14 @@ impl Node for Placeholder {
 /// resolved.
 #[derive(Debug, Clone)]
 pub enum FontState {
-    Available(Arc<Mutex<Font>>),
+    Available(usize),
     Pending(Option<String>),
 }
 
 impl FontState {
-    pub fn unwrap(&self) -> &Arc<Mutex<Font>> {
+    pub fn unwrap(&self) -> usize {
         match self {
-            FontState::Available(arc) => arc,
+            FontState::Available(index) => *index,
             _ => panic!("unwrap called on a FontState::Pending"),
         }
     }
@@ -159,15 +185,13 @@ pub struct TextCursor {
 /// made of multiple parts which may have different
 /// configurations: some might be underlined, some
 /// might be bold, others can be both, etc.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Paragraph {
     pub parts: Vec<(FontConfig, Option<Color>, String)>,
     pub font: FontState,
-    pub children: Vec<RcNode>,
+    pub children: Vec<Option<NodeBox>>,
     pub space_width: usize,
     pub policy: Option<LengthPolicy>,
-    /// Used in [`Paragraph::validate_spot`]
-    pub prev_spot: Spot,
     pub fg_color: Color,
     pub margin: Option<Margin>,
     /// Ignored when `policy` is WrapContent.
@@ -175,10 +199,10 @@ pub struct Paragraph {
     pub cursors: Vec<TextCursor>,
     pub on_edit: Option<String>,
     pub on_submit: Option<String>,
-    pub spot: Spot,
+    pub spot_size: Size,
     pub deployed: bool,
-    /// Initialize to `true`
-    pub repaint: NeedsRepaint,
+    pub render_cache: RenderCache,
+    pub render_reason: RenderReason,
 }
 
 #[derive(Debug, Clone)]
@@ -208,15 +232,22 @@ impl Paragraph {
         }
     }
 
-    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>, app: &mut Application) {
+    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>, app: &mut Application) -> Result<(), String> {
         let mut children = Vec::with_capacity(self.children.len());
         let default_unbreakable = Unbreakable {
             glyphs: Vec::new(),
             text: String::new(),
-            spot: (Point::zero(), Size::zero()),
+            spot_size: Size::zero(),
         };
         let mut unbreakable = default_unbreakable.clone();
-        let mut font = lock(&self.font.unwrap()).unwrap();
+
+        let font_index = self.font.unwrap();
+        let font_bytes = &app.fonts[font_index];
+        let font = match Font::from_slice(font_bytes, 0) {
+            Ok(font) => Ok(font),
+            Err(_) => Err(format!("could not parse font #{}", font_index)),
+        }?;
+        let g_cache = &mut app.glyph_cache;
 
         let mut next;
         let mut iter = self.into_iter();
@@ -226,7 +257,7 @@ impl Paragraph {
             if c1 == ' ' {
                 let mut prev = default_unbreakable.clone();
                 swap(&mut prev, &mut unbreakable);
-                children.push(rc_node(prev));
+                children.push(Some(node_box(prev)));
             } else {
                 let c2 = match next {
                     Some((_, _, c)) => match c {
@@ -239,23 +270,29 @@ impl Paragraph {
                     (Some((h, _)), Some(c)) => Some((h, c)),
                     _ => rdr_cfg,
                 };
-                unbreakable.glyphs.push(font.get(c1, c2, rdr_cfg, char_cfg, app));
+                let g_node = get_glyph(&font, font_index, g_cache, c1, c2, rdr_cfg, char_cfg);
+                unbreakable.glyphs.push(Some(g_node));
                 unbreakable.text.push(c1);
                 if let None = next {
                     let mut prev = default_unbreakable.clone();
                     swap(&mut prev, &mut unbreakable);
-                    children.push(rc_node(prev));
+                    children.push(Some(node_box(prev)));
                 }
             }
             current = next;
         }
         self.children = children;
+        Ok(())
     }
 
-    pub fn get_height(&self, content_size: Size) -> usize {
+    pub fn get_height(&self) -> usize {
+        let sz_h = self.spot_size.h;
         match self.policy {
             Some(LengthPolicy::Chunks(h)) => h,
-            _ => content_size.h,
+            _ => match self.margin {
+                Some(m) => sz_h.checked_sub(m.top + m.bottom).unwrap_or(0),
+                None => sz_h,
+            },
         }
     }
 }
@@ -280,39 +317,68 @@ impl<'a> Iterator for ParagraphIter<'a> {
 }
 
 impl Node for Paragraph {
-    fn render(
+    fn tick(
         &mut self,
         app: &mut Application,
-        path: &mut NodePath,
-        s: usize,
-    ) -> Result<usize, ()> {
-        let spot = status(self.get_content_spot_at(self.spot))?;
-        let (_, size) = spot;
-        let height = self.get_height(spot.1);
-        let color = app.theme.styles[s].foreground;
+        _path: NodePathSlice,
+        style: usize,
+        _scratch: ScratchBuffer,
+    ) -> Result<bool, ()> {
+        let color = app.theme.styles[style].foreground;
 
-        if self.repaint.contains(NeedsRepaint::FOREGROUND) {
-            let (dst, pitch, _) = app.blit(&spot, BlitPath::Node(path))?;
-            for_each_line(dst, size, pitch, |_, line_dst| {
-                line_dst.fill(0);
-            });
-            self.repaint.remove(NeedsRepaint::FOREGROUND);
-            if !self.deployed || color != self.fg_color {
-                self.fg_color = color;
-                app.should_recompute = true;
-                self.deploy(Some((height, color)), app);
-                self.deployed = true;
-            }
-            app.global_repaint.insert(NeedsRepaint::OVERLAY);
+        if !self.deployed || color != self.fg_color {
+            let height = self.get_height();
+            self.fg_color = color;
+            app.should_recompute = true;
+            self.deploy(Some((height, color)), app).unwrap();
+            self.deployed = true;
         }
 
-        if self.repaint.contains(NeedsRepaint::OVERLAY) {
-            for cursor in self.cursors.iter_mut() {
-                cursor.blink_state = None;
+        self.render_reason.downgrade();
+
+        if !self.render_reason.is_valid() {
+            for c in 0..self.cursors.len() {
+                let cursor = &self.cursors[c];
+                if let Some((last_change_ms, _, _)) = cursor.blink_state {
+                    let interval = cursor.blink_interval.unwrap_or(usize::MAX);
+                    if app.instance_age_ms - last_change_ms < interval {
+                        continue;
+                    }
+                }
+                self.render_reason = RenderReason::Computation;
+                break;
             }
-            self.repaint.remove(NeedsRepaint::OVERLAY);
         }
 
+        Ok(self.render_reason.is_valid())
+    }
+
+    /*fn render_background(
+        &mut self,
+        app: &mut Application,
+        _path: NodePathSlice,
+        style: usize,
+        spot: &mut NewSpot,
+        _scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+
+        spot.fill([0; RGBA]);
+
+        Ok(())
+    }*/
+
+    fn render_foreground(
+        &mut self,
+        app: &mut Application,
+        _path: NodePathSlice,
+        style: usize,
+        spot: &mut NewSpot,
+        _scratch: ScratchBuffer,
+    ) -> Result<(), ()> {
+        let height = self.get_height();
+        let color = app.theme.styles[style].foreground;
+
+        spot.fill([0; RGBA], false);
         for c in 0..self.cursors.len() {
             let cursor = &self.cursors[c];
             if let Some((last_change_ms, _, _)) = cursor.blink_state {
@@ -322,39 +388,33 @@ impl Node for Paragraph {
                 }
             }
 
-            let cursor_spot = {
-                let cursor_position;
-                if let Some(mut i) = cursor.position {
-                    let mut c_spot = spot;
-                    let mut advance = true;
-                    'outer: for u in self.children() {
-                        let unbreakable = lock(u).unwrap();
-                        for g in unbreakable.children() {
-                            let glyph = lock(g).unwrap();
-                            if i == 0 {
-                                c_spot = glyph.get_spot();
-                                break 'outer;
-                            }
-                            i -= 1;
-                        }
+            let (top_left, _) = spot.inner_crop(true).unwrap();
+            let mut cursor_spot = (top_left, Size::zero(), None);
+            let mut u_placer = self.cursor(top_left).unwrap();
+            if let Some(mut i) = cursor.position {
+                i += 1;
+                'outer: for unbreakable in self.children() {
+                    let unbreakable = unbreakable.as_ref().unwrap();
+                    let (unbreakable_tl, _, _) = u_placer.advance(unbreakable);
+                    let mut g_placer = unbreakable.cursor(unbreakable_tl).unwrap();
+                    for glyph in unbreakable.children() {
+                        let glyph = glyph.as_ref().unwrap();
+                        cursor_spot = g_placer.advance(glyph);
                         if i == 0 {
-                            advance = false;
-                        } else {
-                            i -= 1;
+                            break 'outer;
                         }
+                        i -= 1;
                     }
-                    let (mut position, size) = c_spot;
-                    if advance {
-                        position.x += size.w as isize;
+                    if i == 0 {
+                        cursor_spot.0.x += cursor_spot.1.w as isize;
+                        break 'outer;
+                    } else {
+                        i -= 1;
                     }
-                    cursor_position = position;
-                } else {
-                    cursor_position = spot.0;
                 }
-                (cursor_position, Size::new(2, height))
-            };
-            let (_, cursor_size) = cursor_spot;
-            let (dst, pitch, _) = app.blit(&cursor_spot, BlitPath::Overlay)?;
+            }
+            cursor_spot.1 = Size::new(2, height);
+            spot.set_window(cursor_spot);
 
             // now borrowing mutably
             let cursor = &mut self.cursors[c];
@@ -365,80 +425,51 @@ impl Node for Paragraph {
             let (last_change, shown, _) = cursor.blink_state.as_mut().unwrap();
 
             if *shown {
-                for_each_line(dst, cursor_size, pitch, |_, line_dst| {
-                    line_dst.fill(0);
-                });
+                spot.fill([0; RGBA], true);
             } else {
-                for_each_line(dst, cursor_size, pitch, |_, line_dst| {
-                    for i in 0..line_dst.len() {
-                        line_dst[i] = color[i % RGBA];
-                    }
-                });
+                spot.fill(color, true);
             }
 
             *last_change = app.instance_age_ms;
             *shown = !*shown;
         }
-        Ok(s)
+
+        Ok(())
+    }
+
+    fn render_cache(&mut self) -> Result<&mut RenderCache, ()> {
+        Ok(&mut self.render_cache)
+    }
+
+    fn layers_to_cache(&self) -> LayerCaching {
+        LayerCaching::FOREGROUND
     }
 
     fn handle(
         &mut self,
-        app: &mut Application,
-        _: &NodePath,
+        _app: &mut Application,
+        _: NodePathSlice,
         event: &Event,
     ) -> Result<Option<String>, ()> {
         let mut result = Ok(None);
         if let Event::FocusGrab(grabbed) = event {
             self.cursors.clear();
-            app.global_repaint.insert(NeedsRepaint::OVERLAY);
             if *grabbed {
-                let mut position = None;
-                if let Some((point, _)) = &app.focus {
-                    let mut i: usize = 0;
-                    let mut sub = 1;
-                    'outer: for u in self.children() {
-                        sub = 1;
-                        let unbreakable = lock(u).unwrap();
-                        let (u_pos, u_size) = unbreakable.get_spot();
-                        let range = u_pos.y..(u_pos.y + (u_size.h as isize));
-                        let correct_line = range.contains(&point.y);
-                        if correct_line && u_pos.x > point.x {
-                            sub = 2;
-                            break;
-                        }
-                        for g in unbreakable.children() {
-                            if correct_line {
-                                let glyph = lock(g).unwrap();
-                                let (g_pos, g_size) = glyph.get_spot();
-                                let right_border = g_pos.x + (g_size.w as isize);
-                                if right_border > point.x {
-                                    break 'outer;
-                                }
-                            }
-                            i += 1;
-                        }
-                        i += 1;
-                        sub = 2;
-                    }
-                    position = i.checked_sub(sub);
-                }
+                // TODO
                 self.cursors.push(TextCursor {
-                    position,
+                    position: None,
                     blink_interval: Some(800),
                     blink_state: None,
                 });
             }
         }
         if let Event::TextReplace(text) = event {
-            self.repaint.insert(NeedsRepaint::FOREGROUND);
             self.deployed = false;
             self.parts.clear();
             self.parts.push((FontConfig::default(), None, text.clone()));
             result = Ok(self.on_edit.clone());
         }
         if let Event::TextInsert(text) = event {
-            self.repaint.insert(NeedsRepaint::FOREGROUND);
             self.deployed = false;
             if self.parts.is_empty() {
                 self.parts.push((FontConfig::default(), None, String::new()));
@@ -460,7 +491,6 @@ impl Node for Paragraph {
             result = Ok(self.on_edit.clone());
         }
         if let Event::TextDelete(mut delete) = event {
-            self.repaint.insert(NeedsRepaint::FOREGROUND);
             self.deployed = false;
             let cursor_pos = match status(self.cursors.first())?.position {
                 Some(p) => p + 1,
@@ -507,7 +537,6 @@ impl Node for Paragraph {
             result = Ok(self.on_edit.clone());
         }
         if let Event::DirInput(direction) = event {
-            app.global_repaint.insert(NeedsRepaint::OVERLAY);
             let mut cursor_pos = match status(self.cursors.first())?.position {
                 Some(p) => p as isize + 1,
                 None => 0,
@@ -523,6 +552,12 @@ impl Node for Paragraph {
         if let Event::QuickAction1 = event {
             result = Ok(self.on_submit.clone());
         }
+
+        // force cursor to show
+        for cursor in self.cursors.iter_mut() {
+            cursor.blink_state = None;
+        }
+
         result
     }
 
@@ -545,22 +580,28 @@ impl Node for Paragraph {
         self.margin
     }
 
-    fn initialize(&mut self, app: &mut Application, path: &NodePath) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
         if let FontState::Pending(name) = &self.font {
-            if let Some(font) = app.fonts.get(&name) {
-                self.font = FontState::Available(font.clone());
-            } else {
-                let msg = format!("<app-default>");
-                let name = name.as_ref().unwrap_or(&msg);
-                Err(format!("unknown font: \"{}\"", name))?;
+            let mut index = 0;
+            if let Some(name) = name {
+                if let Some(font_index) = app.font_ns.get(name) {
+                    index = *font_index;
+                } else {
+                    return Err(format!("unknown font: \"{}\"", name));
+                }
             }
+            if let None = app.fonts.get(index) {
+                let default_name = "<default>".into();
+                let msg = name.as_ref().unwrap_or(&default_name);
+                return Err(format!("invalid font index: {} / {}", index, msg));
+            }
+            self.font = FontState::Available(index);
         }
         self.font_size = Some(self.font_size.unwrap_or(app.default_font_size));
         self.policy = {
             let err_msg = format!("paragraph must be in a container");
             let max = path.len() - 1;
             let parent = app.get_node(&path[..max].to_vec()).ok_or(err_msg.clone())?;
-            let parent = parent.lock().unwrap();
             let (parent_axis, _) = parent.container().ok_or(err_msg)?;
 
             Some(match parent_axis {
@@ -569,11 +610,29 @@ impl Node for Paragraph {
             })
         };
 
-        self.deploy(None, app);
+        self.deploy(None, app).unwrap();
         app.should_recompute = true;
-        app.blit_hooks
-            .push((path.clone(), (Point::zero(), Size::zero())));
         Ok(())
+    }
+
+    fn please_clone(&self) -> NodeBox {
+        node_box(Self {
+            parts: self.parts.clone(),
+            font: self.font.clone(),
+            children: please_clone_vec(&self.children),
+            space_width: self.space_width.clone(),
+            policy: self.policy.clone(),
+            fg_color: self.fg_color.clone(),
+            margin: self.margin.clone(),
+            font_size: self.font_size.clone(),
+            cursors: self.cursors.clone(),
+            on_edit: self.on_edit.clone(),
+            on_submit: self.on_submit.clone(),
+            spot_size: self.spot_size.clone(),
+            deployed: self.deployed.clone(),
+            render_cache: self.render_cache.clone(),
+            render_reason: self.render_reason.clone(),
+        })
     }
 
     fn as_any(&mut self) -> &mut dyn Any {
@@ -596,32 +655,30 @@ impl Node for Paragraph {
         self.policy.unwrap()
     }
 
-    fn children(&self) -> &[RcNode] {
+    fn children(&self) -> &[Option<NodeBox>] {
         &self.children
     }
 
-    fn get_spot(&self) -> Spot {
-        self.spot
+    fn children_mut(&mut self) -> &mut [Option<NodeBox>] {
+        &mut self.children
     }
 
-    fn set_spot(&mut self, spot: Spot) {
-        self.spot = spot;
+    fn get_spot_size(&self) -> Size {
+        self.spot_size
     }
 
-    fn repaint_needed(&mut self, repaint: NeedsRepaint) {
-        self.repaint.insert(repaint);
+    fn set_spot_size(&mut self, size: Size) {
+        self.spot_size = size;
     }
 
-    fn validate_spot(&mut self) {
+    fn validate_spot_size(&mut self, prev_size: Size) {
         if let Some(LengthPolicy::WrapContent) = self.policy {
-            if self.spot.1.h != self.prev_spot.1.h {
+            if self.spot_size.h != prev_size.h {
                 self.deployed = false;
             }
         }
-        if self.spot != self.prev_spot {
-            self.repaint = NeedsRepaint::all();
-        }
-        self.prev_spot = self.spot;
+
+        self.render_reason = RenderReason::Resized;
     }
 }
 
@@ -662,7 +719,7 @@ impl Node for Paragraph {
 pub fn xml_paragraph(
     _: &mut TreeParser,
     attributes: &[Attribute],
-) -> Result<Option<RcNode>, String> {
+) -> Result<Option<NodeBox>, String> {
     let mut text = Err(String::from("missing txt attribute"));
     let mut font_size = None;
     let mut font = None;
@@ -692,8 +749,8 @@ pub fn xml_paragraph(
         }
     }
 
-    let spot = (Point::zero(), Size::zero());
-    let paragraph = rc_node(Paragraph {
+    let spot_size = Size::zero();
+    let paragraph = node_box(Paragraph {
         parts: {
             let mut vec = Vec::new();
             vec.push((FontConfig::default(), None, text?));
@@ -709,10 +766,10 @@ pub fn xml_paragraph(
         fg_color: [0; 4],
         font_size,
         margin,
-        spot,
-        prev_spot: spot,
+        spot_size,
         deployed: false,
-        repaint: NeedsRepaint::all(),
+        render_cache: [None, None],
+        render_reason: RenderReason::Resized,
     });
 
     Ok(Some(paragraph))

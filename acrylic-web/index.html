@@ -16,6 +16,7 @@ html, body {
     left: 0;
     top: 0;
     overflow: hidden;
+    background-color: #acc;
 }
 
 canvas {
@@ -24,6 +25,7 @@ canvas {
         </style>
     </head>
     <body onload="onLoad();">
+        <canvas id="fb-canvas" style="z-index: 0;"></canvas>
         <script>
 let wasm;
 let app;
@@ -35,12 +37,13 @@ let urlPrefix = null;
 let timeout = null;
 let textEncoder = new TextEncoder();
 let previousFrame = performance.now();
-const targetFPS = 40;
+const targetFPS = 30;
 const targetFrameTime = parseInt(1000 / targetFPS);
 let lastFrameTime;
 let appDateOfBirth;
 let assets = {};
-let blits = {};
+let fb_address = 0;
+let canvas;
 
 function getString(ptr, len) {
     let mem = wasm.exports.memory;
@@ -48,31 +51,8 @@ function getString(ptr, len) {
     return String.fromCharCode.apply(null, slice);
 }
 
-function raw_set_blit_dirty(ptr, len) {
-    let hashString = getString(ptr, len);
-    let blit = blits[hashString];
-    if (blit) blit.dirty = true;
-}
-
-function raw_update_blit(x, y, w, h, pixels, depth, ptr, len) {
-    let hashString = getString(ptr, len);
-    let canvas, ctx;
-    if (hashString in blits) {
-        let blit = blits[hashString];
-        canvas = blit.canvas;
-        ctx = blit.ctx;
-    } else {
-        canvas = document.createElement('canvas');
-        canvas.id = 'canvas-' + hashString;
-        ctx = canvas.getContext('2d');
-        document.body.appendChild(canvas);
-    }
-    canvas.style.left = x + 'px';
-    canvas.style.top = y + 'px';
-    canvas.style.zIndex = '-' + depth;
-    canvas.width = w;
-    canvas.height = h;
-    blits[hashString] = { x, y, w, h, canvas, ctx, pixels, dirty: true };
+function raw_set_buffer_address(framebuffer) {
+    fb_address = framebuffer;
 }
 
 function raw_log(s, l) {
@@ -134,22 +114,19 @@ function frame() {
         w = window.innerWidth;
         h = window.innerHeight;
         wasm.exports.set_output_size(app, w, h);
+        canvas.width = w;
+        canvas.height = h;
         printLastFrameTime = true;
     }
 
     let age = performance.now() - appDateOfBirth;
     wasm.exports.frame(app, age);
 
-    for (let i in blits) {
-        let blit = blits[i];
-        let len = blit.w * blit.h * 4;
-        if (blit.dirty && len > 0) {
-            let mem = wasm.exports.memory;
-            let slice = new Uint8ClampedArray(mem.buffer, blit.pixels, len);
-            blit.ctx.putImageData(new ImageData(slice, blit.w, blit.h), 0, 0);
-            blit.dirty = false;
-        }
-    }
+    let len = w * h * 4;
+    let mem = wasm.exports.memory;
+    let slice = new Uint8ClampedArray(mem.buffer, fb_address, len);
+    let ctx = canvas.getContext('2d');
+    ctx.putImageData(new ImageData(slice, w, h), 0, 0);
 
     now = performance.now();
     lastFrameTime = now - previousFrame;
@@ -159,10 +136,13 @@ function frame() {
     timeout = setTimeout(frame, delay);
 }
 
+/*setTimeout(() => {
+    clearTimeout(timeout);
+}, 10000);*/
+
 const env = {
     raw_log,
-    raw_update_blit,
-    raw_set_blit_dirty,
+    raw_set_buffer_address,
     raw_is_request_pending,
     raw_set_request_url_prefix,
     raw_set_request_url,
@@ -248,6 +228,7 @@ function onLoad() {
     document.body.addEventListener('click', onClick);
     document.body.addEventListener('mousemove', onMouseMove);
     document.body.addEventListener('keydown', onKeyDown);
+    canvas = document.getElementById('fb-canvas');
     let hash = document.location.hash;
     let debug;
     if (hash == '#debug') {
