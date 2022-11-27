@@ -1,5 +1,6 @@
+//! Application, DataRequest, EventHandler, ScratchBuffer
+
 use crate::flexbox::compute_tree;
-use crate::lock;
 use crate::style::Theme;
 use crate::node::node_box;
 use crate::node::Event;
@@ -14,7 +15,7 @@ use crate::status;
 use crate::PlatformLog;
 use crate::Point;
 use crate::Size;
-use crate::NewSpot;
+use crate::Spot;
 use crate::Status;
 use crate::format;
 
@@ -50,7 +51,7 @@ pub struct Application {
     pub view: Option<NodeBox>,
 
     /// The spot where our view should be displayed on the
-    /// output. It is set by [`Application::set_spot`].
+    /// output. It is set by [`Application::set_fb_size`].
     pub fb_size: Size,
 
     /// Hashmap to translate font names into their index
@@ -270,7 +271,6 @@ impl Application {
         if let Some((_, mut path)) = self.focus.clone() {
             loop {
                 if let Some(node) = self.get_node(&path) {
-                    let node = lock(&node).unwrap();
                     let event_mask = node.supported_events();
                     if event_mask.contains(EventType::FOCUS_GRAB) {
                         result = true;
@@ -328,7 +328,6 @@ impl Application {
         if let Some((_, mut path)) = self.focus.clone() {
             loop {
                 if let Some(node) = self.get_node(&path) {
-                    let node = lock(&node).unwrap();
                     for (event, description) in node.describe_supported_events() {
                         if !pushed.contains(event) {
                             events.push((event, description));
@@ -487,7 +486,7 @@ impl Application {
 
     fn render_node_layer(
         &mut self,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
         path: &mut NodePath,
         style: usize,
@@ -502,7 +501,7 @@ impl Application {
             {
                 let (_, size, margin) = spot.window;
                 cache.resize(size.w * size.h * RGBA, 0);
-                let mut tmp_spot = NewSpot {
+                let mut tmp_spot = Spot {
                     window: (Point::zero(), size, margin),
                     framebuffer: cache.as_mut_slice(),
                     fb_size: size,
@@ -522,7 +521,7 @@ impl Application {
 
     fn render_node(
         &mut self,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
         path: &mut NodePath,
         style: usize,
@@ -583,7 +582,7 @@ impl Application {
 
     /// This method is called by the platform to request a refresh
     /// of the output. It should be called for every frame.
-    pub fn render(&mut self, spot: &mut NewSpot, scratch: ScratchBuffer) {
+    pub fn render(&mut self, spot: &mut Spot, scratch: ScratchBuffer) {
         let mut path = Vec::new();
         let mut count = 0;
         while count < 5 {

@@ -1,3 +1,5 @@
+//! Cursor, compute_tree
+
 use crate::node::Axis;
 use crate::node::Axis::Horizontal;
 use crate::node::Axis::Vertical;

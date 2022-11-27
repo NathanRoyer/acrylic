@@ -1,3 +1,5 @@
+//! LoadedRailwayProgram, RailwayLodaer, RailwayNode, xml_load_railway
+
 use crate::app::DataRequest;
 use crate::app::Application;
 use crate::app::ScratchBuffer;
@@ -11,7 +13,7 @@ use crate::node::Node;
 use crate::node::NodePathSlice;
 use crate::node::NodeBox;
 use crate::Size;
-use crate::NewSpot;
+use crate::Spot;
 use crate::Status;
 
 #[cfg(feature = "xml")]
@@ -75,7 +77,7 @@ impl<const A: usize> LoadedRailwayProgram<A> {
         if scratch.len() < scratch_len {
             scratch.resize(scratch_len, 0);
         }
-        self.program.render::<PXF>(
+        self.program.render::<PXF, 3>(
             &self.stack,
             dst,
             scratch.as_mut_slice(),
@@ -168,7 +170,7 @@ impl Node for RailwayNode {
         _app: &mut Application,
         _path: NodePathSlice,
         _style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         if self.render_reason.is_valid() {

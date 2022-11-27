@@ -1,6 +1,6 @@
 ## 🎨 acrylic
 
-This is a **work-in-progress**, cross-platform, small, web-inspired user interface toolkit.
+This is a **work-in-progress**, easily portable, small, web-inspired user interface toolkit.
 
 ## 🪂 Features
 
@@ -47,74 +47,58 @@ This is a **work-in-progress**, cross-platform, small, web-inspired user interfa
 
 ## ⚡️ Quickstart
 
-We will first create directories for our application:
+### Project structure:
 
-```shell
-$ mkdir -p my-app/src my-app/assets
-$ cd my-app
+```
+.
+├── Cargo.toml
+├── assets
+│   ├── ferris.png
+│   └── default.xml
+└── src
+    └── app.rs
 ```
 
-Create a basic layout for your user interface:
+### An asset: ferris.png
+
+You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png)
+
+### The view layout: default.xml
 
 ```xml
-<!-- my-app/src/layout.xml -->
-
 <x rem="1" style="default">
-	<inflate />
-	<y fixed="400" gap="10">
-		<inflate />
-		<png src="ferris.png" />
-		<x fixed="40" gap="10">
-			<inflate />
-			<p txt="Rust rocks!" />
-			<inflate />
-		</x>
-		<inflate />
-	</y>
-	<inflate />
+    <inflate />
+    <y fixed="400" gap="10">
+        <inflate />
+        <png src="ferris.png" />
+        <x fixed="40" gap="10">
+            <inflate />
+            <p txt="Rust rocks!" />
+            <inflate />
+        </x>
+        <inflate />
+    </y>
+    <inflate />
 </x>
 ```
 
-See [this](https://docs.rs/acrylic/latest/acrylic/xml/struct.TreeParser.html#method.with_builtin_tags)
-for documentation on these tags and attributes.
-
-Create a rust file which will start our application:
+### The code: app.rs
 
 ```rust
-// my-app/src/app.rs
-
 use platform::app;
 use platform::log;
 use acrylic::app::Application;
 use acrylic::xml::ViewLoader;
 
 app!("assets/", {
-	let loader = ViewLoader::new("default.xml");
-	Application::new(log, (), loader)
+    let loader = ViewLoader::new("default.xml");
+    Application::new(log, (), loader)
 });
-
 ```
 
-Download a sample PNG image:
-
-```shell
-$ curl https://rustacean.net/assets/rustacean-flat-happy.png > assets/ferris.png
-```
-
-As our most functional platform is acrylic-web, we are going to build for it.
-Install the corresponding rustc target, a minimal http server and a page which will start our app.
-
-```shell
-$ rustup target add wasm32-unknown-unknown
-$ cargo install httpserv
-$ curl https://raw.githubusercontent.com/NathanRoyer/acrylic/main/acrylic-web/index.html > index.html
-$ httpserv > /dev/null &
-```
-
-Create a cargo manifest for this platform:
+### The manifest: Cargo.toml
 
 ```toml
-# my-app/Cargo.toml
 [package]
 name = "my-app"
 version = "0.1.0"
@@ -126,16 +110,20 @@ path = "src/app.rs"
 
 [dependencies]
 acrylic = "0.2.0"
+
+# building for the web
 platform = { package = "acrylic-web", version = "0.2.0" }
 ```
 
-Build:
+### Building
 
-```shell
-$ cargo build -r --target wasm32-unknown-unknown
+```bash
+cargo build --target wasm32-unknown-unknown
 ```
 
-Then go to [http://localhost:8080/#release](http://localhost:8080/#release). You should see something like this:
+Then open http://localhost:8080/#release
+
+### Expected Result
 
 ![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
 

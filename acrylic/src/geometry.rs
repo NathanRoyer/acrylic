@@ -1,3 +1,5 @@
+//! Spot, Point, Size, aspect_ratio
+
 use crate::node::Axis;
 use crate::node::Margin;
 use crate::bitmap::RGBA;
@@ -57,14 +59,14 @@ impl Size {
     }
 }
 
-// TODO: rename to Spot after OG Spot elimination
-pub struct NewSpot<'a> {
+/// A framebuffer geographical window
+pub struct Spot<'a> {
     pub window: (Point, Size, Option<Margin>),
     pub framebuffer: &'a mut [u8],
     pub fb_size: Size,
 }
 
-impl<'a> NewSpot<'a> {
+impl<'a> Spot<'a> {
     pub fn inner_crop(&self, inner: bool) -> Option<(Point, Size)> {
         let (mut top_left, mut size, margin) = self.window;
         if inner {
@@ -179,9 +181,9 @@ impl<'a> NewSpot<'a> {
     }
 }
 
-impl<'a> Debug for NewSpot<'a> {
+impl<'a> Debug for Spot<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.debug_struct("NewSpot")
+        f.debug_struct("Spot")
             .field("window", &self.window)
             .field("fb_size", &self.fb_size)
             .field("fb_len", &self.framebuffer.len())

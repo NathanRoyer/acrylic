@@ -3,7 +3,7 @@ use acrylic::node::Event;
 use acrylic::node::EventType;
 use acrylic::node::Direction;
 use acrylic::bitmap::RGBA;
-use acrylic::NewSpot;
+use acrylic::Spot;
 use acrylic::Point;
 use acrylic::Size;
 
@@ -101,7 +101,7 @@ pub extern "C" fn set_output_size(app: &mut Application, w: usize, h: usize) {
 pub extern "C" fn frame(app: &mut Application, age_ms: usize) {
     app.set_age(age_ms);
     let size = unsafe { FB_SIZE };
-    let mut spot = NewSpot {
+    let mut spot = Spot {
         window: (Point::zero(), size, None),
         framebuffer: unsafe { &mut MAIN_FB.as_mut().unwrap() },
         fb_size: size,

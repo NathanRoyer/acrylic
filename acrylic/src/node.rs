@@ -1,3 +1,5 @@
+//! Node, NodePath, RenderCache, Event, LengthPolicy...
+
 use bitflags::bitflags;
 
 use crate::app::Application;
@@ -6,7 +8,7 @@ use crate::flexbox::Cursor;
 use crate::format;
 use crate::Point;
 use crate::Size;
-use crate::NewSpot;
+use crate::Spot;
 use crate::Status;
 
 use core::any::Any;
@@ -183,7 +185,7 @@ pub trait Node: Debug + Any {
         app: &mut Application,
         path: NodePathSlice,
         style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         match layer {
@@ -199,7 +201,7 @@ pub trait Node: Debug + Any {
         app: &mut Application,
         path: NodePathSlice,
         style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         Ok(())
@@ -211,7 +213,7 @@ pub trait Node: Debug + Any {
         app: &mut Application,
         path: NodePathSlice,
         style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         Ok(())
@@ -297,7 +299,7 @@ pub trait Node: Debug + Any {
 
     /// This method is mainly called when the toolkit deals
     /// with scrollbars. You should report the value previously
-    /// set by [`set_overflow`].
+    /// set by [`set_overflow`](Self::set_overflow).
     #[allow(unused)]
     fn get_overflow(&self) -> Result<usize, String> {
         Err(String::from("Not a container"))
@@ -377,15 +379,15 @@ pub trait Node: Debug + Any {
         None
     }
 
-    /// A getter for a node's spot. The spot
-    /// is set by layout code via [`Node::set_spot`].
+    /// A getter for a node's spot. The spot size is set
+    /// by layout code via [`Node::set_spot_size`].
     fn get_spot_size(&self) -> Size {
         Size::zero()
     }
 
     /// The layout code may call this method many times
     /// during layout. Renderable Nodes should store the
-    /// given spot and give it back when [`Node::get_spot`]
+    /// given spot and give it back when [`Node::get_spot_size`]
     /// is called.
     #[allow(unused)]
     fn set_spot_size(&mut self, size: Size) {

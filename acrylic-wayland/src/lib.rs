@@ -29,7 +29,7 @@ use acrylic::app::Application;
 use acrylic::bitmap::RGBA;
 use acrylic::Point;
 use acrylic::Size;
-use acrylic::NewSpot;
+use acrylic::Spot;
 
 use tempfile::tempfile;
 
@@ -205,7 +205,7 @@ impl WaylandApp {
             self.acrylic_app.data_response(request, &data).unwrap();
         }
         let size = self.size;
-        let mut spot = NewSpot {
+        let mut spot = Spot {
             window: (Point::zero(), size, None),
             framebuffer: &mut self.frame_buffer.data,
             fb_size: size,

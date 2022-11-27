@@ -1,3 +1,5 @@
+//! PngLoader, xml_load_png
+
 use crate::app::Application;
 use crate::app::DataRequest;
 use crate::bitmap::Bitmap;

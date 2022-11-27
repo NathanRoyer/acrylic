@@ -1,3 +1,5 @@
+//! Style, Theme, style_index, Color
+
 use crate::bitmap::RGBA;
 
 use microjson::JSONValue;

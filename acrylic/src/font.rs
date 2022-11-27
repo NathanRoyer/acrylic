@@ -1,3 +1,5 @@
+//! FontConfig, GlyphNode, Outline, get_glyph, GlyphCache
+
 use crate::app::Application;
 use crate::app::ScratchBuffer;
 use crate::style::Color;
@@ -11,7 +13,7 @@ use crate::node::LayerCaching;
 use crate::node::Margin;
 use crate::node::LengthPolicy;
 use crate::text::Placeholder;
-use crate::NewSpot;
+use crate::Spot;
 use crate::Size;
 
 use crate::bitmap::aspect_ratio_with_m;
@@ -23,18 +25,19 @@ use ttf_parser::OutlineBuilder;
 use ttf_parser::GlyphId;
 pub(crate) use ttf_parser::Face as Font;
 
-use vek::vec::repr_c::vec2::Vec2;
-use vek::bezier::repr_c::CubicBezier2;
-use vek::bezier::repr_c::QuadraticBezier2;
+use vek::vec::Vec2;
+use vek::bezier::CubicBezier2;
+use vek::bezier::QuadraticBezier2;
 
-use wizdraw::simplify;
-use wizdraw::rasterize;
+use wizdraw::push_cubic_bezier_segments;
+use wizdraw::fill;
 
 use hashbrown::hash_map::HashMap;
 
 use core::any::Any;
 
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use alloc::sync::Arc;
 
@@ -110,13 +113,15 @@ pub fn get_glyph(
             }
         }*/
 
-        let _lsb = font.glyph_hor_side_bearing(glyph_id).unwrap_or(0);
-        let _rsb = (h_advance as i16) - (_lsb + rect.width());
-        // _app.log(&crate::format!("{}: lsb={} rsb={}", c, _lsb, _rsb));
+        let lsb = font.glyph_hor_side_bearing(glyph_id).unwrap_or(0);
+        let lsb_scaled = lsb / (scaler as i16);
+        // let rsb = (h_advance as i16) - (lsb + rect.width());
+
+        // app.log(&crate::format!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16));
         let margin = Margin {
             top: 0,
             bottom: 0,
-            left: (height / 12),
+            left: lsb_scaled as usize,
             right: 0,
         };
 
@@ -124,39 +129,25 @@ pub fn get_glyph(
         if let Some(cached_bmp) = glyphs.get(&key) {
             bitmap = cached_bmp.clone();
         } else {
-            // anti-aliaising
-            let aa = 4usize;
-            let aa_sq = aa.pow(2);
-
-            let mut outline = Outline::new(base, scaler / (aa as f32));
+            let mut outline = Outline::new(base, scaler);
             font.outline_glyph(glyph_id, &mut outline).unwrap();
             let segments = outline.unwrap();
             // _app.log(&crate::format!("{:?}", &segments));
 
             let size = Size::new((h_advance_f32 / scaler) as usize, height);
             let mut bmp = Bitmap::new(size, RGBA, None);
-            let mut mask = Vec::with_capacity(size.w * size.h * (aa_sq));
-            mask.resize(size.w * size.h * aa_sq, 0);
-            let m_size = Vec2::from((size.w * aa, size.h * aa));
-            rasterize(&segments, &mut mask, m_size, None);
+            let mut mask = vec![0; size.w * size.h];
+            let m_size = Vec2::from((size.w, size.h));
+            fill::<_, 4>(&segments, &mut mask, m_size);
             {
                 let pixels = bmp.pixels.as_mut_slice();
                 for y in 0..size.h {
                     for x in 0..size.w {
-                        let m_x = x * aa;
-                        let m_y = y * aa;
-                        let p = (y * size.w + x) * RGBA;
+                        let m_i = y * size.w + x;
+                        let p = m_i * RGBA;
                         let pixel = &mut pixels[p..];
                         pixel[..3].copy_from_slice(&color[..3]);
-                        let mut alpha = 0;
-                        for i in 0..aa {
-                            for j in 0..aa {
-                                let p = (m_y + i) * m_size.x + (m_x + j);
-                                alpha += mask[p] / (aa_sq as u8);
-                            }
-                        }
-                        let alpha = (alpha as u32) * (color[3] as u32);
-                        pixel[3] = (alpha / 255) as u8;
+                        pixel[3] = mask[m_i];
                     }
                     if false {
                         // debug left bitmap boundary
@@ -211,7 +202,7 @@ impl Node for GlyphNode {
         _app: &mut Application,
         _path: NodePathSlice,
         _style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         _scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         if self.render_reason.is_valid() {
@@ -319,7 +310,7 @@ impl OutlineBuilder for Outline {
             end,
         };
         let curve = CubicBezier2::from(curve);
-        simplify::<_, 4>(&curve, 1.0, &mut self.points);
+        push_cubic_bezier_segments::<_, 6>(&curve, 0.2, &mut self.points);
         self.last_point = end;
     }
 
@@ -333,7 +324,7 @@ impl OutlineBuilder for Outline {
             ctrl1,
             end,
         };
-        simplify::<_, 4>(&curve, 1.0, &mut self.points);
+        push_cubic_bezier_segments::<_, 6>(&curve, 0.2, &mut self.points);
         self.last_point = end;
     }
 

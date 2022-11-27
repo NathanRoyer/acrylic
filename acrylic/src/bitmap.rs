@@ -1,3 +1,5 @@
+//! Bitmap, Channels, blit_rgba, aspect_ratio
+
 use crate::app::ScratchBuffer;
 use crate::app::Application;
 use crate::geometry::aspect_ratio;
@@ -14,7 +16,7 @@ use crate::node::node_box;
 use crate::node::NodePathSlice;
 use crate::round;
 use crate::Size;
-use crate::NewSpot;
+use crate::Spot;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -110,7 +112,7 @@ impl Node for Bitmap {
         _app: &mut Application,
         _path: NodePathSlice,
         _style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         _scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         if self.render_reason.is_valid() {
@@ -180,7 +182,7 @@ pub fn blit_rgba<
     src: &[u8],
     src_channels: Channels,
     src_size: Size,
-    dst: &mut NewSpot,
+    dst: &mut Spot,
 ) {
     let aa_unit = 1.0 / (SUBPX as f32);
     let aa_sq = (SUBPX * SUBPX) as u32;

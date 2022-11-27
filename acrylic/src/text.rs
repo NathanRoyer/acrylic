@@ -1,3 +1,5 @@
+//! Paragraph, Placeholder, TextCursor, Unbreakable, FontState, xml_paragraph
+
 use crate::app::Application;
 use crate::app::ScratchBuffer;
 use crate::style::Color;
@@ -20,7 +22,7 @@ use crate::font::Font;
 use crate::font::get_glyph;
 use crate::font::FontConfig;
 use crate::status;
-use crate::NewSpot;
+use crate::Spot;
 use crate::Size;
 
 #[cfg(feature = "xml")]
@@ -358,7 +360,7 @@ impl Node for Paragraph {
         app: &mut Application,
         _path: NodePathSlice,
         style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         _scratch: ScratchBuffer,
     ) -> Result<(), ()> {
 
@@ -372,7 +374,7 @@ impl Node for Paragraph {
         app: &mut Application,
         _path: NodePathSlice,
         style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         _scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         let height = self.get_height();

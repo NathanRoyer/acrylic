@@ -1,3 +1,5 @@
+//! Container
+
 use crate::app::Application;
 use crate::app::ScratchBuffer;
 use crate::node::EventType;
@@ -14,7 +16,7 @@ use crate::node::Event;
 use crate::node::Node;
 use crate::node::Axis;
 use crate::Size;
-use crate::NewSpot;
+use crate::Spot;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -137,7 +139,7 @@ impl Node for Container {
         app: &mut Application,
         _path: NodePathSlice,
         _style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         _scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         if let Some(i) = self.style() {
@@ -152,7 +154,7 @@ impl Node for Container {
         _app: &mut Application,
         _path: NodePathSlice,
         _style: usize,
-        spot: &mut NewSpot,
+        spot: &mut Spot,
         scratch: ScratchBuffer,
     ) -> Result<(), ()> {
         if self.render_reason.is_valid() && self.style_rwy.is_some() {
