@@ -620,8 +620,16 @@ impl Application {
     pub fn data_response(&mut self, request: usize, data: &[u8]) -> Result<(), ()> {
         let request = self.data_requests.swap_remove(request);
         let mut node = self.kidnap_node(&request.node).unwrap();
-        let result = node.loaded(self, &request.node, &request.name, 0, data);
+        let mut result = node.loaded(self, &request.node, &request.name, 0, data);
         let _ = self.restore_node(&request.node, node);
+        if let Ok(()) = result {
+            for i in 0..self.data_requests.len() {
+                if self.data_requests[i].name == request.name {
+                    result = self.data_response(i, data);
+                    break;
+                }
+            }
+        }
         result
     }
 
