@@ -109,7 +109,7 @@ impl Node for Container {
         let dirty = self.render_reason.is_valid();
 
         #[cfg(feature = "railway")]
-        if dirty && (self.margin.is_some() || self.radius.is_some()) {
+        if dirty && self.radius.is_some() {
             if self.style_rwy.is_none() {
                 self.style_rwy = Some(CONTAINER_RWY.clone());
             }
@@ -257,9 +257,13 @@ impl Node for Container {
     }
 
     fn set_focused(&mut self, focused: bool) -> bool {
-        self.render_reason = RenderReason::Resized;
-        self.focused = focused;
-        self.focus_style.is_some()
+        if self.focus_style.is_some() {
+            self.render_reason = RenderReason::Resized;
+            self.focused = focused;
+            true
+        } else {
+            false
+        }
     }
 
     fn container(&self) -> Option<(Axis, usize)> {
