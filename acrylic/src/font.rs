@@ -62,6 +62,9 @@ pub type GlyphCache = HashMap<(usize, usize, Color, FontConfig, char), Arc<Bitma
 
 /// Used internally to obtain a rendered glyph
 /// from the font, which is then kept in cache.
+///
+/// Returns a placeholder if the glyph cannot be
+/// obtained.
 pub fn get_glyph(
     font: &Font,
     font_index: usize,
@@ -71,107 +74,125 @@ pub fn get_glyph(
     rdr_cfg: Option<(usize, Color)>,
     _char_cfg: FontConfig,
 ) -> NodeBox {
-    let mut retval = node_box(Placeholder {
-        ratio: 0.0,
-        spot_size: Size::zero(),
-    });
+    match try_get_glyph(font, font_index, glyphs, c, _next, rdr_cfg, _char_cfg) {
+        Ok(glyph) => glyph,
+        Err(_error) => {
+            // todo: log _error
+            node_box(Placeholder {
+                ratio: 0.0,
+                spot_size: Size::zero(),
+            })
+        },
+    }
+}
 
-    let (height, color) = match rdr_cfg {
-        Some((h, c)) => (h, c),
-        None => return retval,
-    };
+/// Used internally to obtain a rendered glyph
+/// from the font, which is then kept in cache.
+pub fn try_get_glyph(
+    font: &Font,
+    font_index: usize,
+    glyphs: &mut GlyphCache,
+    c: char,
+    _next: Option<char>,
+    rdr_cfg: Option<(usize, Color)>,
+    _char_cfg: FontConfig,
+) -> Result<NodeBox, &'static str> {
+    let (height, color) = rdr_cfg.ok_or("no rendering config yet")?;
 
     let key = (font_index, height, color, _char_cfg, c);
 
-    let glyph_id = font.glyph_index(c).unwrap_or(GlyphId(0));
+    let glyph_id = font.glyph_index(c).ok_or("can't find glyph in font")?;
     let font_height = font.height();
     let scaler = (font_height as f32) / (height as f32);
 
-    if let Some(rect) = font.glyph_bounding_box(glyph_id) {
-        let h_advance = font.glyph_hor_advance(glyph_id).unwrap_or(rect.width() as u16);
-        let h_advance_f32 = h_advance as f32;
-        let base = Vec2 {
-            x: rect.x_min as f32,
-            y: font.ascender() as f32,
-        };
+    // if let rect = font.glyph_bounding_box(glyph_id).ok_or();
+    let h_advance = font.glyph_hor_advance(glyph_id)
+                        .ok_or("bad glyph: no horizontal advance")?;
 
-        // kerning is not supported yet
-        // but some work have been done to ease its support
-        /*if let Some(c2) = _next {
-            let kerning_subtable: Vec<_> = font
-                .tables()
-                .kern
-                .iter()
-                .flat_map(|c| c.subtables)
-                .filter(|st| st.horizontal)
-                .collect();
-            let gid2 = font.glyph_index(c).unwrap_or(GlyphId(0));
-            let h_kern = kerning_subtable.iter()
-                .find_map(|st| st.glyphs_kerning(glyph_id, gid2));
-            if let Some(k) = h_kern {
-                _app.log(&crate::format!("{} + {}: k={}", c, c2, k));
-            }
-        }*/
+    let h_bearing = font.glyph_hor_side_bearing(glyph_id)
+                        .ok_or("bad glyph: no horizontal side bearing")?;
 
-        let lsb = font.glyph_hor_side_bearing(glyph_id).unwrap_or(0);
-        let lsb_scaled = lsb / (scaler as i16);
-        // let rsb = (h_advance as i16) - (lsb + rect.width());
+    let h_advance = (h_advance as f32) / scaler;
+    let h_bearing = crate::round!((h_bearing as f32) / scaler, f32, usize);
 
-        // app.log(&crate::format!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16));
-        let margin = Margin {
-            top: 0,
-            bottom: 0,
-            left: lsb_scaled as usize,
-            right: 0,
-        };
+    let base = Vec2 {
+        x: h_advance,
+        y: font.ascender() as f32,
+    };
 
-        let bitmap;
-        if let Some(cached_bmp) = glyphs.get(&key) {
-            bitmap = cached_bmp.clone();
-        } else {
-            let mut outline = Outline::new(base, scaler);
-            font.outline_glyph(glyph_id, &mut outline).unwrap();
-            let segments = outline.unwrap();
-            // _app.log(&crate::format!("{:?}", &segments));
+    let h_advance = crate::round!(h_advance, f32, usize);
 
-            let size = Size::new((h_advance_f32 / scaler) as usize, height);
-            let mut bmp = Bitmap::new(size, RGBA, None);
-            let mut mask = vec![0; size.w * size.h];
-            let m_size = Vec2::from((size.w, size.h));
-            fill::<_, 4>(&segments, &mut mask, m_size);
-            {
-                let pixels = bmp.pixels.as_mut_slice();
-                for y in 0..size.h {
-                    for x in 0..size.w {
-                        let m_i = y * size.w + x;
-                        let p = m_i * RGBA;
-                        let pixel = &mut pixels[p..];
-                        pixel[..3].copy_from_slice(&color[..3]);
-                        pixel[3] = mask[m_i];
-                    }
-                    if false {
-                        // debug left bitmap boundary
-                        let p = y * size.w * RGBA;
-                        let pixel = &mut pixels[p..];
-                        pixel[3] = 255;
-                    }
+    // kerning is not supported yet
+    // but some work have been done to ease its support
+    /*if let Some(c2) = _next {
+        let kerning_subtable: Vec<_> = font
+            .tables()
+            .kern
+            .iter()
+            .flat_map(|c| c.subtables)
+            .filter(|st| st.horizontal)
+            .collect();
+        let gid2 = font.glyph_index(c).unwrap_or(GlyphId(0));
+        let h_kern = kerning_subtable.iter()
+            .find_map(|st| st.glyphs_kerning(glyph_id, gid2));
+        if let Some(k) = h_kern {
+            _app.log(&crate::format!("{} + {}: k={}", c, c2, k));
+        }
+    }*/
+
+    // app.log(&crate::format!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16));
+    let margin = Margin {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+    };
+
+    let bitmap;
+    if let Some(cached_bmp) = glyphs.get(&key) {
+        bitmap = cached_bmp.clone();
+    } else {
+        let mut outline = Outline::new(base, scaler);
+        font.outline_glyph(glyph_id, &mut outline)
+            .ok_or("Couldn't outline glyph")?;
+        let segments = outline.finish();
+        // _app.log(&crate::format!("{:?}", &segments));
+
+        let size = Size::new(h_advance, height);
+        let mut bmp = Bitmap::new(size, RGBA, None);
+        let mut mask = vec![0; size.w * size.h];
+        let m_size = Vec2::from((size.w, size.h));
+        fill::<_, 4>(&segments, &mut mask, m_size);
+        {
+            let pixels = bmp.pixels.as_mut_slice();
+            for y in 0..size.h {
+                for x in 0..size.w {
+                    let m_i = y * size.w + x;
+                    let p = m_i * RGBA;
+                    let pixel = &mut pixels[p..];
+                    pixel[..3].copy_from_slice(&color[..3]);
+                    pixel[3] = mask[m_i];
+                }
+                if false {
+                    // debug left bitmap boundary
+                    let p = y * size.w * RGBA;
+                    let pixel = &mut pixels[p..];
+                    pixel[3] = 255;
                 }
             }
-            // bmp.update_cache(size, true);
-            bitmap = Arc::new(bmp);
-            glyphs.insert(key, bitmap.clone());
         }
-
-        retval = node_box(GlyphNode {
-            bitmap,
-            spot_size: Size::zero(),
-            margin: Some(margin),
-            render_cache: [None, None],
-            render_reason: RenderReason::Resized,
-        });
+        // bmp.update_cache(size, true);
+        bitmap = Arc::new(bmp);
+        glyphs.insert(key, bitmap.clone());
     }
 
-    retval
+    Ok(node_box(GlyphNode {
+        bitmap,
+        spot_size: Size::zero(),
+        margin: Some(margin),
+        render_cache: [None, None],
+        render_reason: RenderReason::Resized,
+    }))
 }
 
 /// A single glyph. The underlying bitmap is shared
@@ -284,7 +305,7 @@ impl Outline {
         }
     }
 
-    pub fn unwrap(self) -> Vec<Vec2<f32>> {
+    pub fn finish(self) -> Vec<Vec2<f32>> {
         self.points
     }
 }

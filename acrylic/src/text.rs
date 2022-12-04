@@ -760,7 +760,7 @@ pub fn xml_paragraph(
         },
         font: FontState::Pending(font),
         children: Vec::new(),
-        space_width: 8,
+        space_width: 6,
         policy: None,
         cursors: Vec::new(),
         on_edit,
