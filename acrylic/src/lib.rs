@@ -1,4 +1,4 @@
-//! acrylic is a work-in-progress, easily portable,
+//! A work-in-progress, easily portable,
 //! small, web-inspired user interface toolkit.
 //! 
 //! ### Example project structure:
@@ -39,13 +39,12 @@
 //!
 //! ```rust
 //! use platform::app;
-//! use platform::log;
 //! use acrylic::app::Application;
 //! use acrylic::xml::ViewLoader;
 //! 
 //! app!("assets/", {
 //!     let loader = ViewLoader::new("default.xml");
-//!     Application::new(log, (), loader)
+//!     Application::new((), loader)
 //! });
 //! ```
 //! 
@@ -74,11 +73,29 @@
 //! cargo build --target wasm32-unknown-unknown
 //! ```
 //! 
+//! #### Install a web server
+//! 
+//! `httpserv` is tiny and good enough for this demo.
+//! 
+//! ```bash
+//! cargo install httpserv
+//! ```
+//! 
+//! #### Start the web server
+//! 
+//! ```bash
+//! # normal start:
+//! httpserv
+//! 
+//! # quiet + in the background
+//! httpserv > /dev/null &
+//! ```
+//! 
 //! Then open http://localhost:8080/#release
 //! 
 //! #### Expected Result
 //! 
-//! ![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
+//! ![quickstart.png](https://docs.rs/crate/acrylic/0.2.1/source/quickstart.png)
 //! 
 //! ### app.rs code walkthrough
 //!
@@ -89,10 +106,6 @@
 //! // maps to a `main` function or to whatever
 //! // is an entry point for that platform.
 //! use platform::app;
-//! 
-//! // The log function outputs lines in a console,
-//! // if there is a console on that platform.
-//! use platform::log;
 //! 
 //! // A structure which owns fonts, views,
 //! // event handlers, assets: the state of
@@ -116,7 +129,7 @@
 //!     // of this real-world application.
 //!     // We can store any Sized data here
 //!     // and get it back with Application::model().
-//!     Application::new(log, (), loader)
+//!     Application::new((), loader)
 //! 
 //!     // Before returning the Application to the
 //!     // platform, where it will be managed in an
@@ -172,16 +185,6 @@ pub type Spot<'a> = geometry::Spot<'a>;
 
 /// Non-verbose result
 pub type Status = Result<(), ()>;
-
-/// Platforms must publicly expose a `log`
-/// function which matches this signature.
-///
-/// ```rust
-/// pub fn log(s: &str) {
-///     println!("{}", s);
-/// }
-/// ```
-pub type PlatformLog = fn(&str);
 
 /// Transforms an `Option<T>` to a `Result<T, ()>`
 /// which is compatible with [`Status`]

@@ -7,8 +7,15 @@ use acrylic::Spot;
 use acrylic::Point;
 use acrylic::Size;
 
+use log::{error, set_logger, set_max_level, Record, LevelFilter, Level, Metadata};
+use std::fmt::Write;
+
 extern "C" {
-    fn raw_log(s: *const u8, l: usize);
+    fn raw_error(s: *const u8, l: usize);
+    fn raw_warn(s: *const u8, l: usize);
+    fn raw_info(s: *const u8, l: usize);
+    fn raw_debug(s: *const u8, l: usize);
+    fn raw_trace(s: *const u8, l: usize);
     fn raw_set_request_url(s: *const u8, l: usize);
     fn raw_set_request_url_prefix(s: *const u8, l: usize);
     fn raw_set_buffer_address(
@@ -17,9 +24,34 @@ extern "C" {
     fn raw_is_request_pending() -> usize;
 }
 
-pub fn log(s: &str) {
-    unsafe { raw_log(s.as_ptr(), s.len()) };
+struct ConsoleLog;
+
+impl log::Log for ConsoleLog {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let mut s = String::new();
+            let _ = write!(&mut s, "{}", record.args());
+            unsafe {
+                use Level::*;
+                match record.level() {
+                    Error => raw_error(s.as_ptr(), s.len()),
+                    Warn => raw_warn(s.as_ptr(), s.len()),
+                    Info => raw_info(s.as_ptr(), s.len()),
+                    Debug => raw_debug(s.as_ptr(), s.len()),
+                    Trace => raw_trace(s.as_ptr(), s.len()),
+                }
+            }
+        }
+    }
+
+    fn flush(&self) {}
 }
+
+static LOGGER: ConsoleLog = ConsoleLog;
 
 pub fn set_request_url(s: &str) {
     unsafe { raw_set_request_url(s.as_ptr(), s.len()) };
@@ -184,6 +216,12 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize) {
     }
 }
 
+pub fn pre_init() {
+    set_max_level(LevelFilter::Trace);
+    set_logger(&LOGGER).unwrap();
+    std::panic::set_hook(Box::new(|panic_info| error!("PANIC! {}", panic_info)));
+}
+
 pub fn wasm_init(assets: &str, app: Application) -> &'static Application {
     unsafe {
         set_request_url_prefix(&String::from(assets));
@@ -197,10 +235,7 @@ macro_rules! app {
     ($path: literal, $init: block) => {
         #[export_name = "init"]
         pub extern "C" fn init() -> &'static Application {
-            std::panic::set_hook(Box::new(|panic_info| {
-                let dbg = format!("{}", panic_info);
-                log(&dbg);
-            }));
+            platform::pre_init();
             platform::wasm_init($path, $init)
         }
     };

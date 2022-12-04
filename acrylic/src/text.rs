@@ -26,13 +26,9 @@ use crate::Spot;
 use crate::Size;
 
 #[cfg(feature = "xml")]
-use crate::format;
-#[cfg(feature = "xml")]
-use crate::xml::unexpected_attr;
-#[cfg(feature = "xml")]
-use crate::xml::Attribute;
-#[cfg(feature = "xml")]
-use crate::xml::TreeParser;
+use crate::xml::{invalid_attr_val, check_attr, unexpected_attr, Attribute, TreeParser};
+
+use log::error;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -234,7 +230,7 @@ impl Paragraph {
         }
     }
 
-    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>, app: &mut Application) -> Result<(), String> {
+    fn deploy(&mut self, rdr_cfg: Option<(usize, Color)>, app: &mut Application) -> Result<(), ()> {
         let mut children = Vec::with_capacity(self.children.len());
         let default_unbreakable = Unbreakable {
             glyphs: Vec::new(),
@@ -245,10 +241,9 @@ impl Paragraph {
 
         let font_index = self.font.unwrap();
         let font_bytes = &app.fonts[font_index];
-        let font = match Font::from_slice(font_bytes, 0) {
-            Ok(font) => Ok(font),
-            Err(_) => Err(format!("could not parse font #{}", font_index)),
-        }?;
+        let font = Font::from_slice(font_bytes, 0).map_err(|e| {
+            error!("Paragraph::deploy: could not parse font #{}: {}", font_index, e)
+        })?;
         let g_cache = &mut app.glyph_cache;
 
         let mut next;
@@ -582,34 +577,38 @@ impl Node for Paragraph {
         self.margin
     }
 
-    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), ()> {
         if let FontState::Pending(name) = &self.font {
             let mut index = 0;
             if let Some(name) = name {
                 if let Some(font_index) = app.font_ns.get(name) {
                     index = *font_index;
                 } else {
-                    return Err(format!("unknown font: \"{}\"", name));
+                    Err(error!("Paragraph::initialize: unknown font: \"{}\"", name))?;
                 }
             }
             if let None = app.fonts.get(index) {
                 let default_name = "<default>".into();
                 let msg = name.as_ref().unwrap_or(&default_name);
-                return Err(format!("invalid font index: {} / {}", index, msg));
+                Err(error!("Paragraph::initialize: invalid font index: {} / {}", index, msg))?;
             }
             self.font = FontState::Available(index);
         }
         self.font_size = Some(self.font_size.unwrap_or(app.default_font_size));
         self.policy = {
-            let err_msg = format!("paragraph must be in a container");
-            let max = path.len() - 1;
-            let parent = app.get_node(&path[..max].to_vec()).ok_or(err_msg.clone())?;
-            let (parent_axis, _) = parent.container().ok_or(err_msg)?;
+            let parent_path = &path[..(path.len() - 1)];
+            let parent_cont = app
+                .get_node(parent_path)
+                .and_then(|p| p.container());
 
-            Some(match parent_axis {
-                Axis::Vertical => LengthPolicy::Chunks(self.font_size.unwrap()),
-                Axis::Horizontal => LengthPolicy::WrapContent,
-            })
+            if let Some((parent_axis, _)) = parent_cont {
+                Some(match parent_axis {
+                    Axis::Vertical => LengthPolicy::Chunks(self.font_size.unwrap()),
+                    Axis::Horizontal => LengthPolicy::WrapContent,
+                })
+            } else {
+                Err(error!("Paragraph::initialize: paragraph must be in a container"))?
+            }
         };
 
         self.deploy(None, app).unwrap();
@@ -720,9 +719,11 @@ impl Node for Paragraph {
 #[cfg(feature = "xml")]
 pub fn xml_paragraph(
     _: &mut TreeParser,
-    attributes: &[Attribute],
-) -> Result<Option<NodeBox>, String> {
-    let mut text = Err(String::from("missing txt attribute"));
+    line: usize,
+    attributes: Vec<Attribute>,
+) -> Result<Option<NodeBox>, ()> {
+    const TN: &'static str = "p";
+    let mut text = None;
     let mut font_size = None;
     let mut font = None;
     let mut margin = None;
@@ -732,30 +733,28 @@ pub fn xml_paragraph(
     for Attribute { name, value } in attributes {
         match name.as_str() {
             "margin" => {
-                let m = value.parse().map_err(|_| format!("bad value: {}", value))?;
+                let m = value.parse().map_err(|_| invalid_attr_val(line, TN, "margin", &value))?;
                 margin = Some(Margin::quad(m));
             }
-            "txt" => text = Ok(value.clone()),
-            "font" => font = Some(value.clone()),
-            "on-edit" => on_edit = Some(value.clone()),
-            "on-submit" => on_submit = Some(value.clone()),
+            "txt" => text = Some(value),
+            "font" => font = Some(value),
+            "on-edit" => on_edit = Some(value),
+            "on-submit" => on_submit = Some(value),
             "font-size" => {
                 font_size = Some(
-                    value
-                        .parse()
-                        .ok()
-                        .ok_or(format!("bad font-size: {}", &value))?,
+                    value.parse().map_err(|_| invalid_attr_val(line, TN, "margin", &value))?,
                 )
             }
-            _ => unexpected_attr(&name)?,
+            _ => unexpected_attr(line, TN, &name)?,
         }
     }
 
     let spot_size = Size::zero();
+    let text = check_attr(line, TN, "txt", text)?;
     let paragraph = node_box(Paragraph {
         parts: {
             let mut vec = Vec::new();
-            vec.push((FontConfig::default(), None, text?));
+            vec.push((FontConfig::default(), None, text));
             vec
         },
         font: FontState::Pending(font),

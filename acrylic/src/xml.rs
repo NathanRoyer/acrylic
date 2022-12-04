@@ -2,7 +2,6 @@
 
 use crate::app::Application;
 use crate::app::DataRequest;
-use crate::format;
 use crate::style::style_index;
 use crate::node::node_box;
 use crate::node::Axis;
@@ -20,7 +19,10 @@ use xmlparser::StrSpan;
 use xmlparser::Token;
 use xmlparser::Tokenizer;
 
+use log::error;
+
 use core::any::Any;
+use core::mem::replace;
 use core::fmt::Debug;
 use core::fmt::Formatter;
 use core::fmt::Result as FmtResult;
@@ -42,15 +44,23 @@ pub struct Attribute {
     pub value: String,
 }
 
-/// Utility function to react to unexpected attributes.
-pub fn unexpected_attr(attr: &str) -> Result<(), String> {
-    let mut errmsg = String::from("unexpected attribute: ");
-    errmsg += attr;
-    Err(errmsg)
+/// Utility function to handle unexpected attributes.
+pub fn unexpected_attr(line: usize, tag: &str, attr: &str) -> Result<(), ()> {
+    Err(error!("line {}: <{}> unexpected attribute: {}", line, tag, attr))
+}
+
+/// Utility function to handle missing attributes.
+pub fn check_attr<T>(line: usize, tag: &str, attr: &str, value: Option<T>) -> Result<T, ()> {
+    value.ok_or_else(|| error!("line {}: <{}> missing attribute: {}", line, tag, attr))
+}
+
+/// Utility function to handle invalid attribute values.
+pub fn invalid_attr_val(line: usize, tag: &str, attr: &str, value: &str) -> () {
+    error!("line {}: <{}> invalid attribute value: {}={:?}", line, tag, attr, value);
 }
 
 /// Handle to a node-creating tag handler.
-pub type Handler = Box<dyn Fn(&mut TreeParser, &[Attribute]) -> Result<Option<NodeBox>, String>>;
+pub type Handler = Box<dyn Fn(&mut TreeParser, usize, Vec<Attribute>) -> Result<Option<NodeBox>, ()>>;
 
 /// This structure is used to parse an xml file
 /// representing a view of an application.
@@ -68,16 +78,17 @@ impl Debug for TreeParser {
     }
 }
 
-fn err(msg: &str, arg: &str, xml: &str, span: StrSpan) -> Result<NodeBox, String> {
-    let addr = span.start();
-    let line = xml[..addr]
-        .match_indices("\n")
-        .collect::<Vec<(usize, &str)>>()
-        .len();
-    Err(match arg.len() {
-        0 => format!("[xml] {} (near line {})", msg, line),
-        _ => format!("[xml] {}: {} (near line {})", msg, arg, line),
-    })
+fn span_line(xml: &str, span: StrSpan) -> usize {
+    1 + xml[..span.start()].match_indices("\n").count()
+}
+
+fn err(msg: &str, arg: &str, xml: &str, span: StrSpan) -> Result<NodeBox, ()> {
+    let line = span_line(xml, span);
+    match arg.len() {
+        0 => error!("[xml] {} (near line {})", msg, line),
+        _ => error!("[xml] {}: {} (near line {})", msg, arg, line),
+    };
+    Err(())
 }
 
 impl TreeParser {
@@ -129,13 +140,14 @@ impl TreeParser {
     }
 
     /// Try to parse the xml
-    pub fn parse(&mut self, xml: &str) -> Result<NodeBox, String> {
+    pub fn parse(&mut self, xml: &str) -> Result<NodeBox, ()> {
         let mut attributes = Vec::new();
         let mut stack = Vec::new();
         let mut tree: Vec<Option<NodeBox>> = Vec::new();
         let mut root = None;
         for token in Tokenizer::from(xml) {
-            match token.map_err(|e| format!("{:?}", e))? {
+            let token = token.map_err(|e| error!("{:?}", e))?;
+            match token {
                 Token::ElementStart {
                     prefix,
                     local,
@@ -192,13 +204,13 @@ impl TreeParser {
                                 None => return err("unexpected tag end", "", xml, span),
                             };
                             let handler = self.handlers.remove(name).unwrap();
-                            let node = match handler(self, &attributes) {
-                                Ok(node) => node,
-                                Err(msg) => return err(&msg, "", xml, span),
-                            };
+
+                            let attributes = replace(&mut attributes, Vec::new());
+                            let line = span_line(xml, span);
+                            let node = handler(self, line, attributes)?;
+
                             self.handlers.insert(name.clone(), handler);
                             tree.push(node);
-                            attributes.clear();
                             if let ElementEnd::Empty = end {
                                 pop = true;
                                 stack.pop().unwrap();
@@ -224,7 +236,7 @@ impl TreeParser {
         }
         match root {
             Some(root) => Ok(root),
-            _ => Err(format!("[xml] empty view file")),
+            None => Err(error!("[xml] empty view file?")),
         }
     }
 }
@@ -261,7 +273,7 @@ impl Node for ViewLoader {
         String::from("Loading Template image...")
     }
 
-    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), ()> {
         app.data_requests.push(DataRequest {
             node: path.to_vec(),
             name: self.source.clone(),
@@ -288,14 +300,15 @@ impl Node for ViewLoader {
         parser.with_builtin_tags();
 
         let result = match xml {
-            Ok(xml) => parser.parse(&xml).map(|node| {
-                app.replace_kidnapped(path, node);
-            }),
-            Err(_) => Err(String::from("Could not parse xml as UTF8 text")),
+            Ok(xml) => match parser.parse(&xml) {
+                Ok(node) => Ok(app.replace_kidnapped(path, node)),
+                Err(()) => Err("Error during XML parsing"),
+            },
+            Err(_) => Err("Could not parse xml as UTF8 text"),
         };
 
         if let Err(msg) = result {
-            app.log(&format!("TemplateLoader: {}", msg));
+            error!("TemplateLoader: {}", msg);
         }
 
         Ok(())
@@ -325,23 +338,26 @@ impl Node for ViewLoader {
 /// The `tag` attribute is mandatory and will be a valid tag name after this line.
 ///
 /// The `src` attribute is mandatory and must point to an xml view.
-pub fn import(parser: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<NodeBox>, String> {
-    let mut tag = Err(String::from("missing tag attribute"));
-    let mut source = Err(String::from("missing source attribute"));
+pub fn import(parser: &mut TreeParser, line: usize, attributes: Vec<Attribute>) -> Result<Option<NodeBox>, ()> {
+    const TN: &'static str = "import";
+
+    let mut tag = None;
+    let mut source = None;
 
     for Attribute { name, value } in attributes {
         match name.as_str() {
-            "tag" => tag = Ok(value),
-            "src" => source = Ok(value.clone()),
-            _ => Err(format!("unexpected attribute: {}", name))?,
+            "tag" => tag = Some(value),
+            "src" => source = Some(value),
+            _ => unexpected_attr(line, TN, &name)?,
         }
     }
 
-    let (tag, source) = (tag?, source?);
+    let tag = check_attr(line, TN, "tag", tag)?;
+    let source = check_attr(line, TN, "src", source)?;
 
     parser.with(
         &tag,
-        Box::new(move |_, parameters| {
+        Box::new(move |_tree_parser, _line, parameters| {
             Ok(Some(node_box(ViewLoader {
                 source: source.clone(),
                 parameters: parameters.to_vec(),
@@ -428,8 +444,8 @@ impl Node for Spacer {
 /// [`Event::QuickAction1`](`crate::node::Event::QuickAction1`).
 /// See [`Application::add_handler`] to set event handlers up.
 ///
-pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<NodeBox>, String> {
-    container(Axis::Vertical, attributes)
+pub fn v_container(_: &mut TreeParser, line: usize, attributes: Vec<Attribute>) -> Result<Option<NodeBox>, ()> {
+    container(Axis::Vertical, line, attributes)
 }
 
 /// XML tag for horizontal containers.
@@ -474,8 +490,8 @@ pub fn v_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 /// [`Event::QuickAction1`](`crate::node::Event::QuickAction1`).
 /// See [`Application::add_handler`] to set event handlers up.
 ///
-pub fn h_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<NodeBox>, String> {
-    container(Axis::Horizontal, attributes)
+pub fn h_container(_: &mut TreeParser, line: usize, attributes: Vec<Attribute>) -> Result<Option<NodeBox>, ()> {
+    container(Axis::Horizontal, line, attributes)
 }
 
 /// XML tag for a spacer.
@@ -490,9 +506,9 @@ pub fn h_container(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Optio
 ///
 /// These tags allow no attributes.
 ///
-pub fn spacer(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<NodeBox>, String> {
+pub fn spacer(_: &mut TreeParser, line: usize, attributes: Vec<Attribute>) -> Result<Option<NodeBox>, ()> {
     for Attribute { name, .. } in attributes {
-        Err(format!("unexpected attribute: {}", name))?;
+        unexpected_attr(line, "inflate", &name)?;
     }
 
     Ok(Some(node_box(Spacer {
@@ -500,8 +516,9 @@ pub fn spacer(_: &mut TreeParser, attributes: &[Attribute]) -> Result<Option<Nod
     })))
 }
 
-fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<NodeBox>, String> {
-    let mut policy = Err(String::from("missing policy attribute"));
+fn container(axis: Axis, line: usize, attributes: Vec<Attribute>) -> Result<Option<NodeBox>, ()> {
+    const TN: &'static str = "x/y";
+    let mut policy = None;
     let mut margin = None;
     let mut radius = None;
     let mut normal_style = None;
@@ -509,49 +526,55 @@ fn container(axis: Axis, attributes: &[Attribute]) -> Result<Option<NodeBox>, St
     let mut on_click = None;
     let mut gap = 0;
 
+    let parse = |line, name: &str, value: &str| -> Result<f64, ()> {
+        value
+            .parse()
+            .map_err(|_| invalid_attr_val(line, TN, name, value))
+    };
+
     for Attribute { name, value } in attributes {
         match name.as_str() {
-            "on-click" => on_click = Some(value.clone()),
-            "margin" => margin = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
-            "radius" => radius = Some(value.parse().map_err(|_| format!("bad value: {}", value))?),
-            "gap" => gap = value.parse().map_err(|_| format!("bad value: {}", value))?,
+            "on-click" => on_click = Some(value),
+            "margin" => margin = Some(parse(line, &name, &value)? as usize),
+            "radius" => radius = Some(parse(line, &name, &value)? as usize),
+            "gap" => gap = parse(line, &name, &value)? as usize,
             "fixed" => {
-                policy = Ok(LengthPolicy::Fixed(
-                    value.parse().map_err(|_| format!("bad value: {}", value))?,
+                policy = Some(LengthPolicy::Fixed(
+                    parse(line, &name, &value)? as usize,
                 ))
             },
             "rem" => {
-                policy = Ok(LengthPolicy::Remaining(
-                    value.parse().map_err(|_| format!("bad value: {}", value))?,
+                policy = Some(LengthPolicy::Remaining(
+                    parse(line, &name, &value)?,
                 ))
             },
             "chunks" => {
-                policy = Ok(LengthPolicy::Chunks(
-                    value.parse().map_err(|_| format!("bad value: {}", value))?,
+                policy = Some(LengthPolicy::Chunks(
+                    parse(line, &name, &value)? as usize,
                 ))
             },
             "ratio" => {
-                policy = Ok(LengthPolicy::AspectRatio(
-                    value.parse().map_err(|_| format!("bad value: {}", value))?,
+                policy = Some(LengthPolicy::AspectRatio(
+                    parse(line, &name, &value)?,
                 ))
             },
-            "wrap" => policy = Ok(LengthPolicy::WrapContent),
+            "wrap" => policy = Some(LengthPolicy::WrapContent),
             "style" => {
                 let s = style_index(&value).ok_or(());
-                normal_style = Some(s.map_err(|_| format!("unknown style: {}", value))?)
+                normal_style = Some(s.map_err(|_| invalid_attr_val(line, TN, &name, &value))?)
             },
             "focus" => {
                 let s = style_index(&value).ok_or(());
-                focus_style = Some(s.map_err(|_| format!("unknown style: {}", value))?)
+                focus_style = Some(s.map_err(|_| invalid_attr_val(line, TN, &name, &value))?)
             },
-            _ => Err(format!("unexpected attribute: {}", name))?,
+            _ => unexpected_attr(line, TN, &name)?,
         }
     }
 
     let spot_size = Size::zero();
     let container = node_box(Container {
         children: Vec::new(),
-        policy: policy?,
+        policy: check_attr(line, "x/y", "fixed/rem/chunks/wrap/ratio", policy)?,
         on_click,
         spot_size,
         margin,

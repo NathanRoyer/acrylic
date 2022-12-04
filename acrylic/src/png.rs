@@ -14,11 +14,7 @@ use crate::Size;
 use crate::Status;
 
 #[cfg(feature = "xml")]
-use crate::xml::unexpected_attr;
-#[cfg(feature = "xml")]
-use crate::xml::Attribute;
-#[cfg(feature = "xml")]
-use crate::xml::TreeParser;
+use crate::xml::{unexpected_attr, check_attr, Attribute, TreeParser};
 
 use png::ColorType;
 use png::Decoder;
@@ -85,7 +81,7 @@ impl Node for PngLoader {
         String::from("Loading PNG image...")
     }
 
-    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), ()> {
         app.data_requests.push(DataRequest {
             node: path.to_vec(),
             name: self.source.clone(),
@@ -121,16 +117,20 @@ impl Node for PngLoader {
 #[cfg(feature = "xml")]
 pub fn xml_load_png(
     _: &mut TreeParser,
-    attributes: &[Attribute],
-) -> Result<Option<NodeBox>, String> {
-    let mut source = Err(String::from("missing src attribute"));
+    line: usize,
+    attributes: Vec<Attribute>,
+) -> Result<Option<NodeBox>, ()> {
+    const TN: &'static str = "png";
+    let mut source = None;
 
     for Attribute { name, value } in attributes {
         match name.as_str() {
-            "src" => source = Ok(value.clone()),
-            _ => unexpected_attr(&name)?,
+            "src" => source = Some(value),
+            _ => unexpected_attr(line, TN, &name)?,
         }
     }
 
-    Ok(Some(node_box(PngLoader { source: source? })))
+    let source = check_attr(line, TN, "src", source)?;
+
+    Ok(Some(node_box(PngLoader { source })))
 }

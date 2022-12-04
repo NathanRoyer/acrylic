@@ -12,12 +12,10 @@ use crate::node::NodePathSlice;
 use crate::node::NodeBox;
 use crate::bitmap::RGBA;
 use crate::status;
-use crate::PlatformLog;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
 use crate::Status;
-use crate::format;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -29,6 +27,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hashbrown::hash_map::HashMap;
+
+use log::info;
+use log::debug;
+use log::error;
 
 #[cfg(feature = "text")]
 use crate::font::GlyphCache;
@@ -101,11 +103,6 @@ pub struct Application {
     /// which currently has user focus.
     pub focus: Option<(Point, NodePath)>,
 
-    /// A platform-specific function which allows logging
-    /// messages. Do not use it directly, prefer the
-    /// [`Application::log`] method.
-    pub platform_log: PlatformLog,
-
     /// The platform can set the theme to use via the
     /// [`Application::set_theme`] method.
     pub theme: Theme,
@@ -145,19 +142,16 @@ impl Application {
     ///
     /// ```rust
     /// use platform::app;
-    /// use platform::log;
-    /// use platform::blit;
     /// use acrylic::app::Application;
     /// use acrylic::xml::ViewLoader;
     ///
     /// app!("./", {
     ///     let loader = ViewLoader::new("default.xml");
-    ///     let mut app = Application::new(&log, &blit, (), loader);
+    ///     let mut app = Application::new((), loader);
     ///     app
     /// });
     /// ```
     pub fn new<M: Any + 'static>(
-        log: PlatformLog,
         model: M,
         view: impl Node,
     ) -> Self {
@@ -179,7 +173,6 @@ impl Application {
             should_recompute: true,
             debug_containers: false,
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
-            platform_log: log,
             focus: None,
             instance_age_ms: 0,
         };
@@ -510,7 +503,7 @@ impl Application {
             }
             spot.blit(&cache, false);
             if let Err(()) = node.store_cache(layer, cache) {
-                panic!("{} does not implement Node::render_cache", node.describe());
+                error!("{} does not implement Node::render_cache", node.describe());
             }
         } else {
             node.render(layer, self, path, style, spot, scratch).unwrap();
@@ -587,7 +580,7 @@ impl Application {
         let mut count = 0;
         while count < 5 {
             if self.should_recompute {
-                self.log("recomputing layout");
+                debug!("recomputing layout");
                 let fb_size = self.fb_size;
                 if let Some(view) = self.view.as_mut() {
                     let mut sizes = Vec::new();
@@ -608,7 +601,7 @@ impl Application {
             }
 
             if self.tick_node(scratch, &mut path, 0).unwrap() {
-                // self.log("render");
+                debug!("render");
                 spot.fill([0; RGBA], false);
                 self.render_node(spot, scratch, &mut path, 0).unwrap();
             }
@@ -633,12 +626,12 @@ impl Application {
         result
     }
 
-    pub fn initialize_node(&mut self, path: &mut NodePath) -> Result<(), String> {
+    pub fn initialize_node(&mut self, path: &mut NodePath) -> Result<(), ()> {
         if let Some(mut node) = self.kidnap_node(path) {
             node.initialize(self, path)?;
             let children = node.children().len();
             if let Err(()) = self.restore_node(path, node) {
-                self.log("node has replaced itself");
+                info!("node has replaced itself");
                 return Ok(());
             }
             for i in 0..children {
@@ -648,12 +641,7 @@ impl Application {
             }
             Ok(())
         } else {
-            Err(format!("App::initialize_node: invalid path ({:?})", path))
+            Err(error!("App::initialize_node: invalid path ({:?})", path))
         }
-    }
-
-    /// Anyone can use this method to log messages.
-    pub fn log(&self, message: &str) {
-        (self.platform_log)(message)
     }
 }

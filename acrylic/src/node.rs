@@ -5,11 +5,13 @@ use bitflags::bitflags;
 use crate::app::Application;
 use crate::app::ScratchBuffer;
 use crate::flexbox::Cursor;
-use crate::format;
 use crate::Point;
 use crate::Size;
 use crate::Spot;
 use crate::Status;
+
+use log::info;
+use log::error;
 
 use core::any::Any;
 use core::fmt::Debug;
@@ -244,7 +246,7 @@ pub trait Node: Debug + Any {
         path: NodePathSlice,
         event: &Event,
     ) -> Result<Option<String>, ()> {
-        Err(())
+        Err(error!("Event {:?} was reportedly supported by `handle` wasn't implemented", event))
     }
 
     /// Once you add [`DataRequest`](`crate::app::DataRequest`)s to
@@ -260,7 +262,7 @@ pub trait Node: Debug + Any {
         offset: usize,
         data: &[u8],
     ) -> Status {
-        Err(())
+        Err(error!("\"{}\" was loaded but the dst node doesn't implement `loaded`", name))
     }
 
     /// When instanciating your object implementing [`Node`],
@@ -270,39 +272,39 @@ pub trait Node: Debug + Any {
     /// your node is attached to an app's view, to do such
     /// things.
     #[allow(unused)]
-    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), ()> {
         Ok(())
     }
 
     /// General-purpose containers must implement this method
     /// to receive children (for instance while parsing views).
     #[allow(unused)]
-    fn add_node(&mut self, child: NodeBox) -> Result<usize, String> {
-        Err(String::from("Not a container"))
+    fn add_node(&mut self, child: NodeBox) -> Result<usize, ()> {
+        Err(error!("add_node was called but not on a container"))
     }
 
     /// This method is called when a child of this node is to
     /// be replaced. All General-purpose containers must implement
     /// this.
     #[allow(unused)]
-    fn replace_node(&mut self, index: usize, child: NodeBox) -> Result<(), String> {
-        Err(String::from("Not a container"))
+    fn replace_node(&mut self, index: usize, child: NodeBox) -> Result<(), ()> {
+        Err(error!("replace_node was called but not on a container"))
     }
 
     /// This method is called during layout to report overflow
     /// in a container: there is too much content. The value
     /// is a length, in pixels, on the container's axis.
     #[allow(unused)]
-    fn set_overflow(&mut self, px_overflow: usize) -> Result<(), String> {
-        Err(String::from("Not a container"))
+    fn set_overflow(&mut self, px_overflow: usize) -> Result<(), ()> {
+        Err(error!("set_overflow was called but not on a container"))
     }
 
     /// This method is mainly called when the toolkit deals
     /// with scrollbars. You should report the value previously
     /// set by [`set_overflow`](Self::set_overflow).
     #[allow(unused)]
-    fn get_overflow(&self) -> Result<usize, String> {
-        Err(String::from("Not a container"))
+    fn get_overflow(&self) -> Result<usize, ()> {
+        Err(error!("get_overflow was called but not on a container"))
     }
 
     /// Nodes can report a margin to the layout algorithm
@@ -332,7 +334,7 @@ pub trait Node: Debug + Any {
     }
 
     fn render_cache(&mut self) -> Result<&mut RenderCache, ()> {
-        Err(())
+        Err(error!("Node doesn't implement `render_cache`"))
     }
 
     #[allow(unused)]
@@ -481,12 +483,12 @@ pub trait Node: Debug + Any {
     fn tree_log(&self, app: &Application, tabs: usize) {
         let prefix = "    ".repeat(tabs);
         let size = self.get_spot_size();
-        app.log(&format!("{}<{}> ({}x{})", prefix, self.describe(), size.w, size.h));
+        info!("{}<{}> ({}x{})", prefix, self.describe(), size.w, size.h);
         for child in self.children() {
             if let Some(child) = child {
                 child.tree_log(app, tabs + 1);
             } else {
-                app.log(&format!("{}    <kidnapped>", prefix));
+                info!("{}    <kidnapped>", prefix);
             }
         }
     }

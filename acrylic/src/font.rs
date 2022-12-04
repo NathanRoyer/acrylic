@@ -22,7 +22,6 @@ use crate::bitmap::Bitmap;
 use crate::bitmap::RGBA;
 
 use ttf_parser::OutlineBuilder;
-use ttf_parser::GlyphId;
 pub(crate) use ttf_parser::Face as Font;
 
 use vek::vec::Vec2;
@@ -113,7 +112,7 @@ pub fn try_get_glyph(
                         .ok_or("bad glyph: no horizontal side bearing")?;
 
     let h_advance = (h_advance as f32) / scaler;
-    let h_bearing = crate::round!((h_bearing as f32) / scaler, f32, usize);
+    let _h_bearing = crate::round!((h_bearing as f32) / scaler, f32, usize);
 
     let base = Vec2 {
         x: h_advance,
@@ -136,11 +135,11 @@ pub fn try_get_glyph(
         let h_kern = kerning_subtable.iter()
             .find_map(|st| st.glyphs_kerning(glyph_id, gid2));
         if let Some(k) = h_kern {
-            _app.log(&crate::format!("{} + {}: k={}", c, c2, k));
+            info!("{} + {}: k={}", c, c2, k);
         }
     }*/
 
-    // app.log(&crate::format!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16));
+    // debug!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16);
     let margin = Margin {
         top: 0,
         bottom: 0,
@@ -156,7 +155,7 @@ pub fn try_get_glyph(
         font.outline_glyph(glyph_id, &mut outline)
             .ok_or("Couldn't outline glyph")?;
         let segments = outline.finish();
-        // _app.log(&crate::format!("{:?}", &segments));
+        // debug!("{:?}", &segments);
 
         let size = Size::new(h_advance, height);
         let mut bmp = Bitmap::new(size, RGBA, None);

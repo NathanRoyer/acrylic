@@ -1,6 +1,6 @@
 [package]
 name = "acrylic-wayland"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "compile acrylic apps for wayland environments"
@@ -12,7 +12,8 @@ readme = "../README.md"
 
 [dependencies]
 wayland-client = "0.29.4"
+simple_logger = "4.0.0"
 wayland-protocols = { version = "0.29.4", features = [ "client" ] }
 tempfile = "3.3.0"
 memmap = "0.7.0"
-acrylic = { version = "0.2.1", path = "../acrylic" }
+acrylic = { version = "0.2.2", path = "../acrylic" }

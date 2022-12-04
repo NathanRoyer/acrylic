@@ -55,10 +55,6 @@ function raw_set_buffer_address(framebuffer) {
     fb_address = framebuffer;
 }
 
-function raw_log(s, l) {
-    console.log(getString(s, l));
-}
-
 function raw_is_request_pending() {
     return pendingRequest === null ? 0 : 1;
 }
@@ -141,11 +137,16 @@ function frame() {
 }, 10000);*/
 
 const env = {
-    raw_log,
+    raw_error: (s, l) => console.error(getString(s, l)),
+    raw_warn: (s, l) => console.warn(getString(s, l)),
+    raw_info: (s, l) => console.info(getString(s, l)),
+    raw_debug: (s, l) => console.debug(getString(s, l)),
+    raw_trace: (s, l) => console.trace(getString(s, l)),
     raw_set_buffer_address,
     raw_is_request_pending,
     raw_set_request_url_prefix,
     raw_set_request_url,
+    now: Date.now,
 };
 
 function startWasm(file, debug) {

@@ -1,6 +1,6 @@
 [package]
 name = "acrylic-web"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "acrylic apps as webapps"
@@ -11,4 +11,5 @@ repository = "https://github.com/NathanRoyer/acrylic"
 readme = "../README.md"
 
 [dependencies]
-acrylic = { version = "0.2.1", path = "../acrylic" }
+acrylic = { version = "0.2.2", path = "../acrylic" }
+log = "0.4.17"

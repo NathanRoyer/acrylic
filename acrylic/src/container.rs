@@ -18,6 +18,9 @@ use crate::node::Axis;
 use crate::Size;
 use crate::Spot;
 
+use log::error;
+use log::warn;
+
 use core::any::Any;
 use core::fmt::Debug;
 
@@ -25,15 +28,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 #[cfg(feature = "railway")]
-use crate::railway::arg;
+use crate::railway::{arg, LoadedRailwayProgram};
+
 #[cfg(feature = "railway")]
-use crate::railway::LoadedRailwayProgram;
-#[cfg(feature = "railway")]
-use railway::Couple;
+use railway::{Couple, Program};
+
 #[cfg(feature = "railway")]
 use lazy_static::lazy_static;
-#[cfg(feature = "railway")]
-use railway::Program;
 
 #[cfg(feature = "railway")]
 lazy_static! {
@@ -163,7 +164,7 @@ impl Node for Container {
                 if let Some((pixels, pitch)) = spot.get(false) {
                     rwy.render(scratch, pixels, pitch, size)?;
                 } else {
-                    _app.log(&crate::format!("couldn't get spot: {:?}", spot));
+                    warn!("couldn't get spot: {:?}", spot);
                 }
             }
         }
@@ -224,18 +225,19 @@ impl Node for Container {
         self.policy
     }
 
-    fn add_node(&mut self, child: NodeBox) -> Result<usize, String> {
+    fn add_node(&mut self, child: NodeBox) -> Result<usize, ()> {
         let index = self.children.len();
         self.children.push(Some(child));
         Ok(index)
     }
 
-    fn replace_node(&mut self, index: usize, child: NodeBox) -> Result<(), String> {
-        match self.children.get_mut(index) {
-            Some(addr) => *addr = Some(child),
-            None => Err(String::from("No such child :|"))?,
-        };
-        Ok(())
+    fn replace_node(&mut self, index: usize, child: NodeBox) -> Result<(), ()> {
+        if let Some(addr) = self.children.get_mut(index) {
+            *addr = Some(child);
+            Ok(())
+        } else {
+            Err(error!("Container::replace_node: No such child :|"))
+        }
     }
 
     fn style_override(&self) -> Option<usize> {

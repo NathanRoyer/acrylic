@@ -3,7 +3,6 @@
 use crate::app::DataRequest;
 use crate::app::Application;
 use crate::app::ScratchBuffer;
-use crate::format;
 use crate::geometry::aspect_ratio;
 use crate::node::node_box;
 use crate::node::RenderCache;
@@ -17,11 +16,9 @@ use crate::Spot;
 use crate::Status;
 
 #[cfg(feature = "xml")]
-use crate::xml::unexpected_attr;
-#[cfg(feature = "xml")]
-use crate::xml::Attribute;
-#[cfg(feature = "xml")]
-use crate::xml::TreeParser;
+use crate::xml::{unexpected_attr, check_attr, Attribute, TreeParser};
+
+use log::error;
 
 use railway::Couple;
 use railway::Program;
@@ -33,12 +30,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Resolves an argument to an address in a railway program.
-pub fn arg(program: &Program, name: &str, mandatory: bool) -> Result<usize, Option<String>> {
+pub fn arg(program: &Program, name: &str, mandatory: bool) -> Result<usize, ()> {
     match program.argument(name) {
         Some(addr) => Ok(addr as usize),
         None => Err(match mandatory {
-            true => Some("Missing {} in railway file".into()),
-            false => None,
+            true => error!("Missing {} in railway file", name),
+            false => (),
         }),
     }
 }
@@ -102,17 +99,19 @@ pub struct RailwayNode {
 
 impl RailwayNode {
     /// Parse and create a railway node.
-    pub fn new(bytes: &[u8]) -> Result<Self, String> {
-        let program = match Program::parse(bytes) {
-            Ok(p) => p,
-            Err(e) => Err(format!("{:?}", e))?,
-        };
+    pub fn new(bytes: &[u8]) -> Result<Self, ()> {
+        let program = Program::parse(bytes)
+            .map_err(|e| error!("RailwayNode::parse: {:?}", e))?;
+
         let stack = program.create_stack();
-        program.valid().ok_or(format!("Invalid railway file"))?;
-        let size_arg = arg(&program, "size", true).map_err(|o| o.unwrap())?;
+
+        program.valid().ok_or_else(|| error!("RailwayNode::new: Invalid railway file"))?;
+
+        let size_arg = arg(&program, "size", true)?;
         let time_arg = arg(&program, "time", false).ok();
         let size = stack[size_arg];
         let ratio = aspect_ratio(size.x as usize, size.y as usize);
+
         Ok(Self {
             lrp: LoadedRailwayProgram {
                 program,
@@ -215,7 +214,7 @@ impl Node for RailwayLoader {
         String::from("Loading railway file...")
     }
 
-    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), String> {
+    fn initialize(&mut self, app: &mut Application, path: NodePathSlice) -> Result<(), ()> {
         app.data_requests.push(DataRequest {
             node: path.to_vec(),
             name: self.source.clone(),
@@ -232,13 +231,7 @@ impl Node for RailwayLoader {
         _: usize,
         data: &[u8],
     ) -> Status {
-        let railway = match RailwayNode::new(data) {
-            Err(s) => {
-                app.log(&format!("[rwy] loading error: {}", s));
-                return Err(());
-            }
-            Ok(r) => r,
-        };
+        let railway = RailwayNode::new(data)?;
 
         app.replace_kidnapped(path, node_box(railway));
         Ok(())
@@ -259,16 +252,20 @@ impl Node for RailwayLoader {
 #[cfg(feature = "xml")]
 pub fn xml_load_railway(
     _: &mut TreeParser,
-    attributes: &[Attribute],
-) -> Result<Option<NodeBox>, String> {
-    let mut source = Err(String::from("missing src attribute"));
+    line: usize,
+    attributes: Vec<Attribute>,
+) -> Result<Option<NodeBox>, ()> {
+    const TN: &'static str = "rwy";
+    let mut source = None;
 
     for Attribute { name, value } in attributes {
         match name.as_str() {
-            "src" => source = Ok(value.clone()),
-            _ => unexpected_attr(&name)?,
+            "src" => source = Some(value),
+            _ => unexpected_attr(line, TN, &name)?,
         }
     }
 
-    Ok(Some(node_box(RailwayLoader { source: source? })))
+    let source = check_attr(line, TN, "src", source)?;
+
+    Ok(Some(node_box(RailwayLoader { source })))
 }

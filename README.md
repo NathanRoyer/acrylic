@@ -86,13 +86,12 @@ You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png)
 
 ```rust
 use platform::app;
-use platform::log;
 use acrylic::app::Application;
 use acrylic::xml::ViewLoader;
 
 app!("assets/", {
     let loader = ViewLoader::new("default.xml");
-    Application::new(log, (), loader)
+    Application::new((), loader)
 });
 ```
 
@@ -119,6 +118,24 @@ platform = { package = "acrylic-web", version = "0.2.0" }
 
 ```bash
 cargo build --target wasm32-unknown-unknown
+```
+
+#### Install a web server
+
+`httpserv` is tiny and good enough for this demo.
+
+```bash
+cargo install httpserv
+```
+
+#### Start the web server
+
+```bash
+# normal start:
+httpserv
+
+# quiet + in the background
+httpserv > /dev/null &
 ```
 
 Then open http://localhost:8080/#release

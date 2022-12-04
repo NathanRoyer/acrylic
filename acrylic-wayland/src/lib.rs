@@ -25,6 +25,8 @@ use wayland_protocols::xdg_shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::Event as XdgWmBaseEvent;
 use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 
+use simple_logger::SimpleLogger;
+
 use acrylic::app::Application;
 use acrylic::bitmap::RGBA;
 use acrylic::Point;
@@ -226,6 +228,8 @@ impl WaylandApp {
 }
 
 pub fn run(app: Application, assets: &str) {
+    SimpleLogger::new().init().unwrap();
+
     let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
     while !app.closed {
         event_queue
@@ -248,8 +252,4 @@ macro_rules! app {
             platform::run($init, $path);
         }
     };
-}
-
-pub fn log(message: &str) {
-    println!("{}", message);
 }
