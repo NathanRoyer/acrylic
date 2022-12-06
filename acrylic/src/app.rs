@@ -491,6 +491,7 @@ impl Application {
                 Some(cache) => cache,
                 None => Vec::new(),
             };
+
             {
                 let (_, size, margin) = spot.window;
                 cache.resize(size.w * size.h * RGBA, 0);
@@ -501,6 +502,7 @@ impl Application {
                 };
                 node.render(layer, self, path, style, &mut tmp_spot, scratch).unwrap();
             }
+
             spot.blit(&cache, false);
             if let Err(()) = node.store_cache(layer, cache) {
                 error!("{} does not implement Node::render_cache", node.describe());
@@ -508,6 +510,7 @@ impl Application {
         } else {
             node.render(layer, self, path, style, spot, scratch).unwrap();
         }
+
         self.restore_node(path, node).unwrap();
         Ok(())
     }

@@ -1,25 +1,6 @@
-//! FontConfig, GlyphNode, Outline, get_glyph, GlyphCache
+//! FontConfig, Outline, get_glyph, GlyphCache
 
-use crate::app::Application;
-use crate::app::ScratchBuffer;
-use crate::style::Color;
-use crate::node::node_box;
-use crate::node::NodeBox;
-use crate::node::Node;
-use crate::node::NodePathSlice;
-use crate::node::RenderCache;
-use crate::node::RenderReason;
-use crate::node::LayerCaching;
-use crate::node::Margin;
-use crate::node::LengthPolicy;
-use crate::text::Placeholder;
-use crate::Spot;
 use crate::Size;
-
-use crate::bitmap::aspect_ratio_with_m;
-use crate::bitmap::blit_rgba;
-use crate::bitmap::Bitmap;
-use crate::bitmap::RGBA;
 
 use ttf_parser::OutlineBuilder;
 pub(crate) use ttf_parser::Face as Font;
@@ -33,15 +14,17 @@ use wizdraw::fill;
 
 use hashbrown::hash_map::HashMap;
 
-use core::any::Any;
+use log::error;
 
-use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use alloc::sync::Arc;
 
 /// 1/100 of a value
 pub type Hundredth = usize;
+
+/// An index into the app's fonts
+pub type FontIndex = usize;
 
 /// Specifies a font variant
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
@@ -56,228 +39,65 @@ pub struct FontConfig {
 
 /// A cache of rendered glyphs
 ///
-/// Key is `(font_index, px_height, color, config, character)`.
-pub type GlyphCache = HashMap<(usize, usize, Color, FontConfig, char), Arc<Bitmap>>;
+/// Key is `(font_index, font_size, config, character)`
+/// Value is `(size, pixel mask)`.
+pub type GlyphCache = HashMap<(usize, usize, FontConfig, char), Arc<(Size, Vec<u8>)>>;
 
 /// Used internally to obtain a rendered glyph
 /// from the font, which is then kept in cache.
 ///
 /// Returns a placeholder if the glyph cannot be
 /// obtained.
-pub fn get_glyph(
+pub fn get_glyph_mask(
+    glyph: char,
     font: &Font,
-    font_index: usize,
-    glyphs: &mut GlyphCache,
-    c: char,
-    _next: Option<char>,
-    rdr_cfg: Option<(usize, Color)>,
-    _char_cfg: FontConfig,
-) -> NodeBox {
-    match try_get_glyph(font, font_index, glyphs, c, _next, rdr_cfg, _char_cfg) {
-        Ok(glyph) => glyph,
-        Err(_error) => {
-            // todo: log _error
-            node_box(Placeholder {
-                ratio: 0.0,
-                spot_size: Size::zero(),
-            })
+    font_config: FontConfig,
+    font_size: usize,
+    next_glyph: Option<char>,
+) -> (Size, Vec<u8>) {
+    match try_get_glyph_mask(glyph, font, font_config, font_size, next_glyph) {
+        Ok(mask) => mask,
+        Err(error) => {
+            error!("try_get_glyph_mask: {}", error);
+
+            // return an opaque square
+            (Size::new(font_size, font_size), vec![255; font_size * font_size])
         },
     }
 }
 
 /// Used internally to obtain a rendered glyph
 /// from the font, which is then kept in cache.
-pub fn try_get_glyph(
+pub fn try_get_glyph_mask(
+    glyph: char,
     font: &Font,
-    font_index: usize,
-    glyphs: &mut GlyphCache,
-    c: char,
-    _next: Option<char>,
-    rdr_cfg: Option<(usize, Color)>,
-    _char_cfg: FontConfig,
-) -> Result<NodeBox, &'static str> {
-    let (height, color) = rdr_cfg.ok_or("no rendering config yet")?;
+    _font_config: FontConfig,
+    font_size: usize,
+    _next_glyph: Option<char>,
+) -> Result<(Size, Vec<u8>), &'static str> {
+    let glyph_id = font.glyph_index(glyph).ok_or("can't find glyph in font")?;
 
-    let key = (font_index, height, color, _char_cfg, c);
-
-    let glyph_id = font.glyph_index(c).ok_or("can't find glyph in font")?;
     let font_height = font.height();
-    let scaler = (font_height as f32) / (height as f32);
+    let scaler = (font_height as f32) / (font_size as f32);
 
-    // if let rect = font.glyph_bounding_box(glyph_id).ok_or();
     let h_advance = font.glyph_hor_advance(glyph_id)
                         .ok_or("bad glyph: no horizontal advance")?;
 
-    let h_bearing = font.glyph_hor_side_bearing(glyph_id)
-                        .ok_or("bad glyph: no horizontal side bearing")?;
-
     let h_advance = (h_advance as f32) / scaler;
-    let _h_bearing = crate::round!((h_bearing as f32) / scaler, f32, usize);
-
-    let base = Vec2 {
-        x: h_advance,
-        y: font.ascender() as f32,
-    };
-
+    let size_vec2 = Vec2::new(h_advance, font.ascender() as f32);
     let h_advance = crate::round!(h_advance, f32, usize);
+    let size = Size::new(h_advance, font_size);
 
-    // kerning is not supported yet
-    // but some work have been done to ease its support
-    /*if let Some(c2) = _next {
-        let kerning_subtable: Vec<_> = font
-            .tables()
-            .kern
-            .iter()
-            .flat_map(|c| c.subtables)
-            .filter(|st| st.horizontal)
-            .collect();
-        let gid2 = font.glyph_index(c).unwrap_or(GlyphId(0));
-        let h_kern = kerning_subtable.iter()
-            .find_map(|st| st.glyphs_kerning(glyph_id, gid2));
-        if let Some(k) = h_kern {
-            info!("{} + {}: k={}", c, c2, k);
-        }
-    }*/
+    let mut outline = Outline::new(size_vec2, scaler);
+    font.outline_glyph(glyph_id, &mut outline)
+        .ok_or("Couldn't outline glyph")?;
+    let segments = outline.finish();
 
-    // debug!("{}: lsb={} rsb={} scaler={}", c, lsb_scaled, rsb, scaler as i16);
-    let margin = Margin {
-        top: 0,
-        bottom: 0,
-        left: 0,
-        right: 0,
-    };
+    let mut mask = vec![0; size.w * size.h];
+    let size_vec2 = Vec2::new(size.w, size.h);
+    fill::<_, 4>(&segments, &mut mask, size_vec2);
 
-    let bitmap;
-    if let Some(cached_bmp) = glyphs.get(&key) {
-        bitmap = cached_bmp.clone();
-    } else {
-        let mut outline = Outline::new(base, scaler);
-        font.outline_glyph(glyph_id, &mut outline)
-            .ok_or("Couldn't outline glyph")?;
-        let segments = outline.finish();
-        // debug!("{:?}", &segments);
-
-        let size = Size::new(h_advance, height);
-        let mut bmp = Bitmap::new(size, RGBA, None);
-        let mut mask = vec![0; size.w * size.h];
-        let m_size = Vec2::from((size.w, size.h));
-        fill::<_, 4>(&segments, &mut mask, m_size);
-        {
-            let pixels = bmp.pixels.as_mut_slice();
-            for y in 0..size.h {
-                for x in 0..size.w {
-                    let m_i = y * size.w + x;
-                    let p = m_i * RGBA;
-                    let pixel = &mut pixels[p..];
-                    pixel[..3].copy_from_slice(&color[..3]);
-                    pixel[3] = mask[m_i];
-                }
-                if false {
-                    // debug left bitmap boundary
-                    let p = y * size.w * RGBA;
-                    let pixel = &mut pixels[p..];
-                    pixel[3] = 255;
-                }
-            }
-        }
-        // bmp.update_cache(size, true);
-        bitmap = Arc::new(bmp);
-        glyphs.insert(key, bitmap.clone());
-    }
-
-    Ok(node_box(GlyphNode {
-        bitmap,
-        spot_size: Size::zero(),
-        margin: Some(margin),
-        render_cache: [None, None],
-        render_reason: RenderReason::Resized,
-    }))
-}
-
-/// A single glyph. The underlying bitmap is shared
-/// among all instances of that glyph.
-#[derive(Debug, Clone)]
-pub struct GlyphNode {
-    pub bitmap: Arc<Bitmap>,
-    pub spot_size: Size,
-    pub margin: Option<Margin>,
-    pub render_cache: RenderCache,
-    pub render_reason: RenderReason,
-}
-
-impl Node for GlyphNode {
-    fn tick(
-        &mut self,
-        _app: &mut Application,
-        _path: NodePathSlice,
-        _style: usize,
-        _scratch: ScratchBuffer,
-    ) -> Result<bool, ()> {
-        self.render_reason.downgrade();
-        Ok(self.render_reason.is_valid())
-    }
-
-    fn render_foreground(
-        &mut self,
-        _app: &mut Application,
-        _path: NodePathSlice,
-        _style: usize,
-        spot: &mut Spot,
-        _scratch: ScratchBuffer,
-    ) -> Result<(), ()> {
-        if self.render_reason.is_valid() {
-            blit_rgba::<true, 2>(
-                &self.bitmap.pixels,
-                self.bitmap.channels,
-                self.bitmap.size,
-                spot,
-            );
-        }
-        Ok(())
-    }
-
-    fn validate_spot_size(&mut self, _: Size) {
-        self.render_reason = RenderReason::Resized;
-    }
-
-    fn render_cache(&mut self) -> Result<&mut RenderCache, ()> {
-        Ok(&mut self.render_cache)
-    }
-
-    fn layers_to_cache(&self) -> LayerCaching {
-        LayerCaching::FOREGROUND
-    }
-
-    /// Nodes can report a margin to the layout algorithm
-    /// via this method.
-    fn margin(&self) -> Option<Margin> {
-        self.margin
-    }
-
-    fn policy(&self) -> LengthPolicy {
-        let ratio = aspect_ratio_with_m(self.bitmap.size, self.margin);
-        LengthPolicy::AspectRatio(ratio)
-    }
-
-    fn get_spot_size(&self) -> Size {
-        self.spot_size
-    }
-
-    fn set_spot_size(&mut self, size: Size) {
-        self.spot_size = size;
-    }
-
-    fn describe(&self) -> String {
-        String::from("Glyph")
-    }
-
-    fn please_clone(&self) -> NodeBox {
-        node_box(self.clone())
-    }
-
-    fn as_any(&mut self) -> &mut dyn Any {
-        self
-    }
+    Ok((size, mask))
 }
 
 pub struct Outline {
