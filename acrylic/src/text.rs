@@ -37,6 +37,8 @@ use alloc::sync::Arc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+const APPLY_SIDE_BEARING: bool = false;
+
 /// A wrapping container for glyphs which should
 /// not be separated.
 pub struct Unbreakable {
@@ -116,36 +118,45 @@ impl Node for Unbreakable {
             let (top_left, window, margin) = spot.window;
 
             let mut cursor = 0;
+            let mut first_glyph = true;
             for glyph in self.text.chars() {
                 let key = (self.font_index, font_size, self.font_config, glyph);
-                let glyph_mask;
 
                 if !app.glyph_cache.contains_key(&key) {
-                    glyph_mask = get_glyph_mask(glyph, &font, self.font_config, font_size, None);
+                    let glyph_mask = get_glyph_mask(glyph, &font, self.font_config, font_size, None);
                     app.glyph_cache.insert(key, Arc::new(glyph_mask));
                 }
 
-                let (size, mask) = app.glyph_cache.get(&key).unwrap().as_ref();
+                let (size, side_bearing, mask) = app.glyph_cache.get(&key).unwrap().as_ref();
 
-                let pos = Point::new(top_left.x + (cursor as isize), top_left.y);
+                if APPLY_SIDE_BEARING && !first_glyph {
+                    cursor -= side_bearing;
+                }
+
+                let pos = Point::new(top_left.x + cursor, top_left.y);
                 spot.set_window((pos, *size, None));
 
                 let mut src = &mask[..];
                 spot.for_each_line(false, |_, mut dst| {
                     for opacity in &src[..size.w] {
                         let opacity = *opacity as u32;
-                        dst[0] = color[0];
-                        dst[1] = color[1];
-                        dst[2] = color[2];
-                        dst[3] = ((color[3] as u32 * opacity) / 255) as u8;
+                        if opacity > 0 {
+                            dst[0] = color[0];
+                            dst[1] = color[1];
+                            dst[2] = color[2];
+                            dst[3] = ((color[3] as u32 * opacity) / 255) as u8;
+                        }
                         dst = &mut dst[RGBA..];
                     }
 
                     src = &src[size.w..];
                 });
 
-                cursor += size.w;
+                cursor += size.w as isize;
+                first_glyph = false;
             }
+
+            let cursor = cursor.try_into().unwrap_or(0);
 
             if self.width != cursor {
                 app.should_recompute = true;

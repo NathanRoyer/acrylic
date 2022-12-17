@@ -1,6 +1,7 @@
 //! FontConfig, Outline, get_glyph, GlyphCache
 
 use crate::Size;
+use crate::round;
 
 use ttf_parser::OutlineBuilder;
 pub(crate) use ttf_parser::Face as Font;
@@ -41,7 +42,7 @@ pub struct FontConfig {
 ///
 /// Key is `(font_index, font_size, config, character)`
 /// Value is `(size, pixel mask)`.
-pub type GlyphCache = HashMap<(usize, usize, FontConfig, char), Arc<(Size, Vec<u8>)>>;
+pub type GlyphCache = HashMap<(usize, usize, FontConfig, char), Arc<(Size, isize, Vec<u8>)>>;
 
 /// Used internally to obtain a rendered glyph
 /// from the font, which is then kept in cache.
@@ -54,14 +55,14 @@ pub fn get_glyph_mask(
     font_config: FontConfig,
     font_size: usize,
     next_glyph: Option<char>,
-) -> (Size, Vec<u8>) {
+) -> (Size, isize, Vec<u8>) {
     match try_get_glyph_mask(glyph, font, font_config, font_size, next_glyph) {
         Ok(mask) => mask,
         Err(error) => {
             error!("try_get_glyph_mask: {}", error);
 
             // return an opaque square
-            (Size::new(font_size, font_size), vec![255; font_size * font_size])
+            (Size::new(font_size, font_size), 0, vec![255; font_size * font_size])
         },
     }
 }
@@ -74,7 +75,7 @@ pub fn try_get_glyph_mask(
     _font_config: FontConfig,
     font_size: usize,
     _next_glyph: Option<char>,
-) -> Result<(Size, Vec<u8>), &'static str> {
+) -> Result<(Size, isize, Vec<u8>), &'static str> {
     let glyph_id = font.glyph_index(glyph).ok_or("can't find glyph in font")?;
 
     let font_height = font.height();
@@ -84,8 +85,14 @@ pub fn try_get_glyph_mask(
                         .ok_or("bad glyph: no horizontal advance")?;
 
     let h_advance = (h_advance as f32) / scaler;
+
+    let h_bearing = font.glyph_hor_side_bearing(glyph_id)
+                        .ok_or("bad glyph: no horizontal bearing")?;
+
+    let h_bearing = ((h_bearing as f32) / scaler).trunc() as isize;
+
     let size_vec2 = Vec2::new(h_advance, font.ascender() as f32);
-    let h_advance = crate::round!(h_advance, f32, usize);
+    let h_advance = round!(h_advance, f32, usize);
     let size = Size::new(h_advance, font_size);
 
     let mut outline = Outline::new(size_vec2, scaler);
@@ -95,9 +102,9 @@ pub fn try_get_glyph_mask(
 
     let mut mask = vec![0; size.w * size.h];
     let size_vec2 = Vec2::new(size.w, size.h);
-    fill::<_, 4>(&segments, &mut mask, size_vec2);
+    fill::<_, 6>(&segments, &mut mask, size_vec2);
 
-    Ok((size, mask))
+    Ok((size, h_bearing, mask))
 }
 
 pub struct Outline {
