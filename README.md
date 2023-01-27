@@ -71,7 +71,7 @@ Place it in `assets/`.
     <inflate />
     <y fixed="400" gap="10">
         <inflate />
-        <png src="ferris.png" />
+        <png src="rustacean-flat-happy.png" />
         <x fixed="40" gap="10">
             <inflate />
             <p txt="Rust rocks!" />
@@ -118,7 +118,7 @@ platform = { package = "acrylic-web", version = "0.2.0" }
 ### Building
 
 ```bash
-cargo build --target wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown
 ```
 
 #### Install a web server

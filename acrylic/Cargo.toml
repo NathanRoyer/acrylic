@@ -1,6 +1,6 @@
 [package]
 name = "acrylic"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "work-in-progress, easily portable, small, web-inspired UI toolkit"
