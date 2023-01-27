@@ -61,7 +61,8 @@ This is a **work-in-progress**, easily portable, small, web-inspired user interf
 
 ### An asset: ferris.png
 
-You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png)
+You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png).
+Place it in `assets/`.
 
 ### The view layout: default.xml
 
@@ -128,7 +129,14 @@ cargo build --target wasm32-unknown-unknown
 cargo install httpserv
 ```
 
+#### Download the HTML file which starts your app
+
+You can get it [here](https://raw.githubusercontent.com/NathanRoyer/acrylic/main/acrylic-web/index.html).
+Place it at the root of your project, next to the cargo manifest.
+
 #### Start the web server
+
+From the root of your project:
 
 ```bash
 # normal start:
