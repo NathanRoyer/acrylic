@@ -14,7 +14,8 @@
 //! 
 //! #### An asset: ferris.png
 //! 
-//! You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png)
+//! You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png).
+//! Place it in `assets/`.
 //! 
 //! #### The view layout: default.xml
 //! 
@@ -23,7 +24,7 @@
 //!     <inflate />
 //!     <y fixed="400" gap="10">
 //!         <inflate />
-//!         <png src="ferris.png" />
+//!         <png src="rustacean-flat-happy.png" />
 //!         <x fixed="40" gap="10">
 //!             <inflate />
 //!             <p txt="Rust rocks!" />
@@ -61,16 +62,16 @@
 //! path = "src/app.rs"
 //! 
 //! [dependencies]
-//! acrylic = "0.2.0"
+//! acrylic = "0.2.4"
 //! 
 //! # building for the web
-//! platform = { package = "acrylic-web", version = "0.2.0" }
+//! platform = { package = "acrylic-web", version = "0.2.4" }
 //! ```
 //! 
 //! #### Building
 //! 
 //! ```bash
-//! cargo build --target wasm32-unknown-unknown
+//! cargo build --release --target wasm32-unknown-unknown
 //! ```
 //! 
 //! #### Install a web server
@@ -81,7 +82,14 @@
 //! cargo install httpserv
 //! ```
 //! 
+//! #### Download the HTML file which starts your app
+//! 
+//! You can get it [here](https://raw.githubusercontent.com/NathanRoyer/acrylic/main/acrylic-web/index.html).
+//! Place it at the root of your project, next to the cargo manifest.
+//! 
 //! #### Start the web server
+//! 
+//! From the root of your project:
 //! 
 //! ```bash
 //! # normal start:
@@ -95,7 +103,7 @@
 //! 
 //! #### Expected Result
 //! 
-//! ![quickstart.png](https://docs.rs/crate/acrylic/0.2.1/source/quickstart.png)
+//! ![quickstart.png](https://docs.rs/crate/acrylic/0.2.3/source/quickstart.png)
 //! 
 //! ### app.rs code walkthrough
 //!

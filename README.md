@@ -39,8 +39,8 @@ This is a **work-in-progress**, easily portable, small, web-inspired user interf
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
 | web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | ☑ |
-| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ⏳ | ☑ |  |
-| x11 | coming soon |  |  |  |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ☑ | ☑ |  |
+| x11 |  |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
 | drmkms |  |  |  |  |
@@ -109,10 +109,10 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.2.0"
+acrylic = "0.2.4"
 
 # building for the web
-platform = { package = "acrylic-web", version = "0.2.0" }
+platform = { package = "acrylic-web", version = "0.2.4" }
 ```
 
 ### Building
@@ -150,7 +150,7 @@ Then open http://localhost:8080/#release
 
 ### Expected Result
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.1.22/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.2.3/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
