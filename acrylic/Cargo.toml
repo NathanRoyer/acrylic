@@ -1,0 +1,31 @@
+[package]
+name = "acrylic"
+version = "0.3.0"
+edition = "2021"
+authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
+description = "work-in-progress, easily portable, small, single-thread, web-inspired UI toolkit"
+license = "MIT"
+categories = [ "gui", "rendering", "graphics", "multimedia", "no-std" ]
+keywords = [ "toolkit", "gui", "ui", "xml", "no_std" ]
+repository = "https://github.com/NathanRoyer/acrylic"
+readme = "../README.md"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+static_assertions = "1.1.0"
+ttf-parser = "0.18.1"
+xmlparser = "0.13.5"
+hashbrown = "0.12.2"
+tinyvec = "1.6.0"
+oakwood = { path = "../../oakwood" } # "0.1.1"
+railway = "0.2.3"
+wizdraw = "1.1.3"
+fixed = "1.23.0"
+log = "0.4.17"
+rgb = "0.8.36"
+png = "0.17"
+
+serde_json = { version = "1.0.94", default-features = false, features = [ "alloc" ] }
+vek        = { version = "0.15.8", default-features = false }

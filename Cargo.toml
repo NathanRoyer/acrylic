@@ -1,0 +1,4 @@
+[workspace]
+members = [ "acrylic", "acrylic-web", "acrylic-wayland" ]
+default-members = [ "acrylic", "acrylic-web", "acrylic-wayland" ]
+resolver = "2"
