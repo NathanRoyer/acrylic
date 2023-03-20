@@ -28,7 +28,7 @@ use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
 use simple_logger::SimpleLogger;
 
 pub use acrylic::core::{app::Application, state::parse_state};
-use acrylic::core::rgb::{RGBA8, FromSlice as _};
+use acrylic::core::rgb::FromSlice as _;
 
 use tempfile::tempfile;
 
@@ -196,21 +196,15 @@ impl WaylandApp {
         /*let age = self.acrylic_app_dob.elapsed();
         self.acrylic_app.set_age(age.as_millis() as usize);*/
 
-        let no_request = self.acrylic_app.requested().is_none();
         while let Some(asset) = self.acrylic_app.requested() {
             println!("loading {}", asset);
             let data = read(&format!("{}{}", &self.assets, asset)).unwrap();
             self.acrylic_app.data_response(asset, data).unwrap();
         }
 
-        println!("rendering {:?}", self.size);
         let fb = self.frame_buffer.data.as_rgba_mut();
         self.acrylic_app.render(self.size, fb, 0, 0, 0, false);
         self.ready_to_draw = true;
-
-        if no_request {
-            self.closed = true;
-        }
     }
 
     pub fn request_frame(&mut self) {
