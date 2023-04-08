@@ -82,7 +82,7 @@ pub extern "C" fn alloc_response_bytes(len: usize) -> *const u8 {
 #[export_name = "process_response"]
 pub extern "C" fn process_response(app: &mut Application) {
     let data = unsafe { RESPONSE_BYTES.take().unwrap() };
-    app.data_response(app.requested().unwrap(), data).unwrap();
+    app.data_response(app.requested().unwrap(), data.into()).unwrap();
 }
 
 pub static mut MAIN_FB: Option<Vec<RGBA8>> = None;
@@ -107,7 +107,7 @@ pub extern "C" fn set_output_size(w: usize, h: usize) {
 #[export_name = "frame"]
 pub extern "C" fn frame(app: &mut Application, _age_ms: usize, mx: usize, my: usize, wheel_delta: isize, click: usize) {
     let (fb_size, fb, _scratch) = unsafe { (FB_SIZE, &mut MAIN_FB, &mut SCRATCH) };
-    app.render(fb_size, fb.as_mut().unwrap(), mx, my, wheel_delta, click != 0);
+    app.render(fb_size, fb.as_mut().unwrap(), mx, my, wheel_delta, click != 0).unwrap();
     ensure_pending_request(app);
 }
 
@@ -205,7 +205,7 @@ macro_rules! app {
         #[export_name = "init"]
         pub extern "C" fn init() -> &'static $crate::Application {
             platform::pre_init();
-            let app = $crate::Application::new($layout().into(), Vec::new());
+            let app = $crate::Application::new($layout().into(), []);
             platform::wasm_init($path, app)
         }
     };

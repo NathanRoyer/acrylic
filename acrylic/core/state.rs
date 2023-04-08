@@ -1,8 +1,7 @@
-use crate::{Error, error, CheapString, Hasher};
+use crate::{Error, error, CheapString, Hasher, HashMap};
 use super::app::Application;
 use super::visual::{Pixels, Ratio};
 use super::node::NodeKey;
-use hashbrown::HashMap;
 pub use serde_json::Value as StateValue;
 use core::{fmt::{self, Write}, write, str::Split, ops::Deref};
 
@@ -162,8 +161,13 @@ pub type StateFinder = for<'a> fn(
 
 pub type StateMasks = HashMap<NodeKey, StateFinder>;
 
-pub fn path_steps(path: &str) -> impl Iterator<Item = &str> {
-    path.split('.').filter(|v| v.len() > 0)
+pub fn path_steps(path: &str) -> impl Iterator<Item = StatePathStep> {
+    path.split('.').filter(|v| v.len() > 0).map(|s| {
+        match s.parse::<usize>() {
+            Ok(index) => StatePathStep::Index(index),
+            Err(_) => StatePathStep::Key(s),
+        }
+    })
 }
 
 struct CharCounter(usize);

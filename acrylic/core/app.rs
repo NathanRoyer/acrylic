@@ -1,23 +1,24 @@
 use super::xml::{XmlNodeTree, XML_MUTATOR};
 use super::visual::{Pixels, SignedPixels, Position, Size, write_framebuffer, constrain, Texture as _};
 use super::event::Event;
-use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, path_steps};
+use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, StatePathStep, path_steps};
 use super::node::{NodeTree, NodeKey};
-use super::layout::{compute_layout};
+use super::layout::compute_layout;
 use super::style::Theme;
 use super::rgb::RGBA8;
+use super::glyph::FONT_MUTATOR;
 use crate::builtin::png::PNG_MUTATOR;
 use crate::builtin::container::{INF_MUTATOR, CONTAINERS};
 use crate::builtin::textual::{LABEL_MUTATOR, PARAGRAPH_MUTATOR};
 use oakwood::{index, NodeKey as _};
-use hashbrown::HashMap;
-use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher};
-use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace};
+use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap};
+use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
 use super::for_each_child;
 
 index!(MutatorIndex, OptionalMutatorIndex);
 
-pub type Handler = fn(&mut Application, Event) -> Result<(), Error>;
+pub type Handler = fn(&mut Application, MutatorIndex, Event) -> Result<(), Error>;
+pub type Storage = Vec<Option<Box<dyn Any>>>;
 
 #[derive(Clone)]
 pub struct Mutator {
@@ -25,37 +26,69 @@ pub struct Mutator {
     pub xml_attr_set: Option<&'static [&'static str]>,
     pub xml_accepts_children: bool,
     pub handler: Handler,
-    pub storage: Option<Box<(/* Todo: storage trait: Any + Clone */)>>,
 }
 
 struct Request {
     asset: CheapString,
+    parse: bool,
     origin: NodeKey,
+}
+
+enum Asset {
+    Parsed,
+    Raw(Rc<[u8]>),
 }
 
 pub struct Application {
     pub root: NodeKey,
     pub view: NodeTree,
+    pub storage: Storage,
     pub xml_tree: XmlNodeTree,
-    pub state: StateValue,
-    pub state_masks: StateMasks,
-    pub monitors: HashMap<StatePathHash, Vec<NodeKey>>,
-    pub mutators: Vec<Mutator>,
-    pub must_check_layout: bool,
-    pub source_files: Vec<String>,
-    pub default_font_str: CheapString,
     pub theme: Theme,
-    pub age: Duration,
+    pub(crate) state_masks: StateMasks,
+    state: StateValue,
+    pub(crate) monitors: HashMap<StatePathHash, Vec<NodeKey>>,
+    pub(crate) mutators: Vec<Mutator>,
+    must_check_layout: bool,
+    _source_files: Vec<String>,
+    pub(crate) default_font_str: CheapString,
+    _age: Duration,
+    render_list: Vec<(Position, Size)>,
+    debugged: Option<NodeKey>,
 
-    assets: HashMap<CheapString, Rc<Vec<u8>>>,
+    assets: HashMap<CheapString, Asset>,
     requests: Vec<Request>,
 }
 
+pub fn get_storage<T: Any>(storage: &mut [Option<Box<dyn Any>>], m: MutatorIndex) -> Option<&mut T> {
+    storage[usize::from(m)].as_mut()?.downcast_mut()
+}
+
+pub const XML_MUTATOR_INDEX: usize = 0;
+pub const FONT_MUTATOR_INDEX: usize = 1;
+
 impl Application {
-    pub fn new(
+    pub fn new<const N: usize>(
         layout_asset: CheapString,
-        addon_mutators: Vec<Mutator>,
+        addon_mutators: [Mutator; N],
     ) -> Self {
+        let default_mutators = &[
+            XML_MUTATOR,
+            FONT_MUTATOR,
+            PNG_MUTATOR,
+            LABEL_MUTATOR,
+            PARAGRAPH_MUTATOR,
+            INF_MUTATOR,
+        ];
+
+        let cap = default_mutators.len() + CONTAINERS.len() + addon_mutators.len();
+        let mut mutators = Vec::with_capacity(cap);
+        mutators.extend_from_slice(default_mutators);
+        mutators.extend_from_slice(&CONTAINERS);
+        mutators.extend(addon_mutators.into_iter());
+
+        let storage = mutators.iter().map(|_| None as Option<Box<dyn Any>>).collect();
+
         let mut app = Self {
             root: Default::default(),
             view: NodeTree::new(),
@@ -63,28 +96,36 @@ impl Application {
             state: super::state::parse_state(include_str!("default.json")).unwrap(),
             state_masks: Default::default(),
             monitors: HashMap::new(),
-            mutators: addon_mutators,
+            mutators,
+            storage,
             must_check_layout: false,
-            source_files: Vec::new(),
+            _source_files: Vec::new(),
             default_font_str: "default-font".into(),
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
-            age: Duration::from_secs(0),
+            _age: Duration::from_secs(0),
+            render_list: Vec::new(),
+            debugged: None,
 
             assets: HashMap::new(),
             requests: Vec::new(),
         };
 
-        app.assets.insert(app.default_font_str.clone(), Rc::new(crate::NOTO_SANS.to_vec()));
+        for i in 0..app.mutators.len() {
+            let handle = app.mutators[i].handler;
+            handle(&mut app, i.into(), Event::Initialize).unwrap();
+        }
 
-        let xml_mutator = app.mutators.len();
-        let factory = Some(xml_mutator.into()).into();
+        if true {
+            let default_font = crate::NOTO_SANS.to_vec().into_boxed_slice();
+            app.mutate(FONT_MUTATOR_INDEX.into(), Event::ParseAsset {
+                node_key: Default::default(),
+                asset: app.default_font_str.clone(),
+                bytes: default_font,
+            }).unwrap();
+            app.assets.insert(app.default_font_str.clone(), Asset::Parsed);
+        }
 
-        app.mutators.push(XML_MUTATOR);
-        app.mutators.push(PNG_MUTATOR);
-        app.mutators.push(LABEL_MUTATOR);
-        app.mutators.push(PARAGRAPH_MUTATOR);
-        app.mutators.push(INF_MUTATOR);
-        app.mutators.extend_from_slice(&CONTAINERS);
+        let factory = Some(XML_MUTATOR_INDEX.into()).into();
 
         let xml_root = app.xml_tree.create();
         app.xml_tree[xml_root].factory = factory;
@@ -94,22 +135,39 @@ impl Application {
         app.view[app.root].factory = factory;
         app.view[app.root].xml_node_index = Some(xml_root.index().into()).into();
 
-        app.request(layout_asset, app.root).unwrap();
+        app.request(layout_asset, app.root, false).unwrap();
 
         app
     }
 
-    pub fn handle(&mut self, node: NodeKey, event: Event) -> Result<Option<()>, Error> {
-        if let Some(index) = self.view[node].factory.get() {
-            let handle = self.mutators[usize::from(index)].handler;
-            Ok(Some(handle(self, event)?))
-        } else {
-            Ok(None)
-        }
+    pub fn invalidate_layout(&mut self) {
+        self.must_check_layout = true;
     }
 
-    pub fn get_asset(&self, asset: &CheapString) -> Option<Rc<Vec<u8>>> {
-        Some(self.assets.get(asset)?.clone())
+    pub fn mutate(&mut self, index: MutatorIndex, event: Event) -> Result<(), Error> {
+        let mutator = &self.mutators[usize::from(index)];
+        /*let xml_tag = mutator.xml_tag.clone().unwrap_or("<anon>".into());
+        log::info!("{}: handling {}", xml_tag, &event);*/
+        (mutator.handler)(self, index, event)
+    }
+
+    pub fn handle(&mut self, node: NodeKey, event: Event) -> Result<Option<()>, Error> {
+        if Some(node) == self.debugged {
+            log::info!("handling {}", &event);
+        }
+
+        Ok(match self.view[node].factory.get() {
+            Some(index) => Some(self.mutate(index, event)?),
+            None => None,
+        })
+    }
+
+    pub fn get_asset(&self, asset: &CheapString) -> Result<Rc<[u8]>, Error> {
+        match self.assets.get(asset) {
+            Some(Asset::Raw(rc)) => Ok(rc.clone()),
+            Some(Asset::Parsed) => Err(error!("Asset {} was stored in mutator storage", asset.deref())),
+            None => Err(error!("Asset {} was not found", asset.deref())),
+        }
     }
 
     pub fn requested(&self) -> Option<CheapString> {
@@ -118,8 +176,18 @@ impl Application {
 
     /// If `asset` is already loaded, this will trigger
     /// Handling of an `AssetLoaded` event immediately
-    pub fn request(&mut self, asset: CheapString, origin: NodeKey) -> Result<(), Error> {
+    pub fn request(&mut self, asset: CheapString, origin: NodeKey, parse: bool) -> Result<(), Error> {
         if self.assets.contains_key(&asset) {
+            let illegal = match (parse, &self.assets[&asset]) {
+                (true, Asset::Raw(_)) => true,
+                (false, Asset::Parsed) => true,
+                _ => false,
+            };
+
+            if illegal {
+                return Err(error!("Asset {} was previously loaded with a different `parse` flag", asset.deref()));
+            }
+
             self.handle(origin, Event::AssetLoaded {
                 node_key: origin,
             })?.ok_or_else(|| error!())
@@ -127,21 +195,38 @@ impl Application {
             self.requests.push(Request {
                 asset,
                 origin,
+                parse,
             });
             Ok(())
         }
     }
 
-    pub fn data_response(&mut self, asset: CheapString, data: Vec<u8>) -> Result<(), Error> {
-        self.assets.insert(asset.clone(), Rc::new(data));
+    pub fn data_response(&mut self, asset: CheapString, data: Box<[u8]>) -> Result<(), Error> {
+        let mut data = Some(data);
 
         let mut i = 0;
         while let Some(request) = self.requests.get(i) {
             if request.asset == asset {
-                let node_key = self.requests.swap_remove(i).origin;
-                self.handle(node_key, Event::AssetLoaded {
-                    node_key,
-                })?;
+                let request = self.requests.swap_remove(i);
+                let node_key = request.origin;
+
+                if let Some(data) = data.take() {
+                    let result = if request.parse {
+                        self.handle(node_key, Event::ParseAsset {
+                            node_key,
+                            asset: asset.clone(),
+                            bytes: data,
+                        })?;
+
+                        Asset::Parsed
+                    } else {
+                        Asset::Raw(data.into())
+                    };
+
+                    self.assets.insert(asset.clone(), result);
+                }
+
+                self.request(asset.clone(), request.origin, request.parse)?;
             } else {
                 i += 1;
             }
@@ -181,8 +266,18 @@ impl Application {
             if store == "root" {
                 let mut current = &mut self.state;
                 for path_step in path_steps(key) {
-                    path_hash.write(path_step.as_bytes());
-                    current = match current.get_mut(path_step) {
+                    let option = match path_step {
+                        StatePathStep::Index(index) => {
+                            path_hash.write_usize(index);
+                            current.get_mut(index)
+                        },
+                        StatePathStep::Key(key) => {
+                            path_hash.write(key.as_bytes());
+                            current.get_mut(key)
+                        },
+                    };
+
+                    current = match option {
                         Some(value) => value,
                         None => return Err(error!("Invalid state key: {}", key)),
                     }
@@ -225,15 +320,23 @@ impl Application {
         Ok(())
     }
 
+    pub fn xml_tag(&self, node: NodeKey) -> CheapString {
+        let mutator_index = match self.view[node].factory.get() {
+            Some(index) => index,
+            None => return "<subnode>".into(),
+        };
+        let mutator = &self.mutators[usize::from(mutator_index)];
+        match &mutator.xml_tag {
+            Some(cs) => cs.clone(),
+            None => "<anon>".into(),
+        }
+    }
+
     pub fn attr(&mut self, node: NodeKey, attr: &str, default: Option<CheapString>) -> Result<StateFinderResult, Error> {
         let xml_node_index = self.view[node].xml_node_index.get()
             .expect("cannot use Application::attr on nodes without xml_node_index");
         let xml_node_key = self.xml_tree.node_key(xml_node_index);
         let xml_node = &self.xml_tree[xml_node_key];
-
-        let mutator_index = xml_node.factory.get().unwrap();
-        let mutator = &self.mutators[usize::from(mutator_index)];
-        let tag = mutator.xml_tag.as_ref().unwrap();
 
         let alen = attr.len();
 
@@ -268,22 +371,31 @@ impl Application {
         } else {
             match default {
                 Some(default) => Ok(StateFinderResult::String(default)),
-                None => Err(error!("Missing {:?} attribute on <{}>", attr, tag.deref())),
+                None => Err(error!("Missing {:?} attribute on <{}>", attr, self.xml_tag(node).deref())),
             }
         }
     }
 
-    fn build_render_list(&mut self, render_list: &mut Vec<(Position, Size)>, fb_rect: &(Position, Size), key: NodeKey) {
+    fn build_render_list(&mut self, fb_rect: &(Position, Size), key: NodeKey, querying: bool) {
+        let _tag = self.xml_tag(key);
         let node = &mut self.view[key];
         if node.layout_config.get_dirty() {
+            // log::info!("node {} ({}) is dirty", _tag, key.index());
             node.layout_config.set_dirty(false);
-            let mut rect = (node.position, node.size);
-            constrain(fb_rect, &mut rect);
-            render_list.push(rect);
+
+            if querying {
+                let mut rect = (node.position, node.size);
+                constrain(fb_rect, &mut rect);
+                self.render_list.push(rect);
+            }
+
             // all children that are in the container will also be re-rendered
+            for_each_child!(self.view, key, child, {
+                self.build_render_list(fb_rect, child, false);
+            });
         } else {
             for_each_child!(self.view, key, child, {
-                self.build_render_list(render_list, fb_rect, child);
+                self.build_render_list(fb_rect, child, querying);
             });
         }
     }
@@ -293,7 +405,6 @@ impl Application {
         key: NodeKey,
         fb: &mut [RGBA8],
         stride: usize,
-        render_list: &[(Position, Size)],
         restrict: &mut (Position, Size),
     ) -> Result<(), Error> {
         let size = self.view[key].size;
@@ -303,25 +414,25 @@ impl Application {
         let backup = *restrict;
         constrain(&texture_coords, restrict);
 
-        for sampling_window in render_list {
+        for sampling_window in &self.render_list {
             let mut sampling_window = *sampling_window;
             constrain(&texture_coords, &mut sampling_window);
             constrain(restrict, &mut sampling_window);
-            self.view[key].background.paint(fb, texture_coords, sampling_window, stride, 2, true);
+            self.view[key].background.paint(fb, texture_coords, sampling_window, stride, 3, true);
         }
 
         for_each_child!(self.view, key, child, {
-            self.paint(child, fb, stride, render_list, restrict)?;
+            self.paint(child, fb, stride, restrict)?;
         });
 
 
-        for sampling_window in render_list {
+        for sampling_window in &self.render_list {
             let mut sampling_window = *sampling_window;
             constrain(&texture_coords, &mut sampling_window);
             constrain(restrict, &mut sampling_window);
             // super::visual::debug_framebuffer(fb, stride, sampling_window);
 
-            self.view[key].foreground.paint(fb, texture_coords, sampling_window, stride, 2, true);
+            self.view[key].foreground.paint(fb, texture_coords, sampling_window, stride, 3, true);
         }
 
         *restrict = backup;
@@ -337,17 +448,28 @@ impl Application {
         my: usize,
         wheel_delta: isize,
         _click: bool,
-    ) {
+    ) -> Result<&[(Position, Size)], Error> {
+        // log::info!("frame");
         let stride = fb_size.0;
         let new_size = Size::new(Pixels::from_num(stride), Pixels::from_num(fb_size.1));
-
         let _mouse = Position::new(SignedPixels::from_num(mx), SignedPixels::from_num(my));
+
+        /*if false {
+            let s = crate::format!("mouse: {}x{}", mx, my);
+            self.state_update(self.root, "root", "test.3", StateValue::String(s))?;
+        }
+
+        if _click {
+            let debugged = super::layout::hit_test(&mut self.view, self.root, _mouse);
+            log::info!("debugged: {}", self.xml_tag(debugged));
+            self.debugged = Some(debugged);
+        }*/
 
         if _click {
             let mut path_hash = Hasher::default();
             let mut array = self.state_lookup(self.root, "root", "test", &mut path_hash).unwrap().clone();
             if let Some(array) = array.as_array_mut() {
-                array.push(StateValue::String(crate::format!("damn {}", array.len())));
+                array.push(StateValue::String(crate::format!("DAMN {}", array.len())));
             }
             self.state_update(self.root, "root", "test", array).unwrap();
         }
@@ -385,31 +507,41 @@ impl Application {
 
         let transparent = RGBA8::new(0, 0, 0, 0);
         let fb_rect = (Position::zero(), new_size);
-        let mut render_list = Vec::new();
+        self.render_list.clear();
 
         if self.view[self.root].size != new_size {
-            // log::info!("fbsize: {}x{}", stride, fb_size.1);
+            log::info!("fbsize: {}x{}", stride, fb_size.1);
             self.view[self.root].size = new_size;
             self.must_check_layout = true;
             framebuffer.fill(transparent);
-            render_list.push(fb_rect);
+            self.render_list.push(fb_rect);
         }
 
         if self.must_check_layout {
-            compute_layout(self, self.root).unwrap();
+            log::warn!("recomputing layout");
+            compute_layout(self, self.root)?;
             self.must_check_layout = false;
         }
 
-        if render_list.len() == 0 {
-            self.build_render_list(&mut render_list, &fb_rect, self.root);
-            for rect in &render_list {
+        if self.render_list.len() == 0 {
+            self.build_render_list(&fb_rect, self.root, true);
+            let mut dirty_pixels = 0;
+
+            for rect in &self.render_list {
+                dirty_pixels += (rect.1.w * rect.1.h).to_num::<usize>();
                 write_framebuffer(framebuffer, stride, *rect, transparent);
+            }
+
+            if self.render_list.len() > 0 {
+                log::warn!("{} repaints, total: {} pixels", self.render_list.len(), dirty_pixels);
             }
         }
 
-        if render_list.len() > 0 {
+        if self.render_list.len() > 0 {
             let mut restrict = fb_rect;
-            self.paint(self.root, framebuffer, stride, &render_list, &mut restrict).unwrap();
+            self.paint(self.root, framebuffer, stride, &mut restrict)?;
         }
+
+        Ok(&self.render_list)
     }
 }

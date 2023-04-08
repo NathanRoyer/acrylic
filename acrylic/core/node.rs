@@ -18,4 +18,7 @@ pub struct Node {                                 // bits    div4
 
     pub factory: OptionalMutatorIndex,            // 1x4     1
     pub xml_node_index: OptionalXmlNodeIndex,     // 1x4     1
+
+    // pub event_mask: EventMask,
+    // pub transition: Transition,
 }                                                 //         20x4

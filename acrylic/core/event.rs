@@ -1,10 +1,16 @@
 use super::xml::XmlNodeKey;
 use super::node::NodeKey;
+use crate::{Box, CheapString};
+
+use core::fmt;
 
 pub type InputEvent = usize;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
+    /// Sent to every Mutator when the application is initialized
+    Initialize,
+
     /// Handler should modify the state of the application
     /// and/or the properties of the view node.
     UserInput {
@@ -30,8 +36,28 @@ pub enum Event {
         xml_node_key: XmlNodeKey,
     },
 
+    /// Handler can parse and store the asset bytes.
+    ParseAsset {
+        node_key: NodeKey,
+        asset: CheapString,
+        bytes: Box<[u8]>,
+    },
+
     /// Handler can process the asset bytes.
     AssetLoaded {
         node_key: NodeKey,
     },
+}
+
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            Event::Initialize => "Initialize",
+            Event::UserInput { .. } => "UserInput",
+            Event::Resized { .. } => "Resized",
+            Event::Populate { .. } => "Populate",
+            Event::ParseAsset { .. } => "ParseAsset",
+            Event::AssetLoaded { .. } => "AssetLoaded",
+        })
+    }
 }

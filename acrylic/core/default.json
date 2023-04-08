@@ -1,10 +1,9 @@
 {
+    "img": "acrylic.png",
     "test": [
-        "¤¤¤",
-        "bbbbbbb",
-        "cccccccc",
-        "abcdef",
-        "eeeeeeeee",
-        "fffff"
+        "this is a list",
+        "hey nice item",
+        "damn what a list",
+        "click anywhere"
     ]
 }

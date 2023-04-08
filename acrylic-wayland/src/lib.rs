@@ -1,237 +1,398 @@
-pub use std::concat;
-use std::fs::read;
-use std::fs::File;
-use std::time::Instant;
-use std::os::unix::io::AsRawFd;
+use std::{fs::{read, File}, os::unix::prelude::AsRawFd};
 
-use wayland_client::protocol::wl_buffer::WlBuffer;
-use wayland_client::protocol::wl_compositor::WlCompositor;
-use wayland_client::protocol::wl_display::WlDisplay;
-use wayland_client::protocol::wl_shm::Format;
-use wayland_client::protocol::wl_shm::WlShm;
-use wayland_client::protocol::wl_shm_pool::WlShmPool;
-use wayland_client::protocol::wl_surface::WlSurface;
-use wayland_client::Attached;
-use wayland_client::Display;
-use wayland_client::EventQueue;
-use wayland_client::GlobalManager;
-use wayland_client::Interface;
-use wayland_client::Main;
+use wayland_client::protocol::{
+    wl_buffer, wl_compositor, wl_keyboard, wl_registry, wl_seat,
+    wl_shm, wl_shm_pool, wl_surface, wl_pointer, wl_callback,
+};
+use wayland_client::{Connection, Dispatch, QueueHandle, WEnum};
+use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 
-use wayland_protocols::xdg_shell::client::xdg_surface::Event as XdgSurfaceEvent;
-use wayland_protocols::xdg_shell::client::xdg_surface::XdgSurface;
-use wayland_protocols::xdg_shell::client::xdg_toplevel::Event as XdgToplevelEvent;
-use wayland_protocols::xdg_shell::client::xdg_toplevel::XdgToplevel;
-use wayland_protocols::xdg_shell::client::xdg_wm_base::Event as XdgWmBaseEvent;
-use wayland_protocols::xdg_shell::client::xdg_wm_base::XdgWmBase;
+use memmap::{MmapMut, MmapOptions};
+use tempfile::tempfile;
 
 use simple_logger::SimpleLogger;
 
 pub use acrylic::core::{app::Application, state::parse_state};
 use acrylic::core::rgb::FromSlice as _;
 
-use tempfile::tempfile;
+pub fn run(app: Application, assets: &str) {
+    SimpleLogger::new().init().unwrap();
 
-use memmap::MmapMut;
-use memmap::MmapOptions;
+    let conn = Connection::connect_to_env().unwrap();
 
-pub struct FrameBuffer {
-    pool_size: usize,
-    file: File,
-    pool: Main<WlShmPool>,
-    buffer: Main<WlBuffer>,
-    data: MmapMut,
+    let mut event_queue = conn.new_event_queue();
+    let qhandle = event_queue.handle();
+
+    let display = conn.display();
+    display.get_registry(&qhandle, ());
+
+    let mut state = State {
+        base_surface: None,
+        pool: None,
+        wm_base: None,
+        xdg_surface: None,
+        fb: None,
+        assets: assets.into(),
+        app,
+        configured: false,
+        running: true,
+        clicked: false,
+        mouse: (0, 0),
+    };
+
+    println!("Starting the example window app, press <ESC> to quit.");
+
+    while state.running {
+        event_queue.blocking_dispatch(&mut state).unwrap();
+    }
 }
 
 const DEFAULT_W: usize = 1000;
 const DEFAULT_H: usize = 800;
 
-impl FrameBuffer {
-    pub fn new(shm: &WlShm, size: (usize, usize)) -> Self {
-        let len = 4 * size.0 * size.1;
-        let file = tempfile().unwrap();
-        file.set_len(len as u64).unwrap();
-        let pool = shm.create_pool(file.as_raw_fd(), len as i32);
-        let fmt = Format::Abgr8888;
-        let (w, h) = (size.0 as i32, size.1 as i32);
-        let buffer = pool.create_buffer(0, w, h, w * 4, fmt);
-        let data = unsafe { MmapOptions::new().len(len).map_mut(&file).unwrap() };
-        Self {
-            pool_size: len,
-            file,
-            pool,
-            buffer,
-            data,
-        }
-    }
+struct FrameBuffer {
+    mapping: MmapMut,
+    buffer: wl_buffer::WlBuffer,
+    file: File,
+    pool_size: usize,
+    width: usize,
+    height: usize,
+}
 
-    pub fn resize(&mut self, size: (usize, usize)) {
-        let len = 4 * size.0 * size.1;
-        if len > self.pool_size {
-            self.file.set_len(len as u64).unwrap();
-            self.pool.resize(len as i32);
-            self.pool_size = len;
-        }
-        self.buffer.destroy();
-        let fmt = Format::Abgr8888;
-        let (w, h) = (size.0 as i32, size.1 as i32);
-        self.buffer = self.pool.create_buffer(0, w, h, w * 4, fmt);
-        self.data = unsafe { MmapOptions::new().len(len).map_mut(&self.file).unwrap() };
-        self.data.fill(0);
+struct State {
+    base_surface: Option<wl_surface::WlSurface>,
+    pool: Option<wl_shm_pool::WlShmPool>,
+    wm_base: Option<xdg_wm_base::XdgWmBase>,
+    xdg_surface: Option<(xdg_surface::XdgSurface, xdg_toplevel::XdgToplevel)>,
+    fb: Option<FrameBuffer>,
+    assets: String,
+    app: Application,
+    configured: bool,
+    running: bool,
+    clicked: bool,
+    mouse: (usize, usize),
+}
+
+impl State {
+    fn init_xdg_surface(&mut self, qh: &QueueHandle<State>) {
+        let wm_base = self.wm_base.as_ref().unwrap();
+        let base_surface = self.base_surface.as_ref().unwrap();
+
+        let xdg_surface = wm_base.get_xdg_surface(base_surface, qh, ());
+        let toplevel = xdg_surface.get_toplevel(qh, ());
+        toplevel.set_title("A fantastic window!".into());
+
+        base_surface.commit();
+
+        self.xdg_surface = Some((xdg_surface, toplevel));
     }
 }
 
-#[allow(dead_code)]
-struct WaylandApp {
-    pub display: Attached<WlDisplay>,
-    pub global_manager: GlobalManager,
-    pub compositor: Main<WlCompositor>,
-    pub xdg_wm_base: Main<XdgWmBase>,
-    pub shm: Main<WlShm>,
-    pub frame_buffer: FrameBuffer,
-    pub surface: Main<WlSurface>,
-    pub xdg_surface: Main<XdgSurface>,
-    pub xdg_toplevel: Main<XdgToplevel>,
-    pub acrylic_app: Application,
-    pub acrylic_app_dob: Instant,
-    pub closed: bool,
-    pub configured: bool,
-    pub ready_to_draw: bool,
-    pub size: (usize, usize),
-    pub assets: String,
-}
+impl Dispatch<wl_registry::WlRegistry, ()> for State {
+    fn event(
+        state: &mut Self,
+        registry: &wl_registry::WlRegistry,
+        event: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global { name, interface, .. } = event {
+            match &interface[..] {
+                "wl_compositor" => {
+                    let compositor =
+                        registry.bind::<wl_compositor::WlCompositor, _, _>(name, 1, qh, ());
+                    let surface = compositor.create_surface(qh, ());
+                    state.base_surface = Some(surface);
 
-impl WaylandApp {
-    pub fn new(acrylic_app: Application, assets: String) -> (Self, EventQueue) {
-        let display = Display::connect_to_env().unwrap();
-        let mut event_queue = display.create_event_queue();
-        let display = display.attach(event_queue.token());
-        let gm = GlobalManager::new(&display);
-        event_queue
-            .dispatch(&mut (), |_, _, _| unreachable!())
-            .expect("Event dispatching Error!");
-
-        let compositor = gm
-            .instantiate_range::<WlCompositor>(0, WlCompositor::VERSION)
-            .unwrap();
-        let xdg_wm_base = gm
-            .instantiate_range::<XdgWmBase>(0, XdgWmBase::VERSION)
-            .unwrap();
-        let shm = gm.instantiate_range::<WlShm>(0, WlShm::VERSION).unwrap();
-
-        xdg_wm_base.quick_assign(|iface, event, _data| {
-            if let XdgWmBaseEvent::Ping { serial } = event {
-                iface.pong(serial);
-            }
-        });
-
-        shm.quick_assign(|_iface, _event, _data| {
-            // if let wayland_client::protocol::wl_shm::Event::Format { format } = event {
-            // println!("{:?}, {}", format, format as u32);
-            // }
-        });
-
-        let surface = compositor.create_surface();
-        let xdg_surface = xdg_wm_base.get_xdg_surface(&surface);
-        let xdg_toplevel = xdg_surface.get_toplevel();
-        xdg_toplevel.quick_assign(|_iface, event, mut data| {
-            let app = data.get::<WaylandApp>().unwrap();
-            if let XdgToplevelEvent::Configure { width, height, .. } = event {
-                if app.configured {
-                    let new_size = match (width, height) {
-                        (0, 0) => (DEFAULT_W, DEFAULT_H),
-                        _ => (width as usize, height as usize),
-                    };
-                    if app.size != new_size {
-                        app.size = new_size;
-                        app.frame_buffer.resize(app.size);
-                        app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
+                    if state.wm_base.is_some() && state.xdg_surface.is_none() {
+                        state.init_xdg_surface(qh);
                     }
-                    app.ready_to_draw = true;
-                    app.frame();
-                    app.surface.commit();
                 }
-            } else if let XdgToplevelEvent::Close = event {
-                app.closed = true;
+                "wl_shm" => {
+                    let shm = registry.bind::<wl_shm::WlShm, _, _>(name, 1, qh, ());
+
+                    let len = DEFAULT_W * DEFAULT_H * 4;
+
+                    let file = tempfile().unwrap();
+                    file.set_len(len as u64).unwrap();
+
+                    let pool = shm.create_pool(file.as_raw_fd(), len as i32, qh, ());
+
+                    let (init_w, init_h) = (DEFAULT_W as i32, DEFAULT_H as i32);
+                    let buffer = pool.create_buffer(0, init_w, init_h, init_w * 4, wl_shm::Format::Abgr8888, qh, ());
+
+                    let mut fb_data = unsafe { MmapOptions::new().len(len).map_mut(&file).unwrap() };
+                    fb_data.fill(0);
+
+                    state.pool = Some(pool.clone());
+                    state.fb = Some(FrameBuffer {
+                        mapping: fb_data,
+                        buffer: buffer.clone(),
+                        file,
+                        pool_size: len,
+                        width: DEFAULT_W,
+                        height: DEFAULT_H,
+                    });
+
+                    if state.configured {
+                        let surface = state.base_surface.as_ref().unwrap();
+                        surface.frame(qh, ());
+                        surface.attach(Some(&buffer), 0, 0);
+                        surface.commit();
+                    }
+                }
+                "wl_seat" => {
+                    registry.bind::<wl_seat::WlSeat, _, _>(name, 1, qh, ());
+                }
+                "xdg_wm_base" => {
+                    let wm_base = registry.bind::<xdg_wm_base::XdgWmBase, _, _>(name, 1, qh, ());
+                    state.wm_base = Some(wm_base);
+
+                    if state.base_surface.is_some() && state.xdg_surface.is_none() {
+                        state.init_xdg_surface(qh);
+                    }
+                }
+                _ => {}
             }
-        });
-
-        xdg_surface.quick_assign(|xdg_surface, event, mut data| {
-            let app = data.get::<WaylandApp>().unwrap();
-            if let XdgSurfaceEvent::Configure { serial } = event {
-                // println!("surface cfg");
-                app.configured = true;
-                xdg_surface.ack_configure(serial);
-                app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
-                app.surface.commit();
-            }
-        });
-
-        let acrylic_app_dob = Instant::now();
-        let size = (DEFAULT_W, DEFAULT_H);
-        let frame_buffer = FrameBuffer::new(&shm, size);
-        let app = WaylandApp {
-            acrylic_app,
-            acrylic_app_dob,
-            display,
-            global_manager: gm,
-            compositor,
-            xdg_wm_base,
-            shm,
-            frame_buffer,
-            surface,
-            xdg_surface,
-            xdg_toplevel,
-            size,
-            closed: false,
-            configured: false,
-            ready_to_draw: false,
-            assets,
-        };
-        app.surface.commit();
-        (app, event_queue)
-    }
-
-    pub fn frame(&mut self) {
-        /*let age = self.acrylic_app_dob.elapsed();
-        self.acrylic_app.set_age(age.as_millis() as usize);*/
-
-        while let Some(asset) = self.acrylic_app.requested() {
-            println!("loading {}", asset);
-            let data = read(&format!("{}{}", &self.assets, asset)).unwrap();
-            self.acrylic_app.data_response(asset, data).unwrap();
         }
-
-        let fb = self.frame_buffer.data.as_rgba_mut();
-        self.acrylic_app.render(self.size, fb, 0, 0, 0, false);
-        self.ready_to_draw = true;
-    }
-
-    pub fn request_frame(&mut self) {
-        self.surface.frame().quick_assign(|_iface, _event, mut data| {
-            let app = data.get::<WaylandApp>().unwrap();
-            app.frame();
-            app.surface.attach(Some(&app.frame_buffer.buffer), 0, 0);
-            app.surface.damage(0, 0, app.size.0 as i32, app.size.1 as i32);
-            app.surface.commit();
-        });
     }
 }
 
-pub fn run(app: Application, assets: &str) {
-    SimpleLogger::new().init().unwrap();
+impl Dispatch<wl_compositor::WlCompositor, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &wl_compositor::WlCompositor,
+        _: wl_compositor::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // wl_compositor has no event
+    }
+}
 
-    let (mut app, mut event_queue) = WaylandApp::new(app, assets.into());
-    while !app.closed {
-        event_queue
-            .sync_roundtrip(
-                &mut app,
-                |_a, _, _| ()// println!("ignored {:?}", _a)
-            )
-            .expect("Event dispatching Error!");
-        if app.ready_to_draw {
-            app.ready_to_draw = false;
-            app.request_frame();
+impl Dispatch<wl_surface::WlSurface, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &wl_surface::WlSurface,
+        _: wl_surface::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // we ignore wl_surface events in this example
+    }
+}
+
+impl Dispatch<wl_shm::WlShm, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &wl_shm::WlShm,
+        _: wl_shm::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // we ignore wl_shm events in this example
+    }
+}
+
+impl Dispatch<wl_shm_pool::WlShmPool, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &wl_shm_pool::WlShmPool,
+        _: wl_shm_pool::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // we ignore wl_shm_pool events in this example
+    }
+}
+
+impl Dispatch<wl_buffer::WlBuffer, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &wl_buffer::WlBuffer,
+        _: wl_buffer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // we ignore wl_buffer events in this example
+    }
+}
+
+impl Dispatch<xdg_wm_base::XdgWmBase, ()> for State {
+    fn event(
+        _: &mut Self,
+        wm_base: &xdg_wm_base::XdgWmBase,
+        event: xdg_wm_base::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            wm_base.pong(serial);
+        }
+    }
+}
+
+impl Dispatch<xdg_surface::XdgSurface, ()> for State {
+    fn event(
+        state: &mut Self,
+        xdg_surface: &xdg_surface::XdgSurface,
+        event: xdg_surface::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let xdg_surface::Event::Configure { serial, .. } = event {
+            xdg_surface.ack_configure(serial);
+            state.configured = true;
+            let surface = state.base_surface.as_ref().unwrap();
+            if let Some(fb) = &state.fb {
+                surface.frame(qh, ());
+                surface.attach(Some(&fb.buffer), 0, 0);
+                surface.commit();
+            }
+        }
+    }
+}
+
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &xdg_toplevel::XdgToplevel,
+        event: xdg_toplevel::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let xdg_toplevel::Event::Close {} = event {
+            state.running = false;
+        }
+
+        if let xdg_toplevel::Event::Configure { width, height, .. } = event {
+            let (fb, pool) = (state.fb.as_mut().unwrap(), state.pool.as_mut().unwrap());
+
+            fb.width = width as usize;
+            fb.height = height as usize;
+            let len = fb.width * fb.height * 4;
+            if len != 0 {
+                if len > fb.pool_size {
+                    fb.file.set_len(len as u64).unwrap();
+                    pool.resize(len as i32);
+                    fb.pool_size = len;
+                }
+
+                fb.buffer.destroy();
+
+                let (w, h) = (width as i32, height as i32);
+                fb.buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Abgr8888, qh, ());
+
+                fb.mapping = unsafe { MmapOptions::new().len(len).map_mut(&fb.file).unwrap() };
+                fb.mapping.fill(0);
+            }
+        }
+    }
+}
+
+impl Dispatch<wl_callback::WlCallback, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &wl_callback::WlCallback,
+        _event: wl_callback::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let Some(fb) = &mut state.fb {
+            while let Some(asset) = state.app.requested() {
+                println!("loading {}", asset);
+                let data = read(&format!("{}{}", &state.assets, asset)).unwrap();
+                state.app.data_response(asset, data.into_boxed_slice()).unwrap();
+            }
+
+            let size = (fb.width, fb.height);
+            let (mx, my) = state.mouse;
+            let damages = state.app.render(size, fb.mapping.as_rgba_mut(), mx, my, 0, state.clicked).unwrap();
+            state.clicked = false;
+
+            let surface = state.base_surface.as_ref().unwrap();
+            surface.frame(qh, ());
+            surface.attach(Some(&fb.buffer), 0, 0);
+
+            for (position, size) in damages {
+                // the render list checks that boundaries are respected
+                let x = position.x.to_num();
+                let y = position.y.to_num();
+                let w = size.w.to_num();
+                let h = size.h.to_num();
+                surface.damage(x, y, w, h);
+            }
+
+            surface.commit();
+        }
+    }
+}
+
+impl Dispatch<wl_seat::WlSeat, ()> for State {
+    fn event(
+        _: &mut Self,
+        seat: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities { capabilities: WEnum::Value(capabilities) } = event {
+            if capabilities.contains(wl_seat::Capability::Keyboard) {
+                seat.get_keyboard(qh, ());
+            }
+            if capabilities.contains(wl_seat::Capability::Pointer) {
+                seat.get_pointer(qh, ());
+            }
+        }
+    }
+}
+
+impl Dispatch<wl_pointer::WlPointer, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &wl_pointer::WlPointer,
+        event: wl_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
+                state.mouse = (surface_x as usize, surface_y as usize);
+            },
+            wl_pointer::Event::Button { button: 272, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } => {
+                state.clicked = true;
+            },
+            _ => println!("WlPointer: {:?}", event),
+        }
+    }
+}
+
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
+    fn event(
+        state: &mut Self,
+        _: &wl_keyboard::WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_keyboard::Event::Key { key, .. } = event {
+            if key == 1 {
+                // ESC key
+                state.running = false;
+            }
         }
     }
 }
@@ -240,8 +401,7 @@ pub fn run(app: Application, assets: &str) {
 macro_rules! app {
     ($path:literal, $layout:expr, $initial_state:expr) => {
         fn main() {
-            let app = $crate::Application::new($layout().into(), Vec::new());
-            platform::run(app, $path);
+            $crate::run($crate::Application::new($layout().into(), []), $path);
         }
     };
 }

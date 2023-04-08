@@ -82,21 +82,23 @@ fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) ->
     let mut cursor = Cursor::new(&app.view[key], top_left);
     for_each_child!(app.view, key, child, {
         let size_found = app.view[child].layout_config.get_size_found();
-        if !size_found && app.view[child].size != Size::zero() {
-            app.view[child].set_size(Size::zero());
-            app.view[child].layout_config.set_resized(true);
-        } else {
+        if size_found {
             app.view[child].layout_config.set_size_found(false);
+        } else {
+            if app.view[child].size != Size::zero() {
+                app.view[child].set_size(Size::zero());
+                app.view[child].layout_config.set_resized(true);
+            }
         }
 
         let position = cursor.advance(&app.view[child]);
         let moved = app.view[child].position != position;
-        let resized = app.view[child].layout_config.get_resized();
-
         app.view[child].position = position;
+
         compute_positions(app, child, position)?;
 
-        if moved {
+        let resized = app.view[child].layout_config.get_resized();
+        if moved | resized {
             app.view[child].layout_config.set_dirty(true);
         }
 
@@ -124,7 +126,9 @@ fn get_children_length_on_cont_axis(tree: &mut NodeTree, container: NodeKey) -> 
     let mut length = Pixels::ZERO;
 
     for_each_child!(tree, container, child, {
-        length += tree[child].size.get_for_axis(axis) + gap;
+        if tree[child].layout_config.get_size_found() {
+            length += tree[child].size.get_for_axis(axis) + gap;
+        }
     });
 
     // remove last gap if there are children
@@ -248,9 +252,13 @@ fn compute_wrapper_size(
         length = get_children_length_on_cont_axis(tree, wrapper);
     }
 
-    let size = match cont_axis {
+    /*let size = match cont_axis {
         Horizontal => Size::new(cross, length),
         Vertical => Size::new(length, cross),
+    };*/
+    let size = match wrapper_axis {
+        Horizontal => Size::new(length, cross),
+        Vertical => Size::new(cross, length),
     };
 
     tree[wrapper].set_size(size);
@@ -273,8 +281,8 @@ fn compute_fixed_size(
     // can be computed from the children for diff-axis
     // configurations
     if has_children {
-        let same_axis = axis == cont_axis;
-        let children_cross = match same_axis {
+        let child_and_cont_same_axis = axis == cont_axis;
+        let children_cross = match child_and_cont_same_axis {
             true => cross?,
             false => length,
         };
@@ -283,7 +291,7 @@ fn compute_fixed_size(
             compute_children_sizes(tree, fixed, children_cross);
         }
 
-        if cross.is_none() && !same_axis {
+        if cross.is_none() && !child_and_cont_same_axis {
             cross = Some(get_children_length_on_cont_axis(tree, fixed));
         }
     }
@@ -353,15 +361,15 @@ fn compute_chunks_size(
 
 fn get_max_length_on(
     tree: &mut NodeTree,
+    // = horizontal
     wanted_axis: Axis,
+    // wrapper
     cont: NodeKey,
     cross: Option<Pixels>,
 ) -> Option<Pixels> {
-    // wanted_axis = horizontal
-    // wrapper_axis = vertical
+    // vertical
     let cont_axis = tree[cont].layout_config.get_content_axis();
 
-    // none
     let cross = match cross {
         Some(c) => Some(adjust_cross(&tree[cont], c)?),
         None => None,
@@ -369,13 +377,14 @@ fn get_max_length_on(
 
     let mut max = None;
     for_each_child!(tree, cont, child, {
+        // fixed: horizontal
         let child_axis = tree.first_child(child).map(|_| {
             tree[child].layout_config.get_content_axis()
         });
-        let same_axis = Some(cont_axis) == child_axis;
+        let child_and_cont_same_axis = Some(cont_axis) == child_axis;
 
         let candidate = match tree[child].layout_config.get_layout_mode() {
-            WrapContent => match (Some(wanted_axis) == child_axis, same_axis) {
+            WrapContent => match (Some(wanted_axis) == child_axis, child_and_cont_same_axis) {
                 (true, _) => {
                     compute_wrapper_size(tree, cont_axis, child, cross).map(|_| {
                         tree[child].size.get_for_axis(wanted_axis)
@@ -384,7 +393,7 @@ fn get_max_length_on(
                 (false, true) => get_max_length_on(tree, wanted_axis, child, cross),
                 (false, false) => get_max_length_on(tree, wanted_axis, child, None),
             },
-            Fixed(l) => match (cont_axis == wanted_axis, Some(wanted_axis) == child_axis, same_axis) {
+            Fixed(l) => match (cont_axis == wanted_axis, Some(wanted_axis) == child_axis, child_and_cont_same_axis) {
                 (true,  _,    _) => Some(l),
                 (false, true, _) => {
                     compute_fixed_size(tree, cont_axis, child, cross, l).map(|_| {
@@ -394,7 +403,7 @@ fn get_max_length_on(
                 (false, false, true) => get_max_length_on(tree, wanted_axis, child, cross),
                 (false, false, false) => get_max_length_on(tree, wanted_axis, child, Some(l)),
             },
-            Chunks(row) => if same_axis {
+            Chunks(row) => if child_and_cont_same_axis {
                 // treat Chunks in same-axis config as WrapContent
                 if Some(wanted_axis) == child_axis {
                     compute_wrapper_size(tree, cont_axis, child, cross).map(|_| {

@@ -1,14 +1,18 @@
-use crate::core::app::{Application, Mutator};
+use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::Event;
 use crate::core::node::NodeKey;
 use crate::core::xml::tag;
-use crate::core::visual::{Ratio, Margin, Axis, LayoutMode, PixelSource};
-use crate::core::state::{StateValue, path_steps};
+use crate::core::visual::{Ratio, Margin, Axis, LayoutMode, PixelSource, RgbaPixelBuffer, PixelBuffer};
+use crate::core::state::{StateValue, StatePathStep, path_steps};
 use crate::core::style::DEFAULT_STYLE;
-use crate::core::for_each_child;
+use crate::core::{for_each_child, rgb::FromSlice};
 use oakwood::NodeKey as _;
-use crate::{Error, error, Hasher};
+use crate::{Error, error, Hasher, Box, Vec};
 use core::{ops::Deref, hash::Hasher as _};
+
+use railway::{NaiveRenderer, computing::{Couple, C_ZERO}};
+
+type R = NaiveRenderer<&'static [u8]>;
 
 fn parse_tag(app: &mut Application, node: NodeKey, tag: &str) -> Result<(Axis, LayoutMode), Error> {
     let axis = match &tag[..2] {
@@ -29,8 +33,17 @@ fn parse_tag(app: &mut Application, node: NodeKey, tag: &str) -> Result<(Axis, L
     Ok((axis, mode))
 }
 
-fn container(app: &mut Application, event: Event) -> Result<(), Error> {
+fn container(app: &mut Application, m: MutatorIndex, event: Event) -> Result<(), Error> {
     match event {
+        Event::Initialize => {
+            let storage = &mut app.storage[usize::from(m)];
+            assert!(storage.is_none());
+
+            let railway = R::parse(include_bytes!(concat!(env!("OUT_DIR"), "/container.rwy"))).unwrap();
+            *storage = Some(Box::new((railway, Vec::<u8>::new())));
+
+            Ok(())
+        },
         Event::Populate { node_key, xml_node_key } => {
             let xml_node = &app.xml_tree[xml_node_key];
             let mutator_index = xml_node.factory.get().unwrap();
@@ -40,26 +53,16 @@ fn container(app: &mut Application, event: Event) -> Result<(), Error> {
             let (content_axis, layout_mode) = parse_tag(app, node_key, tag.deref())?;
             let content_gap = app.attr(node_key, "gap", Some("0".into()))?.as_pixels()?;
             let margin = app.attr(node_key, "margin", Some("0".into()))?.as_pixels()?;
+            let radius = app.attr(node_key, "border-radius", Some("0".into()))?.as_pixels()?;
 
-            app.view[node_key].margin = Margin::quad(margin);
+            app.view[node_key].margin = Margin::quad(margin + radius);
             app.view[node_key].layout_config.set_content_axis(content_axis);
             app.view[node_key].layout_config.set_content_gap(content_gap);
             app.view[node_key].layout_config.set_layout_mode(layout_mode);
-            app.must_check_layout = true;
+            app.invalidate_layout();
 
             if let Ok(style) = app.attr(node_key, "style", None) {
                 let style_name = style.as_str()?;
-                let mut parent_style = DEFAULT_STYLE.into();
-                let mut current = node_key;
-                while let Some(parent) = app.view.parent(current) {
-                    if let Ok(style) = app.attr(parent, "style", None) {
-                        parent_style = style.as_str()?.clone();
-                        break;
-                    } else {
-                        current = parent;
-                    }
-                }
-                log::info!("style override: from {} to {}", parent_style, style_name);
                 let color = app.theme.get(style_name.deref()).unwrap().background;
                 app.view[node_key].background = PixelSource::SolidColor(color);
             }
@@ -119,7 +122,71 @@ fn container(app: &mut Application, event: Event) -> Result<(), Error> {
 
             Ok(())
         },
-        Event::Resized { .. } => Ok(()),
+        Event::Resized { node_key } => {
+            let has_style = app.attr(node_key, "style", None).is_ok();
+            let border_width = app.attr(node_key, "border-width", None);
+            if has_style || border_width.is_ok() {
+                let margin = app.attr(node_key, "margin", Some("0".into()))?.as_f32()?;
+                let radius = app.attr(node_key, "border-radius", Some("0".into()))?.as_f32()?;
+
+                let mut parent_style = DEFAULT_STYLE.into();
+                let mut current = node_key;
+                while let Some(parent) = app.view.parent(current) {
+                    if let Ok(style) = app.attr(parent, "style", None) {
+                        parent_style = style.as_str()?.clone();
+                        break;
+                    } else {
+                        current = parent;
+                    }
+                }
+
+                let theme = app.theme.get(parent_style.deref()).unwrap();
+                let size = app.view[node_key].size;
+                let (w, h) = (size.w.to_num(), size.h.to_num());
+                let couple = Couple::new(w as f32, h as f32);
+
+                let ext = theme.background;
+                let ext_rg = Couple::new((ext.r as f32) / 255.0, (ext.g as f32) / 255.0);
+                let ext_ba = Couple::new((ext.b as f32) / 255.0, (ext.a as f32) / 255.0);
+
+                let border = match app.attr(node_key, "style", None) {
+                    Ok(style) => app.theme.get(style.as_str()?.deref()).unwrap(),
+                    Err(_) => theme,
+                }.outline;
+
+                let border_rg = Couple::new((border.r as f32) / 255.0, (border.g as f32) / 255.0);
+                let border_ba = Couple::new((border.b as f32) / 255.0, (border.a as f32) / 255.0);
+
+                let border_width = match border_width {
+                    Ok(sfr) => Couple::new(sfr.as_f32()?, 0.0),
+                    Err(_) => C_ZERO,
+                };
+
+                let (railway, mask): &mut (R, Vec<u8>) = get_storage(&mut app.storage, m).unwrap();
+                railway.set_argument("size", couple).unwrap();
+                railway.set_argument("margin-radius", Couple::new(margin, radius)).unwrap();
+                railway.set_argument("border-width", border_width).unwrap();
+                railway.set_argument("border-rg", border_rg).unwrap();
+                railway.set_argument("border-ba", border_ba).unwrap();
+                railway.set_argument("ext-rg", ext_rg).unwrap();
+                railway.set_argument("ext-ba", ext_ba).unwrap();
+                railway.compute().unwrap();
+
+                app.view[node_key].layout_config.set_dirty(true);
+                app.view[node_key].foreground = {
+                    let length = w * h;
+                    let mut canvas: Vec<u8> = Vec::with_capacity(length * 4);
+                    canvas.resize(length * 4, 0);
+                    mask.resize(length, 0);
+                    railway.render(canvas.as_rgba_mut(), mask, w, h, w, 4, true).unwrap();
+
+                    let canvas = canvas.into_boxed_slice();
+                    PixelSource::Texture(Box::new(RgbaPixelBuffer::new(canvas, w, h)))
+                };
+            }
+
+            Ok(())
+        },
         _ => Err(error!("Unexpected event: {:?}", event)),
     }
 }
@@ -151,8 +218,18 @@ fn generator<'a>(
         path_hash.write_usize(index);
         current = &mut current.as_array_mut().unwrap()[index];
         for path_step in path_steps(key) {
-            path_hash.write(path_step.as_bytes());
-            current = match current.get_mut(path_step) {
+            let option = match path_step {
+                StatePathStep::Index(index) => {
+                    path_hash.write_usize(index);
+                    current.get_mut(index)
+                },
+                StatePathStep::Key(key) => {
+                    path_hash.write(key.as_bytes());
+                    current.get_mut(key)
+                },
+            };
+
+            current = match option {
                 Some(value) => value,
                 None => return Err(error!("Invalid state key: {}", key)),
             }
@@ -164,16 +241,17 @@ fn generator<'a>(
     }
 }
 
-fn inflate(app: &mut Application, event: Event) -> Result<(), Error> {
+fn inflate(app: &mut Application, _m: MutatorIndex, event: Event) -> Result<(), Error> {
     match event {
         Event::Populate { node_key, .. } => {
             let layout_mode = LayoutMode::Remaining(Ratio::from_num(1));
             app.view[node_key].layout_config.set_layout_mode(layout_mode);
-            app.must_check_layout = true;
+            app.invalidate_layout();
 
             Ok(())
         },
         Event::Resized { .. } => Ok(()),
+        Event::Initialize => Ok(()),
         _ => Err(error!("Unexpected event: {:?}", event)),
     }
 }
@@ -182,18 +260,18 @@ macro_rules! container {
     ($v:ident, $h:ident, $vtag:literal, $htag:literal $(, $arg:literal)?) => {
         const $v: Mutator = Mutator {
             xml_tag: Some(tag($vtag)),
-            xml_attr_set: Some(&["for", "in", "style", "margin", "gap", $($arg)*]),
+            xml_attr_set: Some(&["for", "in", "style", "margin", "border-width", "border-radius", "gap", $($arg)*]),
             xml_accepts_children: true,
             handler: container,
-            storage: None,
+        
         };
 
         const $h: Mutator = Mutator {
             xml_tag: Some(tag($htag)),
-            xml_attr_set: Some(&["for", "in", "style", "margin", "gap", $($arg)*]),
+            xml_attr_set: Some(&["for", "in", "style", "margin", "border-width", "border-radius", "gap", $($arg)*]),
             xml_accepts_children: true,
             handler: container,
-            storage: None,
+        
         };
     }
 }
@@ -217,5 +295,4 @@ pub const INF_MUTATOR: Mutator = Mutator {
     xml_attr_set: Some(&[]),
     xml_accepts_children: false,
     handler: inflate,
-    storage: None,
 };

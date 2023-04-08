@@ -4,7 +4,10 @@ extern crate alloc;
 extern crate std;
 
 #[doc(hidden)]
-pub use alloc::{string::String, vec::Vec, boxed::Box, rc::Rc, format};
+pub use {
+    alloc::{string::String, vec::Vec, boxed::Box, rc::Rc, format},
+    hashbrown::HashMap,
+};
 
 pub mod core;
 pub mod builtin;
@@ -84,7 +87,6 @@ impl fmt::Display for CheapString {
 
 pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 
-#[macro_export]
 /// Creates an [`Error`] automatically with an optional formatted string
 ///
 /// # Examples
@@ -102,6 +104,7 @@ pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 /// src/my_file.rs, line 51: We crashed... so sad...
 /// src/my_file.rs, line 51: Yo this is absurd: Unicorn { flying: true, rainbows: true }
 /// ```
+#[macro_export]
 macro_rules! error {
     () => { $crate::Error::new(::core::line!(), ::core::file!(), None) };
     ($($arg:tt)*) => { $crate::Error::new(::core::line!(), ::core::file!(), Some($crate::format!($($arg)*))) };

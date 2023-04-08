@@ -1,6 +1,6 @@
 use crate::core::visual::{aspect_ratio, LayoutMode, Axis, Pixels};
-use crate::core::app::{Application, Mutator};
-use crate::core::glyph::{space_width, StrTexture};
+use crate::core::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
+use crate::core::glyph::{space_width, get_font};
 use crate::core::xml::{tag};
 use crate::core::event::Event;
 use crate::{Error, error, CheapString};
@@ -10,39 +10,41 @@ pub const LABEL_MUTATOR: Mutator = Mutator {
     xml_attr_set: Some(&["text", "font"]),
     xml_accepts_children: false,
     handler: label,
-    storage: None,
 };
 
 fn default_font_size() -> CheapString {
     "24.0".into()
 }
 
-fn label(app: &mut Application, event: Event) -> Result<(), Error> {
+fn label(app: &mut Application, _m: MutatorIndex, event: Event) -> Result<(), Error> {
     match event {
         Event::Populate { node_key, .. } => {
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                app.request(font_file.clone(), node_key)
+                app.request(font_file.clone(), node_key, true)
             } else {
                 Ok(())
             }
         },
+        Event::ParseAsset { .. } => app.mutate(FONT_MUTATOR_INDEX.into(), event),
         Event::AssetLoaded { node_key } => {
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                let font_bytes = app.get_asset(&font_file).unwrap();
+                let text = &app.attr(node_key, "text", None)?;
 
                 let font_size = 100;
+
                 let width = {
-                    let mut texture = StrTexture::new(&font_bytes, font_size, None)?;
-                    texture.write(&app.attr(node_key, "text", None)?);
-                    texture.width()
+                    let font = get_font(&mut app.storage, &font_file).unwrap();
+                    let mut renderer = font.renderer(None, font_size);
+                    renderer.write(text);
+                    renderer.width()
                 };
 
                 let ratio = aspect_ratio(width, font_size);
                 app.view[node_key].layout_config.set_layout_mode(LayoutMode::AspectRatio(ratio));
 
-                app.must_check_layout = true;
+                app.invalidate_layout();
             }
 
             Ok(())
@@ -50,20 +52,22 @@ fn label(app: &mut Application, event: Event) -> Result<(), Error> {
         Event::Resized { node_key } => {
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                let font_bytes = app.get_asset(&font_file).unwrap();
+                let text = &app.attr(node_key, "text", None)?;
 
-                let color = rgb::RGBA8::new(230, 230, 230, 255);
+                let color = rgb::RGBA8::new(255, 255, 255, 255);
                 let font_size = app.view[node_key].size.h.round().to_num();
                 app.view[node_key].layout_config.set_dirty(true);
                 app.view[node_key].foreground = {
-                    let mut texture = StrTexture::new(&font_bytes, font_size, Some(color))?;
-                    texture.write(&app.attr(node_key, "text", None)?);
-                    texture.texture()
+                    let font = get_font(&mut app.storage, &font_file).unwrap();
+                    let mut renderer = font.renderer(Some(color), font_size);
+                    renderer.write(text);
+                    renderer.texture()
                 };
             }
 
             Ok(())
         },
+        Event::Initialize => Ok(()),
         _ => Err(error!("Unexpected event: {:?}", event)),
     }
 }
@@ -73,10 +77,9 @@ pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
     xml_attr_set: Some(&["text", "size", "font"]),
     xml_accepts_children: false,
     handler: paragraph,
-    storage: None,
 };
 
-fn paragraph(app: &mut Application, event: Event) -> Result<(), Error> {
+fn paragraph(app: &mut Application, _m: MutatorIndex, event: Event) -> Result<(), Error> {
     match event {
         Event::Populate { node_key, xml_node_key } => {
             let xml_node = &app.xml_tree[xml_node_key];
@@ -89,24 +92,27 @@ fn paragraph(app: &mut Application, event: Event) -> Result<(), Error> {
 
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                app.request(font_file.clone(), node_key)
+                app.request(font_file.clone(), node_key, true)
             } else {
                 Ok(())
             }
         },
+        Event::ParseAsset { .. } => app.mutate(FONT_MUTATOR_INDEX.into(), event),
         Event::AssetLoaded { node_key } => {
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_size = app.attr(node_key, "size", Some(default_font_size()))?.as_usize()?;
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                let font_bytes = app.get_asset(&font_file).unwrap();
+                let text = app.attr(node_key, "text", None)?.clone();
 
-                for unbreakable in app.attr(node_key, "text", None)?.split_space() {
+                let font = get_font(&mut app.storage, &font_file).unwrap();
+
+                for unbreakable in text.split_space() {
                     let new_node = app.view.create();
 
                     let width = {
-                        let mut texture = StrTexture::new(&font_bytes, font_size, None)?;
-                        texture.write(&unbreakable);
-                        texture.width()
+                        let mut renderer = font.renderer(None, font_size);
+                        renderer.write(&unbreakable);
+                        renderer.width()
                     };
                     let ratio = aspect_ratio(width, font_size);
                     app.view[new_node].layout_config.set_layout_mode(LayoutMode::AspectRatio(ratio));
@@ -119,7 +125,7 @@ fn paragraph(app: &mut Application, event: Event) -> Result<(), Error> {
                 app.view[node_key].layout_config.set_layout_mode(LayoutMode::Chunks(row));
                 app.view[node_key].layout_config.set_content_axis(Axis::Horizontal);
                 app.view[node_key].layout_config.set_content_gap(gap);
-                app.must_check_layout = true;
+                app.invalidate_layout();
             }
 
             Ok(())
@@ -128,19 +134,20 @@ fn paragraph(app: &mut Application, event: Event) -> Result<(), Error> {
             if app.attr(node_key, "text", None)?.display_len() > 0 {
                 let font_size = app.attr(node_key, "size", Some(default_font_size()))?.as_usize()?;
                 let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-                let font_bytes = match app.get_asset(&font_file) {
-                    Some(bytes) => bytes,
+                let text = app.attr(node_key, "text", None)?.clone();
+                let font = match get_font(&mut app.storage, &font_file) {
+                    Some(font) => font,
                     None => return Ok(()),
                 };
 
                 let mut child = app.view.first_child(node_key).unwrap();
-                for unbreakable in app.attr(node_key, "text", None)?.split_space() {
+                for unbreakable in text.split_space() {
                     let color = rgb::RGBA8::new(230, 230, 230, 255);
                     app.view[child].layout_config.set_dirty(true);
                     app.view[child].foreground = {
-                        let mut texture = StrTexture::new(&font_bytes, font_size, Some(color))?;
-                        texture.write(&unbreakable);
-                        texture.texture()
+                        let mut renderer = font.renderer(Some(color), font_size);
+                        renderer.write(&unbreakable);
+                        renderer.texture()
                     };
 
                     child = app.view.next_sibling(child);
@@ -149,6 +156,7 @@ fn paragraph(app: &mut Application, event: Event) -> Result<(), Error> {
 
             Ok(())
         },
+        Event::Initialize => Ok(()),
         _ => Err(error!("Unexpected event: {:?}", event)),
     }
 }

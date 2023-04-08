@@ -172,17 +172,16 @@ pub const XML_MUTATOR: Mutator = Mutator {
     xml_attr_set: Some(&[]),
     xml_accepts_children: false,
     handler: xml_loader,
-    storage: None,
 };
 
-fn xml_loader(app: &mut Application, event: Event) -> Result<(), Error> {
+fn xml_loader(app: &mut Application, _m: MutatorIndex, event: Event) -> Result<(), Error> {
     match event {
         Event::AssetLoaded { node_key } => {
             let xml_node_index = app.view[node_key].xml_node_index.get().unwrap();
             let xml_node_key = app.xml_tree.node_key(xml_node_index);
 
             let file = app.attr(node_key, "file", None)?.as_str()?;
-            let bytes = app.get_asset(&file).ok_or(error!())?;
+            let bytes = app.get_asset(&file)?;
 
             let replacement = parse_xml_tree(
                 &mut app.mutators,
@@ -200,6 +199,7 @@ fn xml_loader(app: &mut Application, event: Event) -> Result<(), Error> {
                 xml_node_key: replacement,
             })?.ok_or_else(|| error!())
         },
+        Event::Initialize => Ok(()),
         Event::Resized { .. } => Ok(()),
         _ => Err(error!("Unexpected event: {:?}", event)),
     }
