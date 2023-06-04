@@ -10,20 +10,21 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 - anti-aliased
 - input API designed for improved accessibility
 - pure and safe rust
-- everything supported under `no_std`
+- Fully `no_std`
 
 ## 🏗️ Progress (core crate)
 
 - ☑ XML parsing
 - ☑ flexbox-like layout
 - ☑ PNG images
+- ☐ [Railway](https://lib.rs/railway) images [WiP]
 - ☑ full `no_std` support
-- ☐ textual nodes
-- ☐ round containers
-- ☐ input events
-- ☐ event handlers
+- ☑ textual nodes
+- ☑ round containers
+- ☐ input events [WiP]
+- ☐ event handlers [WiP]
 - ☐ text editing
-- ☐ scrolling
+- ☐ scrolling [WiP]
 - ☐ rich text
 - ☐ external links
 - ☐ video playback
@@ -31,7 +32,7 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 
 ## 🪀 Live Demos
 
-- [demo of version 0.2](https://l0.pm/acrylic/)
+- [demo of version 0.3.0](https://l0.pm/acrylic/)
 
 > more coming soon!
 
@@ -40,7 +41,7 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
 | web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | ☑ |
-| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ☑ | ☑ |  |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | Glitchy | ☑ |  |
 | x11 |  |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
@@ -87,14 +88,14 @@ Place it in `assets/`.
 ### The code: app.rs
 
 ```rust
+use std::rc::Rc;
 use platform::app;
-use acrylic::app::Application;
-use acrylic::xml::ViewLoader;
 
-app!("assets/", {
-    let loader = ViewLoader::new("default.xml");
-    Application::new((), loader)
-});
+fn layout_selector() -> Rc<String> {
+    Rc::new("default.xml".into())
+}
+
+app!("./assets/", layout_selector, "default.json");
 ```
 
 ### The manifest: Cargo.toml
@@ -110,10 +111,10 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.2.4"
+acrylic = "0.3.1"
 
 # building for the web
-platform = { package = "acrylic-web", version = "0.2.4" }
+platform = { package = "acrylic-web", version = "0.3.1" }
 ```
 
 ### Building
@@ -151,7 +152,7 @@ Then open http://localhost:8080/#release
 
 ### Expected Result
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.2.3/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.3.1/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 
