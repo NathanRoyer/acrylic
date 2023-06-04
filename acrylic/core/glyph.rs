@@ -57,7 +57,10 @@ impl Font {
 
     pub fn renderer(&mut self, color: Option<RGBA8>, font_size: usize) -> GlyphRenderer {
         let mut font_face = Face::parse(&self.bytes, 0).unwrap();
-        // font_face.set_variation(WGHT, 900.0);
+
+        if false {
+            font_face.set_variation(WGHT, 900.0);
+        }
 
         GlyphRenderer {
             font_face,
