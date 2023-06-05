@@ -1,3 +1,5 @@
+//! XML Layout Parsing
+
 use super::app::{Application, Mutator, MutatorIndex, OptionalMutatorIndex};
 use super::event::Event;
 use crate::{error, Error, format, String, CheapString, Vec, Rc};
@@ -15,6 +17,7 @@ index!(FileIndex, OptionalFileIndex);
 
 tree!(XmlNodeTree, XmlNode, XmlNodeKey, XmlNodeIndex, OptionalXmlNodeIndex, NoCookie);
 
+/// An XML Node extracted from the layout file
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct XmlNode {
     pub attributes: KeyValueStore,            // 6x4

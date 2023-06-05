@@ -59,6 +59,40 @@ const V0_STYLES: [&'static str; 10] = [
 ];
 
 impl Theme {
+    /// This expects a JSON theme with the following structure:
+    ///
+    /// ```json
+    /// {
+    ///     "name": "My Beautiful Theme",
+    ///     "version": 0,
+    ///     "styles": {
+    ///         "default": {
+    ///             "background": "222F",
+    ///             "foreground": "EEEF",
+    ///             "outline": "999F"
+    ///         },
+    ///         "menu-1": {
+    ///             "background": "333F",
+    ///             "foreground": "EEEF",
+    ///             "outline": "999F"
+    ///         },
+    ///         ...
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// And the following styles:
+    /// - `default`,
+    /// - `menu-1`,
+    /// - `menu-2`,
+    /// - `menu-3`,
+    /// - `neutral-inert`,
+    /// - `neutral-focus`,
+    /// - `warn-inert`,
+    /// - `warn-focus`,
+    /// - `incite-inert`,
+    /// - `incite-focus`
+    ///
     pub fn parse(theme_json: &str) -> Result<Self, Error> {
         let errmsg = "Error while parsing theme JSON";
         let mut theme: JsonValue = serde_json::from_str(theme_json).map_err(|e| error!("{}: {:?}", errmsg, e))?;

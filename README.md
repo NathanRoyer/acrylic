@@ -6,7 +6,7 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 
 - feels familiar to web developers
 - support for templating
-- extensible
+- integrated JSON state store
 - anti-aliased
 - input API designed for improved accessibility
 - pure and safe rust
@@ -20,7 +20,9 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 - ☐ [Railway](https://lib.rs/railway) images [WiP]
 - ☑ full `no_std` support
 - ☑ textual nodes
+- ☑ state store
 - ☑ round containers
+- ☐ templating [WiP]
 - ☐ input events [WiP]
 - ☐ event handlers [WiP]
 - ☐ text editing
@@ -29,6 +31,7 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 - ☐ external links
 - ☐ video playback
 - ☐ sound playback
+- ☐ accelerated rendering (GPU)
 
 ## 🪀 Live Demos
 
@@ -40,7 +43,7 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
-| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | ☑ |
+| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ |  |
 | wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | Glitchy | ☑ |  |
 | x11 |  |  |  |  |
 | gdi |  |  |  |  |
@@ -55,13 +58,13 @@ This is a **work-in-progress**, easily portable, small, single-thread, web-inspi
 .
 ├── Cargo.toml
 ├── assets
-│   ├── ferris.png
+│   ├── rustacean-flat-happy.png
 │   └── default.xml
 └── src
     └── app.rs
 ```
 
-### An asset: ferris.png
+### An asset: rustacean-flat-happy.png
 
 You can get it [here](https://rustacean.net/assets/rustacean-flat-happy.png).
 Place it in `assets/`.
@@ -69,20 +72,20 @@ Place it in `assets/`.
 ### The view layout: default.xml
 
 ```xml
-<x rem="1" style="default">
+<h-rem style="default">
     <inflate />
-    <y fixed="400" gap="10">
+    <v-fixed length="400" gap="10">
         <inflate />
-        <png src="rustacean-flat-happy.png" />
-        <x fixed="40" gap="10">
+        <png file="rustacean-flat-happy.png" />
+        <h-fixed length="40" gap="10">
             <inflate />
-            <p txt="Rust rocks!" />
+            <label text="Rust rocks!" />
             <inflate />
-        </x>
+        </h-fixed>
         <inflate />
-    </y>
+    </v-fixed>
     <inflate />
-</x>
+</h-rem>
 ```
 
 ### The code: app.rs
@@ -111,10 +114,10 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.3.1"
+acrylic = "0.3.2"
 
 # building for the web
-platform = { package = "acrylic-web", version = "0.3.1" }
+platform = { package = "acrylic-web", version = "0.3.2" }
 ```
 
 ### Building
@@ -152,7 +155,7 @@ Then open http://localhost:8080/#release
 
 ### Expected Result
 
-![quickstart.png](https://docs.rs/crate/acrylic/0.3.1/source/quickstart.png)
+![quickstart.png](https://docs.rs/crate/acrylic/0.3.2/source/quickstart.png)
 
 ## ☕ Contact & Contributions
 

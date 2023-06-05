@@ -1,3 +1,5 @@
+//! Flexbox-inspired layout algorithm
+
 use super::visual::{
     Pixels, Ratio, Axis::{self, Horizontal, Vertical},
     LayoutMode::*, Size, Position, SignedPixels,
@@ -8,6 +10,10 @@ use super::app::Application;
 use super::for_each_child;
 use crate::Error;
 
+/// Retrieves the node at a specific position in the view.
+///
+/// Note: the root node will be returned if no other node
+/// is at the specified position.
 pub fn hit_test(tree: &mut NodeTree, root: NodeKey, p: Position) -> NodeKey {
     let mut current = root;
 
@@ -28,6 +34,7 @@ pub fn hit_test(tree: &mut NodeTree, root: NodeKey, p: Position) -> NodeKey {
     current
 }
 
+/// Compute the current scroll amount of a container
 pub fn get_scroll(app: &Application, container: NodeKey) -> (Axis, Option<SignedPixels>, Option<Pixels>) {
     let node = &app.view[container];
     let axis = node.layout_config.get_length_axis();
@@ -49,6 +56,7 @@ pub fn get_scroll(app: &Application, container: NodeKey) -> (Axis, Option<Signed
     (axis, scroll.filter(|v| !v.is_zero()), max_scroll.filter(|v| !v.is_zero()))
 }
 
+/// Set the current scroll amount of a container
 pub fn scroll(app: &mut Application, container: NodeKey, axis: Axis, diff: SignedPixels) {
     for_each_child!(app.view, container, child, {
         scroll(app, child, axis, diff);
@@ -56,6 +64,7 @@ pub fn scroll(app: &mut Application, container: NodeKey, axis: Axis, diff: Signe
     });
 }
 
+/// (Re)Compute the layout of a view
 pub fn compute_layout(app: &mut Application, root: NodeKey) -> Result<(), Error> {
     app.view[root].layout_config.set_size_found(true);
     let axis = app.view[root].layout_config.get_content_axis();
@@ -69,7 +78,7 @@ pub fn compute_layout(app: &mut Application, root: NodeKey) -> Result<(), Error>
 
 impl Node {
     #[inline(always)]
-    pub fn set_size(&mut self, size: Size) {
+    fn set_size(&mut self, size: Size) {
         self.layout_config.set_size_found(true);
         if self.size != size {
             self.layout_config.set_resized(true);
@@ -439,6 +448,7 @@ fn get_max_length_on(
     max.map(|max| max + tree[cont].margin.total_on(wanted_axis))
 }
 
+/// This can be used to iterate on the positions of the children of a container.
 pub struct Cursor {
     axis: Axis,
     gap: Pixels,

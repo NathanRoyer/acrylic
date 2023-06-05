@@ -1,3 +1,5 @@
+//! The state of your Application
+
 use super::xml::{XmlNodeTree, XML_MUTATOR};
 use super::visual::{Pixels, SignedPixels, Position, Size, write_framebuffer, constrain, Texture as _};
 use super::event::Event;
@@ -15,11 +17,18 @@ use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap};
 use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
 use super::for_each_child;
 
+#[cfg(doc)]
+use super::node::Node;
+
 index!(MutatorIndex, OptionalMutatorIndex);
 
+/// A callback for events directed at a [`Mutator`]
 pub type Handler = fn(&mut Application, MutatorIndex, Event) -> Result<(), Error>;
+
+/// Optional storage for each [`Mutator`]
 pub type Storage = Vec<Option<Box<dyn Any>>>;
 
+/// XML Tags & other event handlers are defined as Mutators
 #[derive(Clone)]
 pub struct Mutator {
     pub xml_tag: Option<CheapString>,
@@ -39,6 +48,15 @@ enum Asset {
     Raw(Rc<[u8]>),
 }
 
+/// A Singleton which represents your application.
+///
+/// Its content includes:
+/// - the list of [`Mutator`]s and related [`Storage`]
+/// - the XML layout
+/// - the JSON state and related triggers
+/// - the internal view representation (a Node tree)
+/// - the [`Theme`]
+/// - a cache of assets
 pub struct Application {
     pub root: NodeKey,
     pub view: NodeTree,
@@ -60,6 +78,7 @@ pub struct Application {
     requests: Vec<Request>,
 }
 
+/// Utility function for event handlers to get and downcast their storage
 pub fn get_storage<T: Any>(storage: &mut [Option<Box<dyn Any>>], m: MutatorIndex) -> Option<&mut T> {
     storage[usize::from(m)].as_mut()?.downcast_mut()
 }
@@ -68,10 +87,8 @@ pub const XML_MUTATOR_INDEX: usize = 0;
 pub const FONT_MUTATOR_INDEX: usize = 1;
 
 impl Application {
-    pub fn new<const N: usize>(
-        layout_asset: CheapString,
-        addon_mutators: [Mutator; N],
-    ) -> Self {
+    /// Main constructor
+    pub fn new<const N: usize>(layout_asset: CheapString, addon_mutators: [Mutator; N]) -> Self {
         let default_mutators = &[
             XML_MUTATOR,
             FONT_MUTATOR,
@@ -140,10 +157,12 @@ impl Application {
         app
     }
 
+    /// Quick way to tell the application to recompute its layout before the next frame
     pub fn invalidate_layout(&mut self) {
         self.must_check_layout = true;
     }
 
+    /// Fire an event at a [`Mutator`]
     pub fn mutate(&mut self, index: MutatorIndex, event: Event) -> Result<(), Error> {
         let mutator = &self.mutators[usize::from(index)];
         /*let xml_tag = mutator.xml_tag.clone().unwrap_or("<anon>".into());
@@ -151,6 +170,7 @@ impl Application {
         (mutator.handler)(self, index, event)
     }
 
+    /// Fire an event at a [`Node`]
     pub fn handle(&mut self, node: NodeKey, event: Event) -> Result<Option<()>, Error> {
         if Some(node) == self.debugged {
             log::info!("handling {}", &event);
@@ -162,6 +182,7 @@ impl Application {
         })
     }
 
+    /// Read an asset from the internal cache
     pub fn get_asset(&self, asset: &CheapString) -> Result<Rc<[u8]>, Error> {
         match self.assets.get(asset) {
             Some(Asset::Raw(rc)) => Ok(rc.clone()),
@@ -170,10 +191,13 @@ impl Application {
         }
     }
 
+    /// Platforms use this method to read the next asset to load.
     pub fn requested(&self) -> Option<CheapString> {
         self.requests.first().map(|r| r.asset.clone())
     }
 
+    /// Notify the system that an asset is required by some [`Node`]
+    ///
     /// If `asset` is already loaded, this will trigger
     /// Handling of an `AssetLoaded` event immediately
     pub fn request(&mut self, asset: CheapString, origin: NodeKey, parse: bool) -> Result<(), Error> {
@@ -201,6 +225,7 @@ impl Application {
         }
     }
 
+    /// Platforms use this method to deliver an asset's content
     pub fn data_response(&mut self, asset: CheapString, data: Box<[u8]>) -> Result<(), Error> {
         let mut data = Some(data);
 
@@ -235,6 +260,7 @@ impl Application {
         Ok(())
     }
 
+    /// Bounds a [`Node`] to a JSON state value
     pub fn subscribe_to_state(&mut self, node: NodeKey, path_hash: StatePathHash) {
         if let Some(subscribed) = self.monitors.get_mut(&path_hash) {
             if !subscribed.contains(&node) {
@@ -247,6 +273,7 @@ impl Application {
         }
     }
 
+    /// Retrieves a value from the JSON state
     pub fn state_lookup<'a>(&'a mut self, node: NodeKey, store: &str, key: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
         let mut state_finder: Option<(StateFinder, NodeKey)> = None;
 
@@ -289,6 +316,7 @@ impl Application {
         }
     }
 
+    /// Modifies a value in the JSON state
     pub fn state_update(&mut self, path_scope: NodeKey, store: &str, key: &str, value: StateValue) -> Result<(), Error> {
         let mut path_hash = Hasher::default();
         let content = self.state_lookup(path_scope, store, key, &mut path_hash)?;
@@ -320,6 +348,11 @@ impl Application {
         Ok(())
     }
 
+    /// Retrieves the XML tag name of a node
+    ///
+    /// This can return the following special strings:
+    /// - `<subnode>` if the node wasn't created from an XML tag
+    /// - `<anon>` if the node's [`Mutator`] has no defined XML tag
     pub fn xml_tag(&self, node: NodeKey) -> CheapString {
         let mutator_index = match self.view[node].factory.get() {
             Some(index) => index,
@@ -332,6 +365,23 @@ impl Application {
         }
     }
 
+    /// Retrieves the value of an XML attribute, resolving optional JSON state dependencies.
+    ///
+    /// # Attribute syntax
+    ///
+    /// ## Immediate syntax
+    /// 
+    /// `<png file="acrylic.png" />`
+    ///
+    /// Here, the `file` attribute will contain the string `acrylic.png`
+    ///
+    /// ## JSON state dependency
+    ///
+    /// `<label root:text="some.json.path.items.3" />`
+    ///
+    /// Here, the `text` attribute will contain the value of the JSON state at `some` / `json` / `path` / `items` / fourth item.
+    ///
+    /// `root` specifies the main JSON state store. Use [Iterating Containers](http://todo.io/) to create other ones.
     pub fn attr(&mut self, node: NodeKey, attr: &str, default: Option<CheapString>) -> Result<StateFinderResult, Error> {
         let xml_node_index = self.view[node].xml_node_index.get()
             .expect("cannot use Application::attr on nodes without xml_node_index");
@@ -440,6 +490,17 @@ impl Application {
         Ok(())
     }
 
+    /// Renders the current view in a `framebuffer`.
+    ///
+    /// This expects the framebuffer to keep its content between calls.
+    ///
+    /// TODO: remove temporary input code from this and implement Input Events.
+    ///
+    /// This methods follows the following steps:
+    /// - If the framebuffer size changed: invalidate layout & empty framebuffer.
+    /// - Recompute the layout if needed.
+    /// - Builds a list of dirty rectangles by locating each dirty node in the view
+    /// - repaint each rectangle in this list
     pub fn render(
         &mut self,
         fb_size: (usize, usize),

@@ -31,12 +31,16 @@ fn failed_glyph(font_size: usize) -> Rc<GrayScalePixelBuffer> {
     Rc::new(GrayScalePixelBuffer::new(mask, width, height))
 }
 
+/// Raw font bytes & glyph cache (a HashMap)
 pub struct Font {
     bytes: Box<[u8]>,
     glyph_cache: GlyphCache,
     glyph_cache_weight: usize,
 }
 
+/// A short-lived multifunction structure
+///
+/// It can either render glyphs to a texture, or just compute the width of the text.
 pub struct GlyphRenderer<'a> {
     font_face: Face<'a>,
     glyph_cache: &'a mut GlyphCache,
@@ -55,6 +59,11 @@ impl Font {
         }
     }
 
+    /// Get a [`GlyphRenderer`] from this font.
+    ///
+    /// Passing `None` as render color will create a renderer suitable for
+    /// computing only the width of the text. No texture will be created in
+    /// mode.
     pub fn renderer(&mut self, color: Option<RGBA8>, font_size: usize) -> GlyphRenderer {
         let mut font_face = Face::parse(&self.bytes, 0).unwrap();
 
@@ -135,7 +144,7 @@ impl<'a> GlyphRenderer<'a> {
         (h_advance, h_bearing, glyph_mask)
     }
 
-    pub fn append(
+    fn append(
         &mut self,
         text: &str,
     ) {
@@ -225,14 +234,19 @@ impl<'a> GlyphRenderer<'a> {
         }
     }
 
+    /// Add some text to this texture / width computation
     pub fn write<T: fmt::Display + ?Sized>(&mut self, text: &T) {
         core::write!(self, "{}", text).unwrap();
     }
 
+    /// Get the width of all processed glyphs.
     pub fn width(self) -> usize {
         self.width
     }
 
+    /// Retrieves the texture containing a rendering of processed glyphs.
+    ///
+    /// This panics if this renderer was configured for width computation only.
     pub fn texture(self) -> PixelSource {
         if let Some((pixels, _color)) = self.render_data {
             let pixel_buffer = RgbaPixelBuffer::new(pixels.into_boxed_slice(), self.width, self.font_size);
@@ -243,6 +257,7 @@ impl<'a> GlyphRenderer<'a> {
     }
 }
 
+/// Utility to compute the size of a whitespace based on font size.
 pub fn space_width(font_size: usize) -> usize {
     font_size / 4
 }
@@ -284,6 +299,7 @@ fn font_storage(app: &mut Application, m: MutatorIndex, event: Event) -> Result<
     }
 }
 
+/// Tag-less Mutator which simply stores fonts
 pub const FONT_MUTATOR: Mutator = Mutator {
     xml_tag: None,
     xml_attr_set: None,
@@ -297,7 +313,7 @@ pub fn get_font<'a>(storage: &'a mut Storage, font: &CheapString) -> Option<&'a 
     storage.get_mut(font)
 }
 
-pub struct Outline {
+struct Outline {
     points: Vec<Vec2<f32>>,
     last_point: Vec2<f32>,
     base: Vec2<f32>,

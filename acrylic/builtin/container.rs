@@ -1,3 +1,5 @@
+//! Implementation of built-in containers
+
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::Event;
 use crate::core::node::NodeKey;
@@ -237,7 +239,7 @@ fn generator<'a>(
 
         Ok(current)
     } else {
-        app.state_lookup(node, store, key, path_hash)
+        app.state_lookup(masker, store, key, path_hash)
     }
 }
 

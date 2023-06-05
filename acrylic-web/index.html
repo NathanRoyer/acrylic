@@ -37,10 +37,13 @@ let urlPrefix = null;
 let timeout = null;
 let textEncoder = new TextEncoder();
 let previousFrame = performance.now();
-const targetFPS = 30;
+const targetFPS = 20;
 const targetFrameTime = parseInt(1000 / targetFPS);
 let lastFrameTime;
 let appDateOfBirth;
+let mousePosition = [0, 0];
+let wheelDelta = 0;
+let clicked = false;
 let assets = {};
 let fb_address = 0;
 let canvas;
@@ -67,7 +70,7 @@ function onRequestLoad(event) {
     let src = new Uint8Array(pendingRequest.response);
     for (let i = 0; i < len; i++) dst[i] = src[i];
     wasm.exports.process_response(app);
-    wasm.exports.drop_response_bytes();
+    // wasm.exports.drop_response_bytes();
     pendingRequest = null;
     needsSliceRefresh = true;
     assets[pendingRequestUrl] = src;
@@ -109,14 +112,18 @@ function frame() {
     if (w != window.innerWidth || h != window.innerHeight) {
         w = window.innerWidth;
         h = window.innerHeight;
-        wasm.exports.set_output_size(app, w, h);
+        wasm.exports.set_output_size(w, h);
         canvas.width = w;
         canvas.height = h;
         printLastFrameTime = true;
     }
 
     let age = performance.now() - appDateOfBirth;
-    wasm.exports.frame(app, age);
+    let perf = performance.now();
+    wasm.exports.frame(app, age, mousePosition[0], mousePosition[1], wheelDelta, clicked);
+    // console.log(performance.now() - perf);
+    clicked = false;
+    wheelDelta = 0;
 
     let len = w * h * 4;
     let mem = wasm.exports.memory;
@@ -157,7 +164,7 @@ function startWasm(file, debug) {
                 WebAssembly.instantiate(module, { env }).then(mod => {
                     wasm = mod;
                     app = wasm.exports.init();
-                    textInputBuffer = wasm.exports.get_text_input_buffer();
+                    // textInputBuffer = wasm.exports.get_text_input_buffer();
                     appDateOfBirth = performance.now();
                     frame();
                 });
@@ -181,20 +188,25 @@ function findWasm(debug) {
 }
 
 function onClick(event) {
-    if (wasm) {
+    clicked = true;
+    /*if (wasm) {
         let x = event.clientX;
         let y = event.clientY;
         wasm.exports.pointing_at(app, x, y);
         wasm.exports.quick_action(app, 1);
-    }
+    }*/
 }
 
 function onMouseMove(event) {
+    mousePosition = [event.clientX, event.clientY];
     if (wasm) {
-        let x = event.clientX;
-        let y = event.clientY;
-        wasm.exports.pointing_at(app, x, y);
+        // wasm.exports.pointing_at(app, x, y);
     }
+}
+
+function onWheel(event) {
+    mousePosition = [event.clientX, event.clientY];
+    wheelDelta = parseInt(event.wheelDelta / 2);
 }
 
 function onKeyDown(event) {
@@ -228,7 +240,8 @@ function onKeyDown(event) {
 function onLoad() {
     document.body.addEventListener('click', onClick);
     document.body.addEventListener('mousemove', onMouseMove);
-    document.body.addEventListener('keydown', onKeyDown);
+    document.body.addEventListener('wheel', onWheel);
+    // document.body.addEventListener('keydown', onKeyDown);
     canvas = document.getElementById('fb-canvas');
     let hash = document.location.hash;
     let debug;

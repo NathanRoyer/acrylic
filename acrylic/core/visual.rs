@@ -1,3 +1,5 @@
+//! Rendering, SSAA, Positioning Utilities
+
 use static_assertions::const_assert_eq;
 use fixed::types::{U20F12, U12F20, I21F11};
 use fixed::traits::LosslessTryFrom;
@@ -9,6 +11,7 @@ pub type Pixels = U20F12;
 pub type SignedPixels = I21F11;
 pub type Ratio = U12F20;
 
+/// Possible ways for a node to be positioned
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum LayoutMode {
     /// Node will be ignored by the layout algorithm
@@ -311,7 +314,7 @@ impl Size {
 }
 
 /// This can be used by nodes to offset the boundaries of
-/// their original rendering spot.
+/// their original rendering window.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct Margin {
     pub top_left: Size,
@@ -351,8 +354,6 @@ pub enum Direction {
     Right,
 }
 
-pub type RenderCount = usize;
-
 pub trait AsRgba: Copy + Into<RGBA8> + Debug {
     fn has_alpha() -> bool;
 }
@@ -363,6 +364,7 @@ impl AsRgba for RGB8 { fn has_alpha() -> bool { false } }
 const_assert_eq!(core::mem::size_of::<RGBA8>(), 4);
 const_assert_eq!(core::mem::size_of::<RGB8>(), 3);
 
+/// Blend two colors together
 #[inline(always)]
 pub fn blend_pixel(src_pixel: RGBA8, dst_pixel: &mut RGBA8) {
     let src_alpha = src_pixel.a as u32;
@@ -385,6 +387,7 @@ pub fn blend_pixel(src_pixel: RGBA8, dst_pixel: &mut RGBA8) {
     blend(src_pixel.a, &mut dst_pixel.a);
 }
 
+/// Trait for anything that can be painted onto the framebuffer
 pub trait Texture: Debug {
     fn paint(
         &self,
@@ -397,6 +400,7 @@ pub trait Texture: Debug {
     );
 }
 
+/// Core Texture Types
 #[derive(Debug)]
 pub enum PixelSource {
     Texture(Box<dyn Texture>),
@@ -484,6 +488,7 @@ impl Default for PixelSource {
     }
 }
 
+/// Trait for 2D-sized & indexed pixel storage
 pub trait PixelBuffer {
     fn buffer(&self, index: usize) -> RGBA8;
     fn width (&self) -> usize;
@@ -564,11 +569,13 @@ pixel_buffer!(GrayScalePixelBuffer, Gray<u8>, as_gray, gray_to_rgba, true);
 pixel_buffer!(RgbPixelBuffer, RGB8, as_rgb, as_rgba_to_rgba, false);
 pixel_buffer!(RgbaPixelBuffer, RGBA8, as_rgba, as_rgba_to_rgba, true);
 
+/// Paint a rectangle of a framebuffer with a solid color
 pub fn write_framebuffer(fb: &mut [RGBA8], stride: usize, window: (Position, Size), color: RGBA8) {
     let src = PixelSource::SolidColor(color);
     src.paint(fb, window, window, stride, 1, false);
 }
 
+/// Highlight a rectangle in a framebuffer
 pub fn debug_framebuffer(fb: &mut [RGBA8], stride: usize, window: (Position, Size)) {
     let src = PixelSource::Debug;
     src.paint(fb, window, window, stride, 1, false);
@@ -657,7 +664,7 @@ impl<T> Texture for T where T: Debug + PixelBuffer {
     }
 }
 
-pub type Pushes = tinyvec::ArrayVec<[(Position, Size); 4]>;
+type Pushes = tinyvec::ArrayVec<[(Position, Size); 4]>;
 
 pub fn push_render_zone(render_list: &mut Vec<(Position, Size)>, push: (Position, Size)) {
     let mut todo = [(push, 0)].to_vec();
@@ -687,7 +694,7 @@ pub fn push_render_zone(render_list: &mut Vec<(Position, Size)>, push: (Position
     }
 }
 
-pub fn split_on_overlap(
+fn split_on_overlap(
     rect_0: &mut (Position, Size),
     rect_1: &(Position, Size),
 ) -> Pushes {
@@ -763,6 +770,7 @@ pub fn split_on_overlap(
     pushes
 }
 
+/// Resizes a rectangle so that it fits in another one, if it's bigger
 #[inline(always)]
 pub fn constrain(limits: &(Position, Size), constrained: &mut (Position, Size)) {
     let br_limits = limits.0.add_size(limits.1);

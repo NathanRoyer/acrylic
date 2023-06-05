@@ -1,3 +1,5 @@
+//! JSON State Store
+
 use crate::{Error, error, CheapString, Hasher, HashMap};
 use super::app::Application;
 use super::visual::{Pixels, Ratio};
@@ -5,6 +7,7 @@ use super::node::NodeKey;
 pub use serde_json::Value as StateValue;
 use core::{fmt::{self, Write}, write, str::Split, ops::Deref};
 
+/// Parse a JSON string into a JSON State
 pub fn parse_state(json: &str) -> Result<StateValue, Error> {
     match serde_json::from_str(json) {
         Ok(value) => Ok(value),
@@ -12,13 +15,16 @@ pub fn parse_state(json: &str) -> Result<StateValue, Error> {
     }
 }
 
+/// A unique value identifying a JSON state path
 pub type StatePathHash = u64;
 
+/// One step in a JSON state path
 pub enum StatePathStep<'a> {
     Key(&'a str),
     Index(usize),
 }
 
+/// The result of a JSON state lookup
 #[derive(Clone)]
 pub enum StateFinderResult {
     String(CheapString),
@@ -76,6 +82,7 @@ impl StateFinderResult {
         }
     }
 
+    /// Counts the number of characters this value would take, if converted to a string
     pub fn display_len(&self) -> usize {
         let mut counter = CharCounter(0);
         write!(&mut counter, "{}", self).unwrap();
@@ -90,6 +97,9 @@ impl StateFinderResult {
         Ok(Ratio::from_num(self.as_f32()?))
     }
 
+    /// Tries to split this value at each whitespace character.
+    ///
+    /// If this value isn't a string, the returned iterator will yield the value (once).
     pub fn split_space(&self) -> SpaceIterator {
         match self {
             Self::String(s) => SpaceIterator::String(s.split_space()),
@@ -98,6 +108,7 @@ impl StateFinderResult {
     }
 }
 
+/// See [`StateFinderResult::split_space`]
 pub enum SpaceIterator<'a> {
     String(Split<'a, char>),
     Other(StateFinderResult, bool),
@@ -150,6 +161,26 @@ impl<'a> fmt::Display for SpaceIteratorResult<'a> {
     }
 }
 
+/// A callback function used as a custom State lookup function.
+///
+/// When a secondary state store (namespace) is created by a node (the "masking" node),
+/// A function with this signature is stored, which allows the masking node
+/// to customize the lookup policy for this state store. This is currently
+/// only used by Iterating Containers (see the `generator` state lookup function
+/// in container code).
+///
+/// As all state lookups performed by (indirect) children of the masking node
+/// will go through this function, it should fall back to the default
+/// [`Application::state_lookup`] method if the requested state store
+/// isn't the new one:
+/// ```rust
+/// if store == "my-custom-store" {
+///     // perform your custom lookup
+/// } else {
+///     // act as if the masking node
+///     app.state_lookup(masker, store, key, path_hash)
+/// }
+/// ```
 pub type StateFinder = for<'a> fn(
     app: &'a mut Application,
     masker: NodeKey,
@@ -159,8 +190,10 @@ pub type StateFinder = for<'a> fn(
     path_hash: &mut Hasher,
 ) -> Result<&'a mut StateValue, Error>;
 
+/// Map of nodes which created custom state stores
 pub type StateMasks = HashMap<NodeKey, StateFinder>;
 
+/// Parse a string as a list of path steps
 pub fn path_steps(path: &str) -> impl Iterator<Item = StatePathStep> {
     path.split('.').filter(|v| v.len() > 0).map(|s| {
         match s.parse::<usize>() {

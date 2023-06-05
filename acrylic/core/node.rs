@@ -1,10 +1,18 @@
+//! The Node structure
+
 use super::app::OptionalMutatorIndex;
 use super::xml::OptionalXmlNodeIndex;
 use super::visual::{PixelSource, LayoutConfig, Margin, Size, Position};
 use oakwood::{Cookie64, tree};
 
+#[cfg(doc)]
+use super::app::Mutator;
+
 tree!(NodeTree, Node, NodeKey, NodeIndex, OptionalNodeIndex, Cookie64);
 
+/// A Visual Element
+///
+/// [`Mutator`]s typically convert XML Tags to one or more nodes.
 #[derive(Debug, Default)]
 pub struct Node {                                 // bits    div4
     pub layout_config: LayoutConfig,              // 2x4     2
@@ -19,6 +27,7 @@ pub struct Node {                                 // bits    div4
     pub factory: OptionalMutatorIndex,            // 1x4     1
     pub xml_node_index: OptionalXmlNodeIndex,     // 1x4     1
 
+    // todo:
     // pub event_mask: EventMask,
     // pub transition: Transition,
 }                                                 //         20x4

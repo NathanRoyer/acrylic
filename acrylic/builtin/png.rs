@@ -1,3 +1,5 @@
+//! Support for PNG images
+
 use crate::core::visual::{PixelSource, Ratio, aspect_ratio, LayoutMode, Texture};
 use crate::core::visual::{RgbPixelBuffer, RgbaPixelBuffer, PixelBuffer};
 use crate::core::app::{Application, Mutator, MutatorIndex};

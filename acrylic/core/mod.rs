@@ -1,3 +1,5 @@
+//! `acrylic` internals: Events, Layout, JSON State, XML Parsing, ...
+
 pub mod app;
 pub mod event;
 pub mod glyph;
@@ -14,12 +16,14 @@ use core::ops::Deref;
 pub use oakwood::for_each_child;
 pub use rgb;
 
+/// General-purpose (Key, Value) pair
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyValue {
     pub key: CheapString,
     pub value: CheapString,
 }
 
+/// General-purpose Vector of (Key, Value) pairs
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 #[repr(transparent)]
 pub struct KeyValueStore {

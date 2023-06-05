@@ -1,3 +1,5 @@
+//! Support for Labels & Paragraphs
+
 use crate::core::visual::{aspect_ratio, LayoutMode, Axis, Pixels};
 use crate::core::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
 use crate::core::glyph::{space_width, get_font};

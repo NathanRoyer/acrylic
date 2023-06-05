@@ -1,11 +1,18 @@
+//! Event definitions
+
 use super::xml::XmlNodeKey;
 use super::node::NodeKey;
 use crate::{Box, CheapString};
 
+#[cfg(doc)]
+use super::app::Mutator;
+
 use core::fmt;
 
+/// TODO
 pub type InputEvent = usize;
 
+/// Events which can be sent to [`Mutator`]s
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// Sent to every Mutator when the application is initialized
