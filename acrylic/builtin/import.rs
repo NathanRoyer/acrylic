@@ -7,6 +7,16 @@
 //! Imports another XML layout file into the current one.
 //!
 //! Special Attribute: `file` (name of the asset, no default)
+//!
+//! TODO: allow JSON state lookups from nodes in the asset to
+//! to start at some path in the JSON state of the app:
+//!
+//! ```xml
+//! <import file="video-player.xml" state="root:videos.5643" />
+//! ```
+//!
+//! Here, when tags in `video-player.xml` refer to `root:something`, they'd be in
+//! fact referring to `root:videos.5643.something`.
 
 use crate::core::xml::{tag, XmlNodeKey, parse_xml_tree};
 use crate::{Box, HashMap, CheapString, Error, error};
