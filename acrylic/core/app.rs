@@ -1,6 +1,6 @@
 //! The state of your Application
 
-use super::xml::{XmlNodeTree, XML_MUTATOR};
+use super::xml::{XmlNodeTree};
 use super::visual::{Pixels, SignedPixels, Position, Size, write_framebuffer, constrain, Texture as _};
 use super::event::Event;
 use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, StatePathStep, path_steps};
@@ -9,6 +9,7 @@ use super::layout::compute_layout;
 use super::style::Theme;
 use super::rgb::RGBA8;
 use super::glyph::FONT_MUTATOR;
+use crate::builtin::import::IMPORT_MUTATOR;
 use crate::builtin::png::PNG_MUTATOR;
 use crate::builtin::container::{INF_MUTATOR, CONTAINERS};
 use crate::builtin::textual::{LABEL_MUTATOR, PARAGRAPH_MUTATOR};
@@ -83,14 +84,14 @@ pub fn get_storage<T: Any>(storage: &mut [Option<Box<dyn Any>>], m: MutatorIndex
     storage[usize::from(m)].as_mut()?.downcast_mut()
 }
 
-pub const XML_MUTATOR_INDEX: usize = 0;
+pub const IMPORT_MUTATOR_INDEX: usize = 0;
 pub const FONT_MUTATOR_INDEX: usize = 1;
 
 impl Application {
     /// Main constructor
     pub fn new<const N: usize>(layout_asset: CheapString, addon_mutators: [Mutator; N]) -> Self {
         let default_mutators = &[
-            XML_MUTATOR,
+            IMPORT_MUTATOR,
             FONT_MUTATOR,
             PNG_MUTATOR,
             LABEL_MUTATOR,
@@ -142,7 +143,7 @@ impl Application {
             app.assets.insert(app.default_font_str.clone(), Asset::Parsed);
         }
 
-        let factory = Some(XML_MUTATOR_INDEX.into()).into();
+        let factory = Some(IMPORT_MUTATOR_INDEX.into()).into();
 
         let xml_root = app.xml_tree.create();
         app.xml_tree[xml_root].factory = factory;
@@ -152,7 +153,7 @@ impl Application {
         app.view[app.root].factory = factory;
         app.view[app.root].xml_node_index = Some(xml_root.index().into()).into();
 
-        app.request(layout_asset, app.root, false).unwrap();
+        app.request(layout_asset, app.root, true).unwrap();
 
         app
     }
