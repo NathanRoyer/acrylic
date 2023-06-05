@@ -1,3 +1,9 @@
+//! Please follow [the Quickstart guide](https://github.com/NathanRoyer/acrylic/blob/main/README.md#%EF%B8%8F-quickstart), then navigate here as you wish.
+//!
+//! You will find documentation for built-in tags in [`builtin`].
+//!
+//! Internal processes are also documented in [`core`].
+
 #![no_std]
 
 extern crate alloc;

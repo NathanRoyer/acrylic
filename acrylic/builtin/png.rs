@@ -1,4 +1,12 @@
 //! Support for PNG images
+//!
+//! # List of tags
+//!
+//! ## `png`
+//!
+//! A simple node displaying an image decoded from the PNG format.
+//!
+//! Special Attribute: `file` (name of the asset, no default)
 
 use crate::core::visual::{PixelSource, Ratio, aspect_ratio, LayoutMode, Texture};
 use crate::core::visual::{RgbPixelBuffer, RgbaPixelBuffer, PixelBuffer};

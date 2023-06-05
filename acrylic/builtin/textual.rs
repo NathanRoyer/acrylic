@@ -1,4 +1,21 @@
 //! Support for Labels & Paragraphs
+//!
+//! # Attributes common to all textual tags
+//!
+//! - `text`: the text to be displayed; no default
+//! - `font`: asset name for the font, defaults to `default`
+//!
+//! # List of tags
+//!
+//! ## `label`
+//!
+//! Text displayed in a single line.
+//!
+//! ## `p`
+//!
+//! Text displayed as a paragraph.
+//!
+//! Special Attribute: `size` (font-size, defaults to 24 pixels)
 
 use crate::core::visual::{aspect_ratio, LayoutMode, Axis, Pixels};
 use crate::core::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};

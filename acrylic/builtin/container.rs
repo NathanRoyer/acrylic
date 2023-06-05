@@ -1,4 +1,82 @@
 //! Implementation of built-in containers
+//!
+//! # Attributes common to all container types
+//!
+//! - `for`, `in`: see Iterating Containers
+//! - `style`: name of the style to apply to this container
+//! - `margin`: node margin, as a number of pixels
+//! - `border-width`: node border width, as a number of pixels
+//! - `border-radius`: node border radius, as a number of pixels
+//! - `gap`: gap between children, as a number of pixels
+//!
+//! # Iterating Containers
+//!
+//! Containers all have special `for` & `in` attributes which
+//! allows the layout to produce one child for each item of a
+//! a JSON State list. The container will create a new local
+//! state store (a State Mask) available to all its children,
+//! named like the value in the `for` attribute. The list on
+//! which the container iterates is specified a the JSON state
+//! path in the `in` attribute. For example:
+//!
+//! ```xml
+//! <v-wrap for="person" in="root:club.members">
+//!     <h-fixed length="40">
+//!         <label person:text="name" />
+//!     </h-fixed>
+//! </v-wrap>
+//! ```
+//!
+//! This will result in a list of club members, displaying the `name`
+//! field of each object in the list at `club` / `members` in the root
+//! (main) JSON state store.
+//!
+//! Technically, the container will produce as many children nodes as
+//! required by the list and subscribe to that list. Then, when the
+//! children nodes are initialized, they will subscribe to individual
+//! list items as part of their attribute value lookup. If or When the
+//! list is modified (either a specific item or the length of the list),
+//! the subscribed nodes will either be replaced by new ones or updated
+//! accordingly.
+//!
+//! # List of tags
+//!
+//! ## `inflate`
+//!
+//! Transparent node taking all remaining space.
+//!
+//! ## Wrapping Containers
+//!
+//! - `h-wrap`: horizontal containers wrapping their content
+//! - `v-wrap`: vertical containers wrapping their content
+//!
+//! ## Fixed-Length Containers
+//!
+//! - `h-fixed`: fixed-length horizontal containers
+//! - `v-fixed`: fixed-length vertical containers
+//!
+//! Special Attribute: `length` (length, in pixels, no default)
+//!
+//! ## Containers Filling Remaining Space
+//!
+//! - `v-rem`: vertical containers filling remaining space
+//! - `h-rem`: horizontal containers filling remaining space
+//!
+//! Special Attribute: `weight` (relative weight, no unit, defaults to 1.0)
+//!
+//! ## Containers with carriage returns
+//!
+//! - `h-chunks`: horizontal containers with overflow carriage-returns
+//! - `v-chunks`: vertical containers with overflow carriage-returns
+//!
+//! Special Attribute: `row` (row length, in pixels, no default)
+//!
+//! ## Fixed-Aspect-Ratio Containers
+//!
+//! - `h-ratio`: fixed-aspect-ratio horizontal containers
+//! - `v-ratio`: fixed-aspect-ratio vertical containers
+//!
+//! Special Attribute: `ratio` (aspect ratio, no unit, defaults to 1.0)
 
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::Event;
