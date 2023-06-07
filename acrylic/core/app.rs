@@ -1,30 +1,36 @@
 //! The state of your Application
 
-use super::xml::{XmlNodeTree};
-use super::visual::{Pixels, SignedPixels, Position, Size, write_framebuffer, constrain, Texture as _};
-use super::event::Event;
+use super::xml::{XmlNodeTree, XmlNodeKey};
+use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
 use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, StatePathStep, path_steps};
+use super::event::{Handlers, UserInputEvent};
 use super::node::{NodeTree, NodeKey};
-use super::layout::compute_layout;
+use super::layout::{compute_layout, hit_test};
 use super::style::Theme;
 use super::rgb::RGBA8;
-use super::glyph::FONT_MUTATOR;
-use crate::builtin::import::IMPORT_MUTATOR;
-use crate::builtin::png::PNG_MUTATOR;
-use crate::builtin::container::{INF_MUTATOR, CONTAINERS};
-use crate::builtin::textual::{LABEL_MUTATOR, PARAGRAPH_MUTATOR};
 use oakwood::{index, NodeKey as _};
 use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap};
 use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
 use super::for_each_child;
+
+use super::glyph::FONT_MUTATOR;
+use crate::builtin::inflate::INFLATE_MUTATOR;
+use crate::builtin::import::IMPORT_MUTATOR;
+use crate::builtin::png::PNG_MUTATOR;
+use crate::builtin::container::CONTAINERS;
+use crate::builtin::label::LABEL_MUTATOR;
+use crate::builtin::paragraph::PARAGRAPH_MUTATOR;
 
 #[cfg(doc)]
 use super::node::Node;
 
 index!(MutatorIndex, OptionalMutatorIndex);
 
-/// A callback for events directed at a [`Mutator`]
-pub type Handler = fn(&mut Application, MutatorIndex, Event) -> Result<(), Error>;
+/// General-purpose callbacks that containers can call based on their attributes.
+pub type SimpleCallback = fn(&mut Application, NodeKey) -> Result<(), Error>;
+
+/// General-purpose callbacks that containers can call based on their attributes.
+pub type SimpleCallbackMap = HashMap<CheapString, SimpleCallback>;
 
 /// Optional storage for each [`Mutator`]
 pub type Storage = Vec<Option<Box<dyn Any>>>;
@@ -32,10 +38,11 @@ pub type Storage = Vec<Option<Box<dyn Any>>>;
 /// XML Tags & other event handlers are defined as Mutators
 #[derive(Clone)]
 pub struct Mutator {
+    pub name: CheapString,
     pub xml_tag: Option<CheapString>,
     pub xml_attr_set: Option<&'static [&'static str]>,
     pub xml_accepts_children: bool,
-    pub handler: Handler,
+    pub handlers: Handlers,
 }
 
 struct Request {
@@ -47,6 +54,13 @@ struct Request {
 enum Asset {
     Parsed,
     Raw(Rc<[u8]>),
+}
+
+pub struct DebuggingOptions {
+    pub skip_glyph_rendering: bool,
+    pub skip_container_borders: bool,
+    pub freeze_layout: bool,
+    pub draw_layout: bool,
 }
 
 /// A Singleton which represents your application.
@@ -64,17 +78,19 @@ pub struct Application {
     pub storage: Storage,
     pub xml_tree: XmlNodeTree,
     pub theme: Theme,
+    pub callbacks: SimpleCallbackMap,
+    pub debug: DebuggingOptions,
+
     pub(crate) state_masks: StateMasks,
-    state: StateValue,
     pub(crate) monitors: HashMap<StatePathHash, Vec<NodeKey>>,
     pub(crate) mutators: Vec<Mutator>,
+    pub(crate) default_font_str: CheapString,
+
+    state: StateValue,
     must_check_layout: bool,
     _source_files: Vec<String>,
-    pub(crate) default_font_str: CheapString,
     _age: Duration,
     render_list: Vec<(Position, Size)>,
-    debugged: Option<NodeKey>,
-
     assets: HashMap<CheapString, Asset>,
     requests: Vec<Request>,
 }
@@ -89,21 +105,19 @@ pub const FONT_MUTATOR_INDEX: usize = 1;
 
 impl Application {
     /// Main constructor
-    pub fn new<const N: usize>(layout_asset: CheapString, addon_mutators: [Mutator; N]) -> Self {
+    pub fn new(layout_asset: CheapString, callbacks: SimpleCallbackMap) -> Self {
         let default_mutators = &[
             IMPORT_MUTATOR,
             FONT_MUTATOR,
             PNG_MUTATOR,
             LABEL_MUTATOR,
             PARAGRAPH_MUTATOR,
-            INF_MUTATOR,
+            INFLATE_MUTATOR,
         ];
 
-        let cap = default_mutators.len() + CONTAINERS.len() + addon_mutators.len();
-        let mut mutators = Vec::with_capacity(cap);
+        let mut mutators = Vec::with_capacity(default_mutators.len() + CONTAINERS.len());
         mutators.extend_from_slice(default_mutators);
         mutators.extend_from_slice(&CONTAINERS);
-        mutators.extend(addon_mutators.into_iter());
 
         let storage = mutators.iter().map(|_| None as Option<Box<dyn Any>>).collect();
 
@@ -114,6 +128,7 @@ impl Application {
             state: super::state::parse_state(include_str!("default.json")).unwrap(),
             state_masks: Default::default(),
             monitors: HashMap::new(),
+            callbacks,
             mutators,
             storage,
             must_check_layout: false,
@@ -122,24 +137,32 @@ impl Application {
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             _age: Duration::from_secs(0),
             render_list: Vec::new(),
-            debugged: None,
+            debug: DebuggingOptions {
+                skip_glyph_rendering: false,
+                skip_container_borders: false,
+                freeze_layout: false,
+                draw_layout: false,
+            },
 
             assets: HashMap::new(),
             requests: Vec::new(),
         };
 
         for i in 0..app.mutators.len() {
-            let handle = app.mutators[i].handler;
-            handle(&mut app, i.into(), Event::Initialize).unwrap();
+            (app.mutators[i].handlers.initializer)(&mut app, i.into()).unwrap();
         }
 
         if true {
             let default_font = crate::NOTO_SANS.to_vec().into_boxed_slice();
-            app.mutate(FONT_MUTATOR_INDEX.into(), Event::ParseAsset {
-                node_key: Default::default(),
-                asset: app.default_font_str.clone(),
-                bytes: default_font,
-            }).unwrap();
+            let font_parser = app.mutators[FONT_MUTATOR_INDEX].handlers.parser;
+            let default_font_str = app.default_font_str.clone();
+            font_parser(
+                &mut app,
+                FONT_MUTATOR_INDEX.into(),
+                Default::default(),
+                default_font_str,
+                default_font,
+            ).unwrap();
             app.assets.insert(app.default_font_str.clone(), Asset::Parsed);
         }
 
@@ -161,26 +184,6 @@ impl Application {
     /// Quick way to tell the application to recompute its layout before the next frame
     pub fn invalidate_layout(&mut self) {
         self.must_check_layout = true;
-    }
-
-    /// Fire an event at a [`Mutator`]
-    pub fn mutate(&mut self, index: MutatorIndex, event: Event) -> Result<(), Error> {
-        let mutator = &self.mutators[usize::from(index)];
-        /*let xml_tag = mutator.xml_tag.clone().unwrap_or("<anon>".into());
-        log::info!("{}: handling {}", xml_tag, &event);*/
-        (mutator.handler)(self, index, event)
-    }
-
-    /// Fire an event at a [`Node`]
-    pub fn handle(&mut self, node: NodeKey, event: Event) -> Result<Option<()>, Error> {
-        if Some(node) == self.debugged {
-            log::info!("handling {}", &event);
-        }
-
-        Ok(match self.view[node].factory.get() {
-            Some(index) => Some(self.mutate(index, event)?),
-            None => None,
-        })
     }
 
     /// Read an asset from the internal cache
@@ -213,9 +216,7 @@ impl Application {
                 return Err(error!("Asset {} was previously loaded with a different `parse` flag", asset.deref()));
             }
 
-            self.handle(origin, Event::AssetLoaded {
-                node_key: origin,
-            })?.ok_or_else(|| error!())
+            self.finalize(origin)
         } else {
             self.requests.push(Request {
                 asset,
@@ -238,11 +239,7 @@ impl Application {
 
                 if let Some(data) = data.take() {
                     let result = if request.parse {
-                        self.handle(node_key, Event::ParseAsset {
-                            node_key,
-                            asset: asset.clone(),
-                            bytes: data,
-                        })?;
+                        self.parse(node_key, asset.clone(), data)?;
 
                         Asset::Parsed
                     } else {
@@ -334,11 +331,7 @@ impl Application {
                     self.view[node_key].factory = factory;
 
                     if let Some(index) = xml_node_index.get() {
-                        let xml_node_key = self.xml_tree.node_key(index);
-                        self.handle(node_key, Event::Populate {
-                            node_key,
-                            xml_node_key,
-                        })
+                        self.populate(node_key, self.xml_tree.node_key(index))
                     } else {
                         Err(error!("Non-XML nodes cannot subscribe to state updates"))
                     }?;
@@ -481,7 +474,9 @@ impl Application {
             let mut sampling_window = *sampling_window;
             constrain(&texture_coords, &mut sampling_window);
             constrain(restrict, &mut sampling_window);
-            // super::visual::debug_framebuffer(fb, stride, sampling_window);
+            if self.debug.draw_layout {
+                super::visual::debug_framebuffer(fb, stride, sampling_window);
+            }
 
             self.view[key].foreground.paint(fb, texture_coords, sampling_window, stride, 3, true);
         }
@@ -489,6 +484,11 @@ impl Application {
         *restrict = backup;
 
         Ok(())
+    }
+
+    /// Alias of [`hit_test`]
+    pub fn hit_test(&self, position: Position) -> NodeKey {
+        hit_test(&self.view, self.root, position)
     }
 
     /// Renders the current view in a `framebuffer`.
@@ -506,66 +506,17 @@ impl Application {
         &mut self,
         fb_size: (usize, usize),
         framebuffer: &mut [RGBA8],
-        mx: usize,
-        my: usize,
-        wheel_delta: isize,
-        _click: bool,
     ) -> Result<&[(Position, Size)], Error> {
         // log::info!("frame");
         let stride = fb_size.0;
         let new_size = Size::new(Pixels::from_num(stride), Pixels::from_num(fb_size.1));
-        let _mouse = Position::new(SignedPixels::from_num(mx), SignedPixels::from_num(my));
 
-        /*if false {
-            let s = crate::format!("mouse: {}x{}", mx, my);
-            self.state_update(self.root, "root", "test.3", StateValue::String(s))?;
-        }
+        /*
+        let node_key = super::layout::hit_test(&mut self.view, self.root, _mouse);
+        let input_event = super::event::UserInputEvent::WheelY(SignedPixels::from_num(wheel_delta));
 
-        if _click {
-            let debugged = super::layout::hit_test(&mut self.view, self.root, _mouse);
-            log::info!("debugged: {}", self.xml_tag(debugged));
-            self.debugged = Some(debugged);
-        }*/
-
-        if _click {
-            let mut path_hash = Hasher::default();
-            let mut array = self.state_lookup(self.root, "root", "test", &mut path_hash).unwrap().clone();
-            if let Some(array) = array.as_array_mut() {
-                array.push(StateValue::String(crate::format!("DAMN {}", array.len())));
-            }
-            self.state_update(self.root, "root", "test", array).unwrap();
-        }
-
-        if wheel_delta != 0 {
-            let mut node = super::layout::hit_test(&mut self.view, self.root, _mouse);
-            loop {
-                let (axis, scroll, max_scroll) = super::layout::get_scroll(self, node);
-                if max_scroll.is_none() {
-                    if let Some(parent) = self.view.parent(node) {
-                        node = parent;
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-
-                let scroll = scroll.unwrap_or(SignedPixels::ZERO);
-                let max_scroll = max_scroll.unwrap().to_num::<SignedPixels>();
-                log::info!("{:?}, {:?}, {:?}", axis, scroll, max_scroll);
-                let mut candidate = SignedPixels::from_num(wheel_delta);
-
-                let new_scroll = scroll - candidate;
-                if new_scroll > max_scroll {
-                    candidate = scroll - max_scroll;
-                } else if new_scroll < SignedPixels::ZERO {
-                    candidate = scroll;
-                }
-
-                self.view[node].layout_config.set_dirty(true);
-                super::layout::scroll(self, node, axis, candidate);
-                break;
-            }
-        }
+        self.handle_user_input(node_key, &input_event).unwrap();
+        */
 
         let transparent = RGBA8::new(0, 0, 0, 0);
         let fb_rect = (Position::zero(), new_size);
@@ -579,7 +530,7 @@ impl Application {
             self.render_list.push(fb_rect);
         }
 
-        if self.must_check_layout {
+        if self.must_check_layout && !self.debug.freeze_layout {
             log::warn!("recomputing layout");
             compute_layout(self, self.root)?;
             self.must_check_layout = false;
@@ -605,5 +556,54 @@ impl Application {
         }
 
         Ok(&self.render_list)
+    }
+}
+
+impl Application {
+    pub fn parse(&mut self, node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+        match self.view[node_key].factory.get() {
+            Some(i) => (self.mutators[usize::from(i)].handlers.parser)(self, i, node_key, asset, bytes),
+            None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
+        }
+    }
+
+    pub fn populate(&mut self, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
+        match self.view[node_key].factory.get() {
+            Some(i) => (self.mutators[usize::from(i)].handlers.populator)(self, i, node_key, xml_node_key),
+            None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
+        }
+    }
+
+    pub fn finalize(&mut self, node_key: NodeKey) -> Result<(), Error> {
+        match self.view[node_key].factory.get() {
+            Some(i) => (self.mutators[usize::from(i)].handlers.finalizer)(self, i, node_key),
+            None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
+        }
+    }
+
+    pub fn resize(&mut self, node_key: NodeKey) -> Result<(), Error> {
+        match self.view[node_key].factory.get() {
+            Some(i) => (self.mutators[usize::from(i)].handlers.resizer)(self, i, node_key),
+            None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
+        }
+    }
+
+    pub fn handle_user_input(&mut self, target: NodeKey, event: &UserInputEvent) -> Result<bool, Error> {
+        let mut node_key = target;
+        loop {
+            match self.view[node_key].factory.get() {
+                Some(i) => {
+                    let handler = self.mutators[usize::from(i)].handlers.user_input_handler;
+                    if handler(self, i, node_key, target, event)? {
+                        break Ok(true);
+                    } else if let Some(parent) = self.view.parent(node_key) {
+                        node_key = parent;
+                    } else {
+                        break Ok(false);
+                    }
+                },
+                None => break Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
+            }
+        }
     }
 }

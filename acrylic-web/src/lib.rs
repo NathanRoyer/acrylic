@@ -1,5 +1,5 @@
 pub use acrylic::core::{app::Application, state::parse_state};
-use acrylic::core::rgb::RGBA8;
+use acrylic::core::{rgb::RGBA8, event::UserInputEvent, visual::{Position, SignedPixels}};
 
 use log::{error, set_logger, set_max_level, Record, LevelFilter, Level, Metadata};
 use std::fmt::Write;
@@ -105,9 +105,9 @@ pub extern "C" fn set_output_size(w: usize, h: usize) {
 }
 
 #[export_name = "frame"]
-pub extern "C" fn frame(app: &mut Application, _age_ms: usize, mx: usize, my: usize, wheel_delta: isize, click: usize) {
+pub extern "C" fn frame(app: &mut Application, _age_ms: usize) {
     let (fb_size, fb, _scratch) = unsafe { (FB_SIZE, &mut MAIN_FB, &mut SCRATCH) };
-    app.render(fb_size, fb.as_mut().unwrap(), mx, my, wheel_delta, click != 0).unwrap();
+    app.render(fb_size, fb.as_mut().unwrap()).unwrap();
     ensure_pending_request(app);
 }
 
@@ -149,41 +149,37 @@ pub extern "C" fn send_dir_input(_app: &mut Application, _dir: usize) {
         Direction::Right,
     ][dir];
     let _ = app.fire_event(&Event::DirInput(direction));
-}
-
-#[export_name = "pointing_at"]
-pub extern "C" fn pointing_at(app: &mut Application, x: isize, y: isize) {
-    let p = Point::new(x, y);
-    if unsafe { !FOCUS_GRABBED } {
-        app.pointing_at(p);
-    }
-    unsafe { FOCUS_POINT = p };
-}
+}*/
 
 #[export_name = "quick_action"]
-pub extern "C" fn quick_action(app: &mut Application, action: usize) {
-    let mut event = match action {
-        1 => Event::QuickAction1,
-        2 => Event::QuickAction2,
-        3 => Event::QuickAction3,
-        4 => Event::QuickAction4,
-        5 => Event::QuickAction5,
-        6 => Event::QuickAction6,
+pub extern "C" fn quick_action(app: &mut Application, action: usize, x: usize, y: usize) {
+    let input_event = match action {
+        1 => UserInputEvent::QuickAction1,
+        2 => UserInputEvent::QuickAction2,
+        3 => UserInputEvent::QuickAction3,
+        4 => UserInputEvent::QuickAction4,
+        5 => UserInputEvent::QuickAction5,
+        6 => UserInputEvent::QuickAction6,
         _ => unreachable!(),
     };
-    let grabbed = unsafe { FOCUS_GRABBED };
+
+    /*let grabbed = unsafe { FOCUS_GRABBED };
     if action == 1 {
         if app.can_grab_focus(Some(EventType::QUICK_ACTION_1)) {
             unsafe { FOCUS_GRABBED = !grabbed };
-            event = Event::FocusGrab(!grabbed);
+            input_event = Event::FocusGrab(!grabbed);
         }
-    }
-    let _ = app.fire_event(&event);
-    if grabbed {
+    }*/
+
+    let (x, y) = (SignedPixels::from_num(x), SignedPixels::from_num(y));
+    let node_key = app.hit_test(Position::new(x, y));
+    app.handle_user_input(node_key, &input_event).unwrap();
+
+    /*if grabbed {
         app.pointing_at(unsafe { FOCUS_POINT });
         quick_action(app, action)
-    }
-}*/
+    }*/
+}
 
 pub fn pre_init() {
     set_max_level(LevelFilter::Trace);
@@ -201,11 +197,11 @@ pub fn wasm_init(assets: &str, app: Application) -> &'static Application {
 
 #[macro_export]
 macro_rules! app {
-    ($path:literal, $layout:expr, $initial_state:expr) => {
+    ($path:literal, $layout:expr, $callbacks:expr, $initial_state:expr) => {
         #[export_name = "init"]
         pub extern "C" fn init() -> &'static $crate::Application {
             platform::pre_init();
-            let app = $crate::Application::new($layout().into(), []);
+            let app = $crate::Application::new($layout().into(), $callbacks);
             platform::wasm_init($path, app)
         }
     };

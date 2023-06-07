@@ -316,8 +316,10 @@ impl Dispatch<wl_callback::WlCallback, ()> for State {
             }
 
             let size = (fb.width, fb.height);
-            let (mx, my) = state.mouse;
-            let damages = state.app.render(size, fb.mapping.as_rgba_mut(), mx, my, 0, state.clicked).unwrap();
+            let (_mx, _my) = state.mouse;
+            let _clicked = state.clicked;
+
+            let damages = state.app.render(size, fb.mapping.as_rgba_mut()).unwrap();
             state.clicked = false;
 
             let surface = state.base_surface.as_ref().unwrap();
@@ -399,9 +401,9 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
 
 #[macro_export]
 macro_rules! app {
-    ($path:literal, $layout:expr, $initial_state:expr) => {
+    ($path:literal, $layout:expr, $callbacks:expr, $initial_state:expr) => {
         fn main() {
-            $crate::run($crate::Application::new($layout().into(), []), $path);
+            $crate::run($crate::Application::new($layout().into(), $callbacks), $path);
         }
     };
 }

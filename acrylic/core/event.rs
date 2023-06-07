@@ -1,70 +1,170 @@
 //! Event definitions
 
+use super::app::{Application, MutatorIndex};
 use super::xml::XmlNodeKey;
 use super::node::NodeKey;
-use crate::{Box, CheapString};
+use super::visual::{Direction, Ratio, SignedPixels};
+use crate::{Box, CheapString, Error, error};
 
 #[cfg(doc)]
-use super::app::Mutator;
+use super::app::{Mutator, Storage};
 
-use core::fmt;
+/// Initializes a [`Mutator`], and especially its [`Storage`]
+pub type Initializer = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+) -> Result<(), Error>;
 
-/// TODO
-pub type InputEvent = usize;
+/// Parses an asset's bytes and optionally stores the result in [`Storage`]
+///
+/// # Arguments
+///
+/// - `node_key`: The first node that requested this asset
+/// - `asset`: The asset's file path
+/// - `bytes`: The asset's raw content
+pub type Parser = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+    node_key: NodeKey,
+    asset: CheapString,
+    bytes: Box<[u8]>,
+) -> Result<(), Error>;
 
-/// Events which can be sent to [`Mutator`]s
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Event {
-    /// Sent to every Mutator when the application is initialized
-    Initialize,
+/// Sets-up a node's fields (and optionally, its children)
+///
+/// # Arguments
+///
+/// - `node_key`: The just-created node which should be initialized
+/// - `xml_node_key`: a key of the XML Node Tree, which can be used
+/// to inspect the XML tree and get attribute values
+/// (see [`Application::attr`] for this in particular).
+pub type Populator = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+    node_key: NodeKey,
+    xml_node_key: XmlNodeKey,
+) -> Result<(), Error>;
 
-    /// Handler should modify the state of the application
-    /// and/or the properties of the view node.
-    UserInput {
-        node_key: NodeKey,
-        event: InputEvent,
-    },
+/// Finishes setting up a node's field (and children) after a requested asset as been loaded
+///
+/// # Arguments
+///
+/// - `node_key`: The node which requested an asset
+pub type Finalizer = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+    node_key: NodeKey,
+) -> Result<(), Error>;
 
-    /// Handler can modify the properties of the view node
-    /// based on the actual pixel size of the node.
-    Resized {
-        node_key: NodeKey,
-    },
+/// Updates a node's textures after it's been resized by the layout
+///
+/// # Arguments
+///
+/// - `node_key`: The node which was resized
+pub type Resizer = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+    node_key: NodeKey,
+) -> Result<(), Error>;
 
-    /// Handler should set the properties of a view Node
-    /// based on those of the XmlNode and the current
-    /// state of the application. The view Node is
-    /// expected to have the default configuration upon.
-    /// firing of this event, except `xml_node_index`
-    /// and `factory`, which will be set appropriately.
-    /// Handler is allowed to delete the view node.
-    Populate {
-        node_key: NodeKey,
-        xml_node_key: XmlNodeKey,
-    },
+/// Processes user input
+///
+/// # Arguments
+///
+/// - `node_key`: The node which was selected for handling
+/// - `target`: The node with which the user interacted
+/// - `event`: The type and details of this user input event
+pub type UserInputHandler = fn(
+    app: &mut Application,
+    m: MutatorIndex,
+    node_key: NodeKey,
+    target: NodeKey,
+    event: &UserInputEvent,
+) -> Result<bool, Error>;
 
-    /// Handler can parse and store the asset bytes.
-    ParseAsset {
-        node_key: NodeKey,
-        asset: CheapString,
-        bytes: Box<[u8]>,
-    },
-
-    /// Handler can process the asset bytes.
-    AssetLoaded {
-        node_key: NodeKey,
-    },
+/// Dispatch Table for [`Mutator`]s
+#[derive(Copy, Clone)]
+pub struct Handlers {
+    pub initializer: Initializer,
+    pub parser: Parser,
+    pub populator: Populator,
+    pub finalizer: Finalizer,
+    pub resizer: Resizer,
+    pub user_input_handler: UserInputHandler,
 }
 
-impl fmt::Display for Event {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Event::Initialize => "Initialize",
-            Event::UserInput { .. } => "UserInput",
-            Event::Resized { .. } => "Resized",
-            Event::Populate { .. } => "Populate",
-            Event::ParseAsset { .. } => "ParseAsset",
-            Event::AssetLoaded { .. } => "AssetLoaded",
-        })
-    }
+fn initializer(_app: &mut Application, _m: MutatorIndex) -> Result<(), Error> {
+    Ok(())
+}
+
+fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, _: CheapString, _: Box<[u8]>) -> Result<(), Error> {
+    Err(error!("{}: parser is unimplemented", app.mutators[usize::from(m)].name))
+}
+
+fn populator(app: &mut Application, m: MutatorIndex, _: NodeKey, _: XmlNodeKey) -> Result<(), Error> {
+    Err(error!("{}: populator is unimplemented", app.mutators[usize::from(m)].name))
+}
+
+fn finalizer(app: &mut Application, m: MutatorIndex, _: NodeKey) -> Result<(), Error> {
+    Err(error!("{}: finalizer is unimplemented", app.mutators[usize::from(m)].name))
+}
+
+fn resizer(_app: &mut Application, _m: MutatorIndex, _: NodeKey) -> Result<(), Error> {
+    Ok(())
+}
+
+fn user_input_handler(_: &mut Application, _: MutatorIndex, _: NodeKey, _: NodeKey, _: &UserInputEvent) -> Result<bool, Error> {
+    Ok(false)
+}
+
+/// Default handlers (see detailed doc)
+///
+/// - `initializer`: does nothing
+/// - `resizer`: does nothing
+/// - `user_input_handler`: does nothing, returns false
+/// - `parser`: returns an error
+/// - `populator`: returns an error
+/// - `finalizer`: returns an error
+pub const DEFAULT_HANDLERS: Handlers = Handlers {
+    initializer,
+    parser,
+    populator,
+    finalizer,
+    resizer,
+    user_input_handler,
+};
+
+/// Events resulting from user interaction 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UserInputEvent<'a> {
+    QuickAction1,
+    QuickAction2,
+    QuickAction3,
+    QuickAction4,
+    QuickAction5,
+    QuickAction6,
+    /// Zoom Variant 1
+    Factor1(Ratio),
+    /// Zoom Variant 2
+    Factor2(Ratio),
+    /// Pan Variant 1
+    Pan1(usize, usize),
+    /// Pan Variant 2
+    Pan2(usize, usize),
+    /// Horizontal Scroll
+    WheelX(SignedPixels),
+    /// Vertical Scroll
+    WheelY(SignedPixels),
+    /// Entirely replace the current content
+    TextReplace(&'a str),
+    /// Insert some text at the current position
+    TextInsert(&'a str),
+    /// Delete text, from the current position to an offset;
+    /// A value of zero means nothing is deleted.
+    TextDelete(isize),
+    /// User selected/unselected this node
+    FocusGrab(bool),
+    /// Nodes which grabbed the focus
+    /// receives this special event:
+    DirInput(Direction),
 }

@@ -5,7 +5,6 @@ use super::visual::{
     LayoutMode::*, Size, Position, SignedPixels,
 };
 use super::node::{Node, NodeTree, NodeKey};
-use super::event::{Event};
 use super::app::Application;
 use super::for_each_child;
 use crate::Error;
@@ -14,7 +13,7 @@ use crate::Error;
 ///
 /// Note: the root node will be returned if no other node
 /// is at the specified position.
-pub fn hit_test(tree: &mut NodeTree, root: NodeKey, p: Position) -> NodeKey {
+pub fn hit_test(tree: &NodeTree, root: NodeKey, p: Position) -> NodeKey {
     let mut current = root;
 
     'outer: loop {
@@ -113,7 +112,7 @@ fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) ->
 
         if resized {
             app.view[child].layout_config.set_resized(false);
-            app.handle(child, Event::Resized { node_key: child })?;
+            app.resize(child)?;
         }
     });
 

@@ -2,11 +2,12 @@
 //!
 //! todo: implement <https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
 
+use super::event::{Handlers, DEFAULT_HANDLERS};
 use super::visual::{RgbaPixelBuffer, GrayScalePixelBuffer, PixelBuffer, PixelSource};
 use super::rgb::RGBA8;
 use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX, Storage};
-use super::event::Event;
-use crate::{Error, Vec, Box, HashMap, CheapString, Rc};
+use super::node::NodeKey;
+use crate::{Error, Vec, Box, HashMap, CheapString, cheap_string, Rc};
 use core::{fmt::{self, Write}};
 
 use ttf_parser::{Tag, Face, OutlineBuilder};
@@ -276,35 +277,41 @@ impl<'a> fmt::Write for GlyphRenderer<'a> {
 
 type FontStorage = HashMap<CheapString, Font>;
 
-fn font_storage(app: &mut Application, m: MutatorIndex, event: Event) -> Result<(), Error> {
-    match event {
-        Event::Initialize => {
-            let storage = &mut app.storage[usize::from(m)];
-            assert!(storage.is_none());
-            assert_eq!(m, FONT_MUTATOR_INDEX.into());
+fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
+    let storage = &mut app.storage[usize::from(m)];
+    assert!(storage.is_none());
+    assert_eq!(m, FONT_MUTATOR_INDEX.into());
 
-            *storage = Some(Box::new(FontStorage::new()));
+    *storage = Some(Box::new(FontStorage::new()));
 
-            Ok(())
-        },
-        Event::ParseAsset { asset, bytes, .. } => {
-            let storage = app.storage[usize::from(m)].as_mut().unwrap();
-            let storage: &mut FontStorage = storage.downcast_mut().unwrap();
+    Ok(())
+}
 
-            storage.insert(asset, Font::new(bytes));
+pub fn load_font_bytes(app: &mut Application, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    let storage = app.storage[FONT_MUTATOR_INDEX].as_mut().unwrap();
+    let storage: &mut FontStorage = storage.downcast_mut().unwrap();
 
-            Ok(())
-        },
-        _ => unreachable!(),
-    }
+    storage.insert(asset, Font::new(bytes));
+
+    Ok(())
+}
+
+fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    assert_eq!(m, FONT_MUTATOR_INDEX.into());
+    load_font_bytes(app, asset, bytes)
 }
 
 /// Tag-less Mutator which simply stores fonts
 pub const FONT_MUTATOR: Mutator = Mutator {
+    name: cheap_string("FontMutator"),
     xml_tag: None,
     xml_attr_set: None,
     xml_accepts_children: false,
-    handler: font_storage,
+    handlers: Handlers {
+        initializer,
+        parser,
+        ..DEFAULT_HANDLERS
+    },
 };
 
 pub fn get_font<'a>(storage: &'a mut Storage, font: &CheapString) -> Option<&'a mut Font> {

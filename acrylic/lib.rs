@@ -18,9 +18,9 @@ pub use {
 pub mod core;
 pub mod builtin;
 
-use ::core::{fmt, str::Split, ops::Deref, hash::BuildHasher};
+use ::core::{fmt, str::Split, ops::Deref, hash::{BuildHasher, Hash}};
 
-type Hasher = <hashbrown::hash_map::DefaultHashBuilder as BuildHasher>::Hasher;
+pub type Hasher = <hashbrown::hash_map::DefaultHashBuilder as BuildHasher>::Hasher;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
@@ -44,11 +44,25 @@ impl fmt::Display for Error {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub enum CheapString {
     String(Rc<String>),
     Static(&'static str),
 }
+
+impl Hash for CheapString {
+    fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
+        self.deref().hash(state);
+    }
+}
+
+impl PartialEq for CheapString {
+    fn eq(&self, other: &Self) -> bool {
+        self.deref() == other.deref()
+    }
+}
+
+impl Eq for CheapString {}
 
 impl Deref for CheapString {
     type Target = str;
@@ -83,6 +97,10 @@ impl From<&'static str> for CheapString {
     fn from(string: &'static str) -> Self {
         CheapString::Static(string)
     }
+}
+
+pub const fn cheap_string(t: &'static str) -> CheapString {
+    CheapString::Static(t)
 }
 
 impl fmt::Display for CheapString {

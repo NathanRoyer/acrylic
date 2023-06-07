@@ -41,9 +41,6 @@ const targetFPS = 20;
 const targetFrameTime = parseInt(1000 / targetFPS);
 let lastFrameTime;
 let appDateOfBirth;
-let mousePosition = [0, 0];
-let wheelDelta = 0;
-let clicked = false;
 let assets = {};
 let fb_address = 0;
 let canvas;
@@ -120,10 +117,7 @@ function frame() {
 
     let age = performance.now() - appDateOfBirth;
     let perf = performance.now();
-    wasm.exports.frame(app, age, mousePosition[0], mousePosition[1], wheelDelta, clicked);
-    // console.log(performance.now() - perf);
-    clicked = false;
-    wheelDelta = 0;
+    wasm.exports.frame(app, age);
 
     let len = w * h * 4;
     let mem = wasm.exports.memory;
@@ -188,25 +182,15 @@ function findWasm(debug) {
 }
 
 function onClick(event) {
-    clicked = true;
-    /*if (wasm) {
+    if (wasm) {
         let x = event.clientX;
         let y = event.clientY;
-        wasm.exports.pointing_at(app, x, y);
-        wasm.exports.quick_action(app, 1);
-    }*/
-}
-
-function onMouseMove(event) {
-    mousePosition = [event.clientX, event.clientY];
-    if (wasm) {
-        // wasm.exports.pointing_at(app, x, y);
+        wasm.exports.quick_action(app, 1, x, y);
     }
 }
 
 function onWheel(event) {
-    mousePosition = [event.clientX, event.clientY];
-    wheelDelta = parseInt(event.wheelDelta / 2);
+    // wheelDelta = parseInt(event.wheelDelta / 2);
 }
 
 function onKeyDown(event) {
@@ -239,8 +223,8 @@ function onKeyDown(event) {
 
 function onLoad() {
     document.body.addEventListener('click', onClick);
-    document.body.addEventListener('mousemove', onMouseMove);
     document.body.addEventListener('wheel', onWheel);
+    // document.body.addEventListener('mousemove', onMouseMove);
     // document.body.addEventListener('keydown', onKeyDown);
     canvas = document.getElementById('fb-canvas');
     let hash = document.location.hash;

@@ -1,15 +1,11 @@
 //! XML Layout Parsing
 
-use crate::{error, Error, format, String, CheapString, Vec, Rc};
+use crate::{error, Error, format, String, Vec, Rc};
 use super::app::{Mutator, MutatorIndex, OptionalMutatorIndex};
 use core::{ops::Deref, str::from_utf8 as str_from_utf8};
 use xmlparser::{Tokenizer, Token, StrSpan};
 use oakwood::{NoCookie, index, tree};
 use super::KeyValueStore;
-
-pub const fn tag(t: &'static str) -> CheapString {
-    CheapString::Static(t)
-}
 
 index!(LineNumber, OptionalLineNumber);
 index!(FileIndex, OptionalFileIndex);

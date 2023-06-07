@@ -1,84 +1,66 @@
-//! Imported XML Layouts
-//!
-//! # List of tags
-//!
-//! ## `import`
-//!
-//! Imports another XML layout file into the current one.
-//!
-//! Special Attribute: `file` (name of the asset, no default)
-//!
-//! TODO: allow JSON state lookups from nodes in the asset to
-//! to start at some path in the JSON state of the app:
-//!
-//! ```xml
-//! <import file="video-player.xml" state="root:videos.5643" />
-//! ```
-//!
-//! Here, when tags in `video-player.xml` refer to `root:something`, they'd be in
-//! fact referring to `root:videos.5643.something`.
-
-use crate::core::xml::{tag, XmlNodeKey, parse_xml_tree};
-use crate::{Box, HashMap, CheapString, Error, error};
+use crate::core::xml::{XmlNodeKey, parse_xml_tree};
+use crate::{Box, HashMap, CheapString, Error, cheap_string};
 use crate::core::app::{Application, Mutator, MutatorIndex};
-use crate::core::event::Event;
+use crate::core::event::{Handlers, DEFAULT_HANDLERS};
+use crate::core::node::NodeKey;
 use oakwood::NodeKey as _;
 
 pub const IMPORT_MUTATOR: Mutator = Mutator {
-    xml_tag: Some(tag("import")),
+    name: cheap_string("ImportMutator"),
+    xml_tag: Some(cheap_string("import")),
     xml_attr_set: Some(&[ "file" ]),
     xml_accepts_children: false,
-    handler: import,
+    handlers: Handlers {
+        initializer,
+        populator,
+        parser,
+        finalizer,
+        ..DEFAULT_HANDLERS
+    },
 };
 
 type SubLayouts = HashMap<CheapString, XmlNodeKey>;
 
-fn import(app: &mut Application, m: MutatorIndex, event: Event) -> Result<(), Error> {
-    match event {
-        Event::Initialize => {
-            let storage = &mut app.storage[usize::from(m)];
-            assert!(storage.is_none());
+fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
+    let storage = &mut app.storage[usize::from(m)];
+    assert!(storage.is_none());
 
-            *storage = Some(Box::new(SubLayouts::new()));
+    *storage = Some(Box::new(SubLayouts::new()));
 
-            Ok(())
-        },
-        Event::Populate { node_key, .. } => {
-            let file = app.attr(node_key, "file", None)?.as_str()?;
-            app.request(file, node_key, true)
-        },
-        Event::ParseAsset { asset, bytes, .. } => {
-            let replacement = parse_xml_tree(
-                &mut app.mutators,
-                &mut app.xml_tree,
-                &bytes,
-            )?;
+    Ok(())
+}
 
-            let storage = app.storage[usize::from(m)].as_mut().unwrap();
-            let storage: &mut SubLayouts = storage.downcast_mut().unwrap();
-            storage.insert(asset, replacement);
+fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
+    let file = app.attr(node_key, "file", None)?.as_str()?;
+    app.request(file, node_key, true)
+}
 
-            Ok(())
-        },
-        Event::AssetLoaded { node_key } => {
-            let file = app.attr(node_key, "file", None)?.as_str()?;
+fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    let replacement = parse_xml_tree(
+        &mut app.mutators,
+        &mut app.xml_tree,
+        &bytes,
+    )?;
 
-            let replacement = {
-                let storage = app.storage[usize::from(m)].as_ref().unwrap();
-                let storage: &SubLayouts = storage.downcast_ref().unwrap();
-                storage[&file]
-            };
+    let storage = app.storage[usize::from(m)].as_mut().unwrap();
+    let storage: &mut SubLayouts = storage.downcast_mut().unwrap();
+    storage.insert(asset, replacement);
 
-            app.view.reset(node_key);
-            app.view[node_key].xml_node_index = Some(replacement.index()).into();
-            app.view[node_key].factory = app.xml_tree[replacement].factory;
+    Ok(())
+}
 
-            app.handle(node_key, Event::Populate {
-                node_key,
-                xml_node_key: replacement,
-            })?.ok_or_else(|| error!())
-        },
-        // Event::Resized { .. } => Ok(()),
-        _ => Err(error!("Unexpected event: {:?}", event)),
-    }
+fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
+    let file = app.attr(node_key, "file", None)?.as_str()?;
+
+    let replacement = {
+        let storage = app.storage[usize::from(m)].as_ref().unwrap();
+        let storage: &SubLayouts = storage.downcast_ref().unwrap();
+        storage[&file]
+    };
+
+    app.view.reset(node_key);
+    app.view[node_key].xml_node_index = Some(replacement.index()).into();
+    app.view[node_key].factory = app.xml_tree[replacement].factory;
+
+    app.populate(node_key, replacement)
 }
