@@ -1,6 +1,6 @@
 //! JSON State Store
 
-use crate::{Error, error, CheapString, Hasher, HashMap};
+use crate::{Error, error, CheapString, Hasher, LiteMap};
 use super::app::Application;
 use super::visual::{Pixels, Ratio};
 use super::node::NodeKey;
@@ -191,7 +191,7 @@ pub type StateFinder = for<'a> fn(
 ) -> Result<&'a mut StateValue, Error>;
 
 /// Map of nodes which created custom state stores
-pub type StateMasks = HashMap<NodeKey, StateFinder>;
+pub type StateMasks = LiteMap<NodeKey, StateFinder>;
 
 /// Parse a string as a list of path steps
 pub fn path_steps(path: &str) -> impl Iterator<Item = StatePathStep> {

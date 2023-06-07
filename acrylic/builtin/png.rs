@@ -34,7 +34,7 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     Ok(())
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
     let parsed = {
         let decoder = Decoder::new(&*bytes);
         let mut reader = decoder.read_info().unwrap();
@@ -57,14 +57,14 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: Che
 
     let storage = app.storage[usize::from(m)].as_mut().unwrap();
     let storage: &mut PngStorage = storage.downcast_mut().unwrap();
-    storage.insert(asset, parsed);
+    storage.insert(asset.clone(), parsed);
 
     Ok(())
 }
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
     let file = app.attr(node_key, "file", None)?.as_str()?;
-    app.request(file, node_key, true)
+    app.request(&file, node_key, true)
 }
 
 fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
@@ -73,7 +73,7 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     let (ratio, texture) = {
         let storage = app.storage[usize::from(m)].as_ref().unwrap();
         let storage: &PngStorage = storage.downcast_ref().unwrap();
-        storage[&file].clone()
+        storage.get(&file).unwrap().clone()
     };
 
     app.view[node_key].foreground = PixelSource::RcTexture(texture);

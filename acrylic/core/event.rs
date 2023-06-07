@@ -26,7 +26,7 @@ pub type Parser = fn(
     app: &mut Application,
     m: MutatorIndex,
     node_key: NodeKey,
-    asset: CheapString,
+    asset: &CheapString,
     bytes: Box<[u8]>,
 ) -> Result<(), Error>;
 
@@ -97,7 +97,7 @@ fn initializer(_app: &mut Application, _m: MutatorIndex) -> Result<(), Error> {
     Ok(())
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, _: CheapString, _: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, _: &CheapString, _: Box<[u8]>) -> Result<(), Error> {
     Err(error!("{}: parser is unimplemented", app.mutators[usize::from(m)].name))
 }
 

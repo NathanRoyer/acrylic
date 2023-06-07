@@ -17,9 +17,9 @@ path = "lib.rs"
 static_assertions = "1.1.0"
 ttf-parser = "0.18.1"
 xmlparser = "0.13.5"
-hashbrown = "0.12.2"
+litemap = "0.7.0"
 tinyvec = "1.6.0"
-oakwood = "0.1.2"
+oakwood = { path = "../../oakwood" } # "0.1.2"
 railway = "0.3.1"
 wizdraw = "1.1.5"
 fixed = "1.23.0"
@@ -28,7 +28,9 @@ rgb = "0.8.36"
 png = "0.17"
 
 serde_json = { version = "1.0.94", default-features = false, features = [ "alloc" ] }
+ahash      = { version = "0.8.3",  default-features = false, features = [ "compile-time-rng" ] }
 vek        = { version = "0.15.8", default-features = false }
 
 [build-dependencies]
 railway = "0.3.1"
+rand = "0.8.5"

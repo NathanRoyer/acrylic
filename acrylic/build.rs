@@ -1,10 +1,21 @@
 use railway::{*, computing::{*, Operation::*}};
 use std::{fs, path::Path, env};
 use core::f32::consts::FRAC_PI_2;
+use rand::random;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    let out_dir = env::var("OUT_DIR").unwrap();
 
+    let cont_rwy_dst = Path::new(&out_dir).join("container.rwy");
+    fs::write(cont_rwy_dst, &gen_container_rwy()).unwrap();
+
+    let rnd_seed_dst = Path::new(&out_dir).join("seed.dat");
+    let rnd_seed: [u8; 32] = random();
+    fs::write(rnd_seed_dst, &rnd_seed).unwrap();
+}
+
+fn gen_container_rwy() -> Vec<u8> {
     let mut arguments = Vec::new();
 
     let zero = arguments.len();
@@ -216,9 +227,5 @@ fn main() {
         RenderingStep::Stroke(&border_path, line_style),
     ];
 
-    let buffer = serialize(&arguments, &instructions, &[], &rendering_steps);
-
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("container.rwy");
-    fs::write(dest_path, &buffer).unwrap();
+    serialize(&arguments, &instructions, &[], &rendering_steps)
 }

@@ -32,10 +32,10 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
     let file = app.attr(node_key, "file", None)?.as_str()?;
-    app.request(file, node_key, true)
+    app.request(&file, node_key, true)
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
     let replacement = parse_xml_tree(
         &mut app.mutators,
         &mut app.xml_tree,
@@ -44,7 +44,7 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: Che
 
     let storage = app.storage[usize::from(m)].as_mut().unwrap();
     let storage: &mut SubLayouts = storage.downcast_mut().unwrap();
-    storage.insert(asset, replacement);
+    storage.insert(asset.clone(), replacement);
 
     Ok(())
 }
@@ -55,7 +55,7 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     let replacement = {
         let storage = app.storage[usize::from(m)].as_ref().unwrap();
         let storage: &SubLayouts = storage.downcast_ref().unwrap();
-        storage[&file]
+        *storage.get(&file).unwrap()
     };
 
     app.view.reset(node_key);

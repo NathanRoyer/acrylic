@@ -7,7 +7,7 @@ use super::visual::{RgbaPixelBuffer, GrayScalePixelBuffer, PixelBuffer, PixelSou
 use super::rgb::RGBA8;
 use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX, Storage};
 use super::node::NodeKey;
-use crate::{Error, Vec, Box, HashMap, CheapString, cheap_string, Rc};
+use crate::{Error, Vec, Box, HashMap, LiteMap, CheapString, cheap_string, Rc};
 use core::{fmt::{self, Write}};
 
 use ttf_parser::{Tag, Face, OutlineBuilder};
@@ -18,7 +18,7 @@ use rgb::FromSlice;
 
 const APPLY_SIDE_BEARING: bool = false;
 
-type GlyphCache = HashMap<(char, usize), Rc<GrayScalePixelBuffer>>;
+type GlyphCache = LiteMap<(char, usize), Rc<GrayScalePixelBuffer>>;
 
 const WGHT: Tag = Tag::from_bytes(b"wght");
 
@@ -32,7 +32,7 @@ fn failed_glyph(font_size: usize) -> Rc<GrayScalePixelBuffer> {
     Rc::new(GrayScalePixelBuffer::new(mask, width, height))
 }
 
-/// Raw font bytes & glyph cache (a HashMap)
+/// Raw font bytes & glyph cache (a LiteMap)
 pub struct Font {
     bytes: Box<[u8]>,
     glyph_cache: GlyphCache,
@@ -287,16 +287,16 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn load_font_bytes(app: &mut Application, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+pub fn load_font_bytes(app: &mut Application, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
     let storage = app.storage[FONT_MUTATOR_INDEX].as_mut().unwrap();
     let storage: &mut FontStorage = storage.downcast_mut().unwrap();
 
-    storage.insert(asset, Font::new(bytes));
+    storage.insert(asset.clone(), Font::new(bytes));
 
     Ok(())
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
     assert_eq!(m, FONT_MUTATOR_INDEX.into());
     load_font_bytes(app, asset, bytes)
 }

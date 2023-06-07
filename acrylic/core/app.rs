@@ -9,7 +9,7 @@ use super::layout::{compute_layout, hit_test};
 use super::style::Theme;
 use super::rgb::RGBA8;
 use oakwood::{index, NodeKey as _};
-use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap};
+use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap, LiteMap};
 use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
 use super::for_each_child;
 
@@ -82,7 +82,7 @@ pub struct Application {
     pub debug: DebuggingOptions,
 
     pub(crate) state_masks: StateMasks,
-    pub(crate) monitors: HashMap<StatePathHash, Vec<NodeKey>>,
+    pub(crate) monitors: LiteMap<StatePathHash, Vec<NodeKey>>,
     pub(crate) mutators: Vec<Mutator>,
     pub(crate) default_font_str: CheapString,
 
@@ -127,7 +127,7 @@ impl Application {
             xml_tree: XmlNodeTree::new(),
             state: super::state::parse_state(include_str!("default.json")).unwrap(),
             state_masks: Default::default(),
-            monitors: HashMap::new(),
+            monitors: LiteMap::new(),
             callbacks,
             mutators,
             storage,
@@ -160,10 +160,10 @@ impl Application {
                 &mut app,
                 FONT_MUTATOR_INDEX.into(),
                 Default::default(),
-                default_font_str,
+                &default_font_str,
                 default_font,
             ).unwrap();
-            app.assets.insert(app.default_font_str.clone(), Asset::Parsed);
+            app.assets.insert(default_font_str, Asset::Parsed);
         }
 
         let factory = Some(IMPORT_MUTATOR_INDEX.into()).into();
@@ -176,7 +176,7 @@ impl Application {
         app.view[app.root].factory = factory;
         app.view[app.root].xml_node_index = Some(xml_root.index().into()).into();
 
-        app.request(layout_asset, app.root, true).unwrap();
+        app.request(&layout_asset, app.root, true).unwrap();
 
         app
     }
@@ -204,9 +204,9 @@ impl Application {
     ///
     /// If `asset` is already loaded, this will trigger
     /// Handling of an `AssetLoaded` event immediately
-    pub fn request(&mut self, asset: CheapString, origin: NodeKey, parse: bool) -> Result<(), Error> {
-        if self.assets.contains_key(&asset) {
-            let illegal = match (parse, &self.assets[&asset]) {
+    pub fn request(&mut self, asset: &CheapString, origin: NodeKey, parse: bool) -> Result<(), Error> {
+        if let Some(content) = self.assets.get(&asset) {
+            let illegal = match (parse, content) {
                 (true, Asset::Raw(_)) => true,
                 (false, Asset::Parsed) => true,
                 _ => false,
@@ -219,7 +219,7 @@ impl Application {
             self.finalize(origin)
         } else {
             self.requests.push(Request {
-                asset,
+                asset: asset.clone(),
                 origin,
                 parse,
             });
@@ -239,7 +239,7 @@ impl Application {
 
                 if let Some(data) = data.take() {
                     let result = if request.parse {
-                        self.parse(node_key, asset.clone(), data)?;
+                        self.parse(node_key, &asset, data)?;
 
                         Asset::Parsed
                     } else {
@@ -249,7 +249,7 @@ impl Application {
                     self.assets.insert(asset.clone(), result);
                 }
 
-                self.request(asset.clone(), request.origin, request.parse)?;
+                self.request(&asset, request.origin, request.parse)?;
             } else {
                 i += 1;
             }
@@ -560,7 +560,7 @@ impl Application {
 }
 
 impl Application {
-    pub fn parse(&mut self, node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    pub fn parse(&mut self, node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.parser)(self, i, node_key, asset, bytes),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),

@@ -58,7 +58,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     if let Ok(qa1_callback) = app.attr(node_key, "on-quick-action", None) {
         let qa1_callback = qa1_callback.as_str()?;
         if !app.callbacks.contains_key(&qa1_callback) {
-            return Err(error!("Unknown callback: {}; {:#?}", qa1_callback, app.callbacks.keys().collect::<Vec<_>>()));
+            return Err(error!("Unknown callback: {}", qa1_callback));
         }
     }
 

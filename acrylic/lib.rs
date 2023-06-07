@@ -9,18 +9,22 @@
 extern crate alloc;
 extern crate std;
 
+use ::core::fmt;
+
 #[doc(hidden)]
 pub use {
     alloc::{string::String, vec::Vec, boxed::Box, rc::Rc, format},
-    hashbrown::HashMap,
+    ahash::AHasher as Hasher,
+    litemap::LiteMap,
 };
 
 pub mod core;
 pub mod builtin;
+pub mod utils;
 
-use ::core::{fmt, str::Split, ops::Deref, hash::{BuildHasher, Hash}};
+pub use utils::{cheap_string::{CheapString, cheap_string}, hash_map::HashMap};
 
-pub type Hasher = <hashbrown::hash_map::DefaultHashBuilder as BuildHasher>::Hasher;
+pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
@@ -43,73 +47,6 @@ impl fmt::Display for Error {
         }
     }
 }
-
-#[derive(Clone, Debug)]
-pub enum CheapString {
-    String(Rc<String>),
-    Static(&'static str),
-}
-
-impl Hash for CheapString {
-    fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
-        self.deref().hash(state);
-    }
-}
-
-impl PartialEq for CheapString {
-    fn eq(&self, other: &Self) -> bool {
-        self.deref() == other.deref()
-    }
-}
-
-impl Eq for CheapString {}
-
-impl Deref for CheapString {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        match self {
-            Self::String(s) => &***s,
-            Self::Static(s) => s,
-        }
-    }
-}
-
-impl CheapString {
-    pub fn split_space(&self) -> Split<char> {
-        self.deref().split(' ')
-    }
-}
-
-impl From<Rc<String>> for CheapString {
-    fn from(string: Rc<String>) -> Self {
-        CheapString::String(string)
-    }
-}
-
-impl From<String> for CheapString {
-    fn from(string: String) -> Self {
-        CheapString::String(Rc::new(string))
-    }
-}
-
-impl From<&'static str> for CheapString {
-    fn from(string: &'static str) -> Self {
-        CheapString::Static(string)
-    }
-}
-
-pub const fn cheap_string(t: &'static str) -> CheapString {
-    CheapString::Static(t)
-}
-
-impl fmt::Display for CheapString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.deref())
-    }
-}
-
-pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 
 /// Creates an [`Error`] automatically with an optional formatted string
 ///

@@ -32,13 +32,13 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_nod
 
     if app.attr(node_key, "text", None)?.display_len() > 0 {
         let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        app.request(font_file.clone(), node_key, true)
+        app.request(&font_file, node_key, true)
     } else {
         Ok(())
     }
 }
 
-fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
     load_font_bytes(app, asset, bytes)
 }
 
