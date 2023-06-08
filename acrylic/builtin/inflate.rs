@@ -1,7 +1,7 @@
 use crate::core::app::{Application, Mutator, MutatorIndex};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::core::node::NodeKey;
-use crate::core::xml::XmlNodeKey;
+use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::visual::{Ratio, LayoutMode};
 use crate::{Error, cheap_string};
 
@@ -15,11 +15,14 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _: XmlN
 
 pub const INFLATE_MUTATOR: Mutator = Mutator {
     name: cheap_string("InflateMutator"),
-    xml_tag: Some(cheap_string("inflate")),
-    xml_attr_set: Some(&[]),
-    xml_accepts_children: false,
+    xml_params: Some(XmlTagParameters {
+        tag_name: cheap_string("inflate"),
+        attr_set: &[],
+        accepts_children: false,
+    }),
     handlers: Handlers {
         populator,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };

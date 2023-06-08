@@ -1,6 +1,6 @@
 //! The state of your Application
 
-use super::xml::{XmlNodeTree, XmlNodeKey};
+use super::xml::{XmlNodeTree, XmlNodeKey, XmlTagParameters};
 use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
 use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, StatePathStep, path_steps};
 use super::event::{Handlers, UserInputEvent};
@@ -22,7 +22,7 @@ use crate::builtin::label::LABEL_MUTATOR;
 use crate::builtin::paragraph::PARAGRAPH_MUTATOR;
 
 #[cfg(doc)]
-use super::node::Node;
+use super::{node::Node, event::Initializer};
 
 index!(MutatorIndex, OptionalMutatorIndex);
 
@@ -32,17 +32,27 @@ pub type SimpleCallback = fn(&mut Application, NodeKey) -> Result<(), Error>;
 /// General-purpose callbacks that containers can call based on their attributes.
 pub type SimpleCallbackMap = HashMap<CheapString, SimpleCallback>;
 
-/// Optional storage for each [`Mutator`]
-pub type Storage = Vec<Option<Box<dyn Any>>>;
-
 /// XML Tags & other event handlers are defined as Mutators
-#[derive(Clone)]
 pub struct Mutator {
     pub name: CheapString,
-    pub xml_tag: Option<CheapString>,
-    pub xml_attr_set: Option<&'static [&'static str]>,
-    pub xml_accepts_children: bool,
+    pub xml_params: Option<XmlTagParameters>,
     pub handlers: Handlers,
+    /// Must be None initially; initialize it via an [`Initializer`].
+    pub storage: Option<Box<dyn Any>>,
+}
+
+impl Clone for Mutator {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            xml_params: self.xml_params.clone(),
+            handlers: self.handlers.clone(),
+            storage: match self.storage.is_some() {
+                true => panic!("Tried to Clone Mutator with an initialized storage"),
+                false => None,
+            },
+        }
+    }
 }
 
 struct Request {
@@ -66,7 +76,7 @@ pub struct DebuggingOptions {
 /// A Singleton which represents your application.
 ///
 /// Its content includes:
-/// - the list of [`Mutator`]s and related [`Storage`]
+/// - the list of [`Mutator`]s
 /// - the XML layout
 /// - the JSON state and related triggers
 /// - the internal view representation (a Node tree)
@@ -75,7 +85,6 @@ pub struct DebuggingOptions {
 pub struct Application {
     pub root: NodeKey,
     pub view: NodeTree,
-    pub storage: Storage,
     pub xml_tree: XmlNodeTree,
     pub theme: Theme,
     pub callbacks: SimpleCallbackMap,
@@ -96,8 +105,8 @@ pub struct Application {
 }
 
 /// Utility function for event handlers to get and downcast their storage
-pub fn get_storage<T: Any>(storage: &mut [Option<Box<dyn Any>>], m: MutatorIndex) -> Option<&mut T> {
-    storage[usize::from(m)].as_mut()?.downcast_mut()
+pub fn get_storage<T: Any>(mutators: &mut [Mutator], m: MutatorIndex) -> Option<&mut T> {
+    mutators[usize::from(m)].storage.as_mut()?.downcast_mut()
 }
 
 pub const IMPORT_MUTATOR_INDEX: usize = 0;
@@ -119,8 +128,6 @@ impl Application {
         mutators.extend_from_slice(default_mutators);
         mutators.extend_from_slice(&CONTAINERS);
 
-        let storage = mutators.iter().map(|_| None as Option<Box<dyn Any>>).collect();
-
         let mut app = Self {
             root: Default::default(),
             view: NodeTree::new(),
@@ -130,7 +137,6 @@ impl Application {
             monitors: LiteMap::new(),
             callbacks,
             mutators,
-            storage,
             must_check_layout: false,
             _source_files: Vec::new(),
             default_font_str: "default-font".into(),
@@ -353,8 +359,8 @@ impl Application {
             None => return "<subnode>".into(),
         };
         let mutator = &self.mutators[usize::from(mutator_index)];
-        match &mutator.xml_tag {
-            Some(cs) => cs.clone(),
+        match &mutator.xml_params {
+            Some(params) => params.tag_name.clone(),
             None => "<anon>".into(),
         }
     }

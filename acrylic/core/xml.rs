@@ -11,6 +11,14 @@ index!(FileIndex, OptionalFileIndex);
 
 tree!(XmlNodeTree, XmlNode, XmlNodeKey, XmlNodeIndex, OptionalXmlNodeIndex, NoCookie);
 
+/// Parsing parameters for an XML Tag
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XmlTagParameters {
+    pub tag_name: CheapString,
+    pub attr_set: &'static [&'static str],
+    pub accepts_children: bool,
+}
+
 /// An XML Node extracted from the layout file
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct XmlNode {
@@ -54,8 +62,8 @@ pub fn parse_xml_tree(
 
             let mut mutator_index = 0;
             for mutator in &*mutators {
-                if let Some(tag) = &mutator.xml_tag {
-                    if tag.deref() == local {
+                if let Some(params) = &mutator.xml_params {
+                    if params.tag_name.deref() == local {
                         break;
                     }
                 }
@@ -78,8 +86,8 @@ pub fn parse_xml_tree(
             let value = value.as_str();
             let local = local.as_str();
 
-            if let Some(xml_attr_set) = mutator(tree, current, span)?.xml_attr_set {
-                if let None = xml_attr_set.iter().find(|v| *v == &local) {
+            if let Some(params) = &mutator(tree, current, span)?.xml_params {
+                if let None = params.attr_set.iter().find(|v| *v == &local) {
                     return Err(unknown("attribute", local, span));
                 }
             }
@@ -95,8 +103,8 @@ pub fn parse_xml_tree(
 
         else if let ElementEnd { end, span } = token {
             let current_tag = match Option::<MutatorIndex>::from(tree[current].factory) {
-                Some(f) => match &mutators[usize::from(f)].xml_tag {
-                    Some(tag) => Some(tag.deref()),
+                Some(f) => match &mutators[usize::from(f)].xml_params {
+                    Some(params) => Some(params.tag_name.deref()),
                     None => None,
                 },
                 None => None,
@@ -105,7 +113,8 @@ pub fn parse_xml_tree(
             let pop = if let xmlparser::ElementEnd::Close(prefix, local) = end {
                 // "</tag>"
 
-                if !mutator(tree, current, local)?.xml_accepts_children {
+                let xml_params = mutator(tree, current, local)?.xml_params.as_ref();
+                if !xml_params.map(|p| p.accepts_children).unwrap_or(false) {
                     return Err(unexpected("children", &local, local));
                 }
 

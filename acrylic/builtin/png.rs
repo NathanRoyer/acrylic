@@ -1,7 +1,7 @@
 use crate::core::visual::{PixelSource, Ratio, aspect_ratio, LayoutMode, Texture};
 use crate::core::visual::{RgbPixelBuffer, RgbaPixelBuffer, PixelBuffer};
-use crate::core::app::{Application, Mutator, MutatorIndex};
-use crate::core::xml::XmlNodeKey;
+use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::{Vec, Box, HashMap, CheapString, Rc, Error, cheap_string};
@@ -11,9 +11,11 @@ use png::Decoder;
 
 pub const PNG_MUTATOR: Mutator = Mutator {
     name: cheap_string("PngMutator"),
-    xml_tag: Some(cheap_string("png")),
-    xml_attr_set: Some(&["file"]),
-    xml_accepts_children: false,
+    xml_params: Some(XmlTagParameters {
+        tag_name: cheap_string("png"),
+        attr_set: &["file"],
+        accepts_children: false,
+    }),
     handlers: Handlers {
         initializer,
         parser,
@@ -21,12 +23,13 @@ pub const PNG_MUTATOR: Mutator = Mutator {
         finalizer,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };
 
 type PngStorage = HashMap<CheapString, (Ratio, Rc<dyn Texture>)>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
-    let storage = &mut app.storage[usize::from(m)];
+    let storage = &mut app.mutators[usize::from(m)].storage;
     assert!(storage.is_none());
 
     *storage = Some(Box::new(PngStorage::new()));
@@ -55,8 +58,7 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
         (ratio, texture)
     };
 
-    let storage = app.storage[usize::from(m)].as_mut().unwrap();
-    let storage: &mut PngStorage = storage.downcast_mut().unwrap();
+    let storage: &mut PngStorage = get_storage(&mut app.mutators, m).unwrap();
     storage.insert(asset.clone(), parsed);
 
     Ok(())
@@ -71,8 +73,7 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     let file = app.attr(node_key, "file", None)?.as_str()?;
 
     let (ratio, texture) = {
-        let storage = app.storage[usize::from(m)].as_ref().unwrap();
-        let storage: &PngStorage = storage.downcast_ref().unwrap();
+        let storage: &mut PngStorage = get_storage(&mut app.mutators, m).unwrap();
         storage.get(&file).unwrap().clone()
     };
 

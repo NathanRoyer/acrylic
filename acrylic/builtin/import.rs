@@ -1,15 +1,17 @@
-use crate::core::xml::{XmlNodeKey, parse_xml_tree};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters, parse_xml_tree};
 use crate::{Box, HashMap, CheapString, Error, cheap_string};
-use crate::core::app::{Application, Mutator, MutatorIndex};
+use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::core::node::NodeKey;
 use oakwood::NodeKey as _;
 
 pub const IMPORT_MUTATOR: Mutator = Mutator {
     name: cheap_string("ImportMutator"),
-    xml_tag: Some(cheap_string("import")),
-    xml_attr_set: Some(&[ "file" ]),
-    xml_accepts_children: false,
+    xml_params: Some(XmlTagParameters {
+        tag_name: cheap_string("import"),
+        attr_set: &[ "file" ],
+        accepts_children: false,
+    }),
     handlers: Handlers {
         initializer,
         populator,
@@ -17,12 +19,13 @@ pub const IMPORT_MUTATOR: Mutator = Mutator {
         finalizer,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };
 
 type SubLayouts = HashMap<CheapString, XmlNodeKey>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
-    let storage = &mut app.storage[usize::from(m)];
+    let storage = &mut app.mutators[usize::from(m)].storage;
     assert!(storage.is_none());
 
     *storage = Some(Box::new(SubLayouts::new()));
@@ -42,8 +45,7 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
         &bytes,
     )?;
 
-    let storage = app.storage[usize::from(m)].as_mut().unwrap();
-    let storage: &mut SubLayouts = storage.downcast_mut().unwrap();
+    let storage: &mut SubLayouts = get_storage(&mut app.mutators, m).unwrap();
     storage.insert(asset.clone(), replacement);
 
     Ok(())
@@ -53,8 +55,7 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     let file = app.attr(node_key, "file", None)?.as_str()?;
 
     let replacement = {
-        let storage = app.storage[usize::from(m)].as_ref().unwrap();
-        let storage: &SubLayouts = storage.downcast_ref().unwrap();
+        let storage: &mut SubLayouts = get_storage(&mut app.mutators, m).unwrap();
         *storage.get(&file).unwrap()
     };
 

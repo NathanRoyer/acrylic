@@ -1,7 +1,7 @@
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS, UserInputEvent};
 use crate::core::node::NodeKey;
-use crate::core::xml::XmlNodeKey;
+use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::visual::{SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelBuffer, PixelBuffer};
 use crate::core::state::{StateValue, StatePathStep, path_steps};
 use crate::core::style::DEFAULT_STYLE;
@@ -35,7 +35,7 @@ fn parse_tag(app: &mut Application, node: NodeKey, tag: &str) -> Result<(Axis, L
 }
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
-    let storage = &mut app.storage[usize::from(m)];
+    let storage = &mut app.mutators[usize::from(m)].storage;
     assert!(storage.is_none());
 
     let railway = R::parse(include_bytes!(concat!(env!("OUT_DIR"), "/container.rwy"))).unwrap();
@@ -48,7 +48,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     let xml_node = &app.xml_tree[xml_node_key];
     let mutator_index = xml_node.factory.get().unwrap();
     let mutator = &app.mutators[usize::from(mutator_index)];
-    let tag = mutator.xml_tag.clone().unwrap();
+    let tag = mutator.xml_params.as_ref().unwrap().tag_name.clone();
 
     let (content_axis, layout_mode) = parse_tag(app, node_key, tag.deref())?;
     let content_gap = app.attr(node_key, "gap", Some("0".into()))?.as_pixels()?;
@@ -171,7 +171,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
             Err(_) => C_ZERO,
         };
 
-        let (railway, mask): &mut (R, Vec<u8>) = get_storage(&mut app.storage, m).unwrap();
+        let (railway, mask): &mut (R, Vec<u8>) = get_storage(&mut app.mutators, m).unwrap();
         railway.set_argument("size", couple).unwrap();
         railway.set_argument("margin-radius", Couple::new(margin, radius)).unwrap();
         railway.set_argument("border-width", border_width).unwrap();
@@ -293,9 +293,11 @@ macro_rules! container {
     ($v:ident, $h:ident, $vtag:literal, $htag:literal $(, $arg:literal)?) => {
         const $v: Mutator = Mutator {
             name: cheap_string(stringify!($v)),
-            xml_tag: Some(cheap_string($vtag)),
-            xml_attr_set: Some(&["for", "in", "style", "margin", "border-width", "border-radius", "gap", "on-quick-action", $($arg)*]),
-            xml_accepts_children: true,
+            xml_params: Some(XmlTagParameters {
+                tag_name: cheap_string($vtag),
+                attr_set: &["for", "in", "style", "margin", "border-width", "border-radius", "gap", "on-quick-action", $($arg)*],
+                accepts_children: true,
+            }),
             handlers: Handlers {
                 initializer,
                 populator,
@@ -303,13 +305,16 @@ macro_rules! container {
                 user_input_handler,
                 ..DEFAULT_HANDLERS
             },
+            storage: None,
         };
 
         const $h: Mutator = Mutator {
             name: cheap_string(stringify!($h)),
-            xml_tag: Some(cheap_string($htag)),
-            xml_attr_set: Some(&["for", "in", "style", "margin", "border-width", "border-radius", "gap", "on-quick-action", $($arg)*]),
-            xml_accepts_children: true,
+            xml_params: Some(XmlTagParameters {
+                tag_name: cheap_string($htag),
+                attr_set: &["for", "in", "style", "margin", "border-width", "border-radius", "gap", "on-quick-action", $($arg)*],
+                accepts_children: true,
+            }),
             handlers: Handlers {
                 initializer,
                 populator,
@@ -317,6 +322,7 @@ macro_rules! container {
                 user_input_handler,
                 ..DEFAULT_HANDLERS
             },
+            storage: None,
         };
     }
 }

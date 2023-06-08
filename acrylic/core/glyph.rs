@@ -5,7 +5,7 @@
 use super::event::{Handlers, DEFAULT_HANDLERS};
 use super::visual::{RgbaPixelBuffer, GrayScalePixelBuffer, PixelBuffer, PixelSource};
 use super::rgb::RGBA8;
-use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX, Storage};
+use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
 use super::node::NodeKey;
 use crate::{Error, Vec, Box, HashMap, LiteMap, CheapString, cheap_string, Rc};
 use core::{fmt::{self, Write}};
@@ -278,7 +278,7 @@ impl<'a> fmt::Write for GlyphRenderer<'a> {
 type FontStorage = HashMap<CheapString, Font>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
-    let storage = &mut app.storage[usize::from(m)];
+    let storage = &mut app.mutators[usize::from(m)].storage;
     assert!(storage.is_none());
     assert_eq!(m, FONT_MUTATOR_INDEX.into());
 
@@ -288,7 +288,7 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
 }
 
 pub fn load_font_bytes(app: &mut Application, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
-    let storage = app.storage[FONT_MUTATOR_INDEX].as_mut().unwrap();
+    let storage = app.mutators[FONT_MUTATOR_INDEX].storage.as_mut().unwrap();
     let storage: &mut FontStorage = storage.downcast_mut().unwrap();
 
     storage.insert(asset.clone(), Font::new(bytes));
@@ -304,18 +304,17 @@ fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: &CheapStrin
 /// Tag-less Mutator which simply stores fonts
 pub const FONT_MUTATOR: Mutator = Mutator {
     name: cheap_string("FontMutator"),
-    xml_tag: None,
-    xml_attr_set: None,
-    xml_accepts_children: false,
+    xml_params: None,
     handlers: Handlers {
         initializer,
         parser,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };
 
-pub fn get_font<'a>(storage: &'a mut Storage, font: &CheapString) -> Option<&'a mut Font> {
-    let storage = storage[FONT_MUTATOR_INDEX].as_mut().unwrap();
+pub fn get_font<'a>(mutators: &'a mut [Mutator], font: &CheapString) -> Option<&'a mut Font> {
+    let storage = mutators[FONT_MUTATOR_INDEX].storage.as_mut().unwrap();
     let storage: &mut FontStorage = storage.downcast_mut().unwrap();
     storage.get_mut(font)
 }

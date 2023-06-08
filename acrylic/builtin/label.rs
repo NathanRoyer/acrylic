@@ -1,16 +1,18 @@
 use crate::core::visual::{aspect_ratio, LayoutMode};
 use crate::core::app::{Application, Mutator, MutatorIndex};
 use crate::core::glyph::{get_font, load_font_bytes};
-use crate::core::xml::XmlNodeKey;
+use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::{Error, CheapString, cheap_string, Box};
 
 pub const LABEL_MUTATOR: Mutator = Mutator {
     name: cheap_string("LabelMutator"),
-    xml_tag: Some(cheap_string("label")),
-    xml_attr_set: Some(&["text", "font"]),
-    xml_accepts_children: false,
+    xml_params: Some(XmlTagParameters {
+        tag_name: cheap_string("label"),
+        attr_set: &["text", "font"],
+        accepts_children: false,
+    }),
     handlers: Handlers {
         populator,
         parser,
@@ -18,6 +20,7 @@ pub const LABEL_MUTATOR: Mutator = Mutator {
         resizer,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
@@ -41,7 +44,7 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
         let font_size = 100;
 
         let width = {
-            let font = get_font(&mut app.storage, &font_file).unwrap();
+            let font = get_font(&mut app.mutators, &font_file).unwrap();
             let mut renderer = font.renderer(None, font_size);
             renderer.write(text);
             renderer.width()
@@ -65,7 +68,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
         let font_size = app.view[node_key].size.h.round().to_num();
         app.view[node_key].layout_config.set_dirty(true);
         app.view[node_key].foreground = {
-            let font = get_font(&mut app.storage, &font_file).unwrap();
+            let font = get_font(&mut app.mutators, &font_file).unwrap();
             let mut renderer = font.renderer(Some(color), font_size);
             renderer.write(text);
             renderer.texture()

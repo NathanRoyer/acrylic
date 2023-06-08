@@ -1,7 +1,7 @@
 use crate::core::visual::{aspect_ratio, LayoutMode, Axis, Pixels};
 use crate::core::app::{Application, Mutator, MutatorIndex};
 use crate::core::glyph::{space_width, get_font, load_font_bytes};
-use crate::core::xml::XmlNodeKey;
+use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::{Error, error, CheapString, cheap_string, Box};
@@ -9,9 +9,11 @@ use super::default_font_size_attr;
 
 pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
     name: cheap_string("ParagraphMutator"),
-    xml_tag: Some(cheap_string("p")),
-    xml_attr_set: Some(&["text", "size", "font"]),
-    xml_accepts_children: false,
+    xml_params: Some(XmlTagParameters {
+        tag_name: cheap_string("p"),
+        attr_set: &["text", "size", "font"],
+        accepts_children: false,
+    }),
     handlers: Handlers {
         populator,
         parser,
@@ -19,6 +21,7 @@ pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
         resizer,
         ..DEFAULT_HANDLERS
     },
+    storage: None,
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
@@ -48,7 +51,7 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
         let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
         let text = app.attr(node_key, "text", None)?.clone();
 
-        let font = get_font(&mut app.storage, &font_file).unwrap();
+        let font = get_font(&mut app.mutators, &font_file).unwrap();
 
         for unbreakable in text.split_space() {
             let new_node = app.view.create();
@@ -80,7 +83,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
         let font_size = app.attr(node_key, "size", Some(default_font_size_attr()))?.as_usize()?;
         let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
         let text = app.attr(node_key, "text", None)?.clone();
-        let font = match get_font(&mut app.storage, &font_file) {
+        let font = match get_font(&mut app.mutators, &font_file) {
             Some(font) => font,
             None => return Ok(()),
         };

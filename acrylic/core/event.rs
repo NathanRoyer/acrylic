@@ -7,15 +7,15 @@ use super::visual::{Direction, Ratio, SignedPixels};
 use crate::{Box, CheapString, Error, error};
 
 #[cfg(doc)]
-use super::app::{Mutator, Storage};
+use super::app::Mutator;
 
-/// Initializes a [`Mutator`], and especially its [`Storage`]
+/// Initializes a [`Mutator`], and especially its `storage` field
 pub type Initializer = fn(
     app: &mut Application,
     m: MutatorIndex,
 ) -> Result<(), Error>;
 
-/// Parses an asset's bytes and optionally stores the result in [`Storage`]
+/// Parses an asset's bytes and optionally stores the result in the [`Mutator`]'s storage
 ///
 /// # Arguments
 ///
