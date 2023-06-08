@@ -170,7 +170,7 @@ impl Application {
 
         let xml_root = app.xml_tree.create();
         app.xml_tree[xml_root].factory = factory;
-        app.xml_tree[xml_root].attributes.push("file", layout_asset.clone());
+        app.xml_tree[xml_root].attributes.insert("file".into(), layout_asset.clone());
 
         app.root = app.view.create();
         app.view[app.root].factory = factory;

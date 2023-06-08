@@ -1,11 +1,10 @@
 //! XML Layout Parsing
 
-use crate::{error, Error, format, String, Vec, Rc};
+use crate::{error, Error, format, String, Vec, Rc, CheapString, LiteMap};
 use super::app::{Mutator, MutatorIndex, OptionalMutatorIndex};
 use core::{ops::Deref, str::from_utf8 as str_from_utf8};
 use xmlparser::{Tokenizer, Token, StrSpan};
 use oakwood::{NoCookie, index, tree};
-use super::KeyValueStore;
 
 index!(LineNumber, OptionalLineNumber);
 index!(FileIndex, OptionalFileIndex);
@@ -15,11 +14,10 @@ tree!(XmlNodeTree, XmlNode, XmlNodeKey, XmlNodeIndex, OptionalXmlNodeIndex, NoCo
 /// An XML Node extracted from the layout file
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct XmlNode {
-    pub attributes: KeyValueStore,            // 6x4
-    pub factory: OptionalMutatorIndex,        // 1x4
-    pub file: OptionalFileIndex,              // 1x4
-    pub line: OptionalLineNumber,             // 1x4
-    // padding                                // 1x4
+    pub attributes: LiteMap<CheapString, CheapString>,
+    pub factory: OptionalMutatorIndex,
+    pub file: OptionalFileIndex,
+    pub line: OptionalLineNumber,
 }
 
 /// Parses an XML Layout file and adds it as a new independant tree in `XmlNodeTree`.
@@ -92,7 +90,7 @@ pub fn parse_xml_tree(
                 prefix => format!("{}:{}", local, prefix),
             };
 
-            tree[current].attributes.push(name, value_rc);
+            tree[current].attributes.insert(name.into(), value_rc.into());
         }
 
         else if let ElementEnd { end, span } = token {
