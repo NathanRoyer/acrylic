@@ -272,7 +272,7 @@ impl Application {
     }
 
     /// Retrieves a value from the JSON state
-    pub fn state_lookup<'a>(&'a mut self, node: NodeKey, store: &str, key: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
+    pub fn state_lookup<'a>(&'a mut self, node: NodeKey, namespace: &str, key: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
         let mut state_finder: Option<(StateFinder, NodeKey)> = None;
 
         let mut target = node;
@@ -286,9 +286,9 @@ impl Application {
         }
 
         if let Some((finder, masker)) = state_finder {
-            finder(self, masker, node, store, key, path_hash)
+            finder(self, masker, node, namespace, key, path_hash)
         } else {
-            if store == "root" {
+            if namespace == "root" {
                 let mut current = &mut self.state;
                 for path_step in path_steps(key) {
                     let option = match path_step {
@@ -309,15 +309,15 @@ impl Application {
                 }
                 Ok(current)
             } else {
-                Err(error!("Unknown state store: {}", store))
+                Err(error!("Unknown state namespace: {}", namespace))
             }
         }
     }
 
     /// Modifies a value in the JSON state
-    pub fn state_update(&mut self, path_scope: NodeKey, store: &str, key: &str, value: StateValue) -> Result<(), Error> {
+    pub fn state_update(&mut self, path_scope: NodeKey, namespace: &str, key: &str, value: StateValue) -> Result<(), Error> {
         let mut path_hash = Hasher::default();
-        let content = self.state_lookup(path_scope, store, key, &mut path_hash)?;
+        let content = self.state_lookup(path_scope, namespace, key, &mut path_hash)?;
         *content = value;
         let path_hash = path_hash.finish();
 
@@ -375,7 +375,7 @@ impl Application {
     ///
     /// Here, the `text` attribute will contain the value of the JSON state at `some` / `json` / `path` / `items` / fourth item.
     ///
-    /// `root` specifies the main JSON state store. Use [Iterating Containers](http://todo.io/) to create other ones.
+    /// `root` specifies the main JSON state namespace. Use [Iterating Containers](http://todo.io/) to create other ones.
     pub fn attr(&mut self, node: NodeKey, attr: &str, default: Option<CheapString>) -> Result<StateFinderResult, Error> {
         let xml_node_index = self.view[node].xml_node_index.get()
             .expect("cannot use Application::attr on nodes without xml_node_index");
@@ -395,8 +395,8 @@ impl Application {
 
         if let Some((key, value)) = found {
             let mut path_hash = Hasher::default();
-            let store = &key[alen + 1..];
-            let value = self.state_lookup(node, store, value.deref(), &mut path_hash)?;
+            let namespace = &key[alen + 1..];
+            let value = self.state_lookup(node, namespace, value.deref(), &mut path_hash)?;
             let path_hash = path_hash.finish();
 
             let retval = match value {

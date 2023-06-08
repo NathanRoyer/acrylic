@@ -17,10 +17,10 @@
 //! Containers all have special `for` & `in` attributes which
 //! allows the layout to produce one child for each item of a
 //! a JSON State list. The container will create a new local
-//! state store (a State Mask) available to all its children,
-//! named like the value in the `for` attribute. The list on
-//! which the container iterates is specified a the JSON state
-//! path in the `in` attribute. For example:
+//! state namespace available to all its children, named like
+//! the value in the `for` attribute. The list on which the
+//! container iterates is specified a the JSON state path
+//! in the `in` attribute. For example:
 //!
 //! ```xml
 //! <v-wrap for="person" in="root:club.members">
@@ -32,7 +32,7 @@
 //!
 //! This will result in a list of club members, displaying the `name`
 //! field of each object in the list at `club` / `members` in the root
-//! (main) JSON state store.
+//! (main) JSON state namespace.
 //!
 //! Technically, the container will produce as many children nodes as
 //! required by the list and subscribe to that list. Then, when the

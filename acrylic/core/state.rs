@@ -1,4 +1,4 @@
-//! JSON State Store
+//! JSON State
 
 use crate::{Error, error, CheapString, Hasher, LiteMap};
 use super::app::Application;
@@ -7,7 +7,7 @@ use super::node::NodeKey;
 pub use serde_json::Value as StateValue;
 use core::{fmt::{self, Write}, write, str::Split, ops::Deref};
 
-/// Parse a JSON string into a JSON State
+/// Parses serialized JSON into a JSON State
 pub fn parse_state(json: &str) -> Result<StateValue, Error> {
     match serde_json::from_str(json) {
         Ok(value) => Ok(value),
@@ -163,34 +163,34 @@ impl<'a> fmt::Display for SpaceIteratorResult<'a> {
 
 /// A callback function used as a custom State lookup function.
 ///
-/// When a secondary state store (namespace) is created by a node (the "masking" node),
+/// When a secondary state namespace is created by a node (the "masking" node),
 /// A function with this signature is stored, which allows the masking node
-/// to customize the lookup policy for this state store. This is currently
+/// to customize the lookup policy for this state namespace. This is currently
 /// only used by Iterating Containers (see the `generator` state lookup function
 /// in container code).
 ///
 /// As all state lookups performed by (indirect) children of the masking node
 /// will go through this function, it should fall back to the default
-/// [`Application::state_lookup`] method if the requested state store
+/// [`Application::state_lookup`] method if the requested state namespace
 /// isn't the new one:
 /// ```rust
-/// if store == "my-custom-store" {
+/// if namespace == "my-custom-ns" {
 ///     // perform your custom lookup
 /// } else {
-///     // act as if the masking node
-///     app.state_lookup(masker, store, key, path_hash)
+///     // forward the lookup
+///     app.state_lookup(masker, namespace, key, path_hash)
 /// }
 /// ```
 pub type StateFinder = for<'a> fn(
     app: &'a mut Application,
     masker: NodeKey,
     node: NodeKey,
-    store: &str,
+    namespace: &str,
     key: &str,
     path_hash: &mut Hasher,
 ) -> Result<&'a mut StateValue, Error>;
 
-/// Map of nodes which created custom state stores
+/// Map of nodes which created custom state namespaces
 pub type StateMasks = LiteMap<NodeKey, StateFinder>;
 
 /// Parse a string as a list of path steps

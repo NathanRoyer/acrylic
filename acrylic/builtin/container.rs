@@ -75,20 +75,20 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     }
 
     let to_generate = if let Ok(result) = app.attr(node_key, "for", None) {
-        let store_path = app.attr(node_key, "in", None)?.as_str()?;
-        if !store_path.contains(':') {
+        let namespace_path = app.attr(node_key, "in", None)?.as_str()?;
+        if !namespace_path.contains(':') {
             return Err(error!("<{} for=... in=...> - missing colon in \"in\"", tag.deref()));
         }
 
         result.as_str()?;
         app.state_masks.insert(node_key, generator);
 
-        let (store, masker_key) = store_path.split_once(':').unwrap();
+        let (namespace, masker_key) = namespace_path.split_once(':').unwrap();
         let mut path_hash = Hasher::default();
-        let array = app.state_lookup(node_key, store, masker_key, &mut path_hash)?;
+        let array = app.state_lookup(node_key, namespace, masker_key, &mut path_hash)?;
         let len = match array.as_array() {
             Some(vector) => vector.len(),
-            None => return Err(error!("Generator: {}:{} is not an array", store, masker_key)),
+            None => return Err(error!("Generator: {}:{} is not an array", namespace, masker_key)),
         };
         app.subscribe_to_state(node_key, path_hash.finish());
 
@@ -243,12 +243,12 @@ fn generator<'a>(
     app: &'a mut Application,
     masker: NodeKey,
     node: NodeKey,
-    store: &str,
+    namespace: &str,
     key: &str,
     path_hash: &mut Hasher,
 ) -> Result<&'a mut StateValue, Error> {
-    let expected_store = app.attr(masker, "for", None)?.as_str()?;
-    if store == expected_store.deref() {
+    let expected_namespace = app.attr(masker, "for", None)?.as_str()?;
+    if namespace == expected_namespace.deref() {
         let mut child = node;
         loop {
             let parent = app.view.parent(child).unwrap();
@@ -259,9 +259,9 @@ fn generator<'a>(
         }
 
         let index = app.view.child_num(child).unwrap();
-        let store_path = app.attr(masker, "in", None)?.as_str()?;
-        let (store, masker_key) = store_path.split_once(':').unwrap();
-        let mut current = app.state_lookup(masker, store, masker_key, path_hash)?;
+        let namespace_path = app.attr(masker, "in", None)?.as_str()?;
+        let (namespace, masker_key) = namespace_path.split_once(':').unwrap();
+        let mut current = app.state_lookup(masker, namespace, masker_key, path_hash)?;
 
         path_hash.write_usize(index);
         current = &mut current.as_array_mut().unwrap()[index];
@@ -285,7 +285,7 @@ fn generator<'a>(
 
         Ok(current)
     } else {
-        app.state_lookup(masker, store, key, path_hash)
+        app.state_lookup(masker, namespace, key, path_hash)
     }
 }
 
