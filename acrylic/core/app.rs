@@ -1,15 +1,15 @@
 //! The state of your Application
 
-use super::xml::{XmlNodeTree, XmlNodeKey, XmlTagParameters};
+use super::xml::{XmlNodeTree, XmlNodeKey, XmlTagParameters, AttributeValue, AttributeValueVec, AttributeValueType};
 use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
-use super::state::{StateValue, StatePathHash, StateMasks, StateFinder, StateFinderResult, StatePathStep, path_steps};
+use super::state::{StateValue, StatePathHash, StateMasks, StateFinder};
 use super::event::{Handlers, UserInputEvent};
 use super::node::{NodeTree, NodeKey};
 use super::layout::{compute_layout, hit_test};
 use super::style::Theme;
 use super::rgb::RGBA8;
 use oakwood::{index, NodeKey as _};
-use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap, LiteMap};
+use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap, LiteMap, format, DEFAULT_FONT_NAME};
 use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
 use super::for_each_child;
 
@@ -93,7 +93,6 @@ pub struct Application {
     pub(crate) state_masks: StateMasks,
     pub(crate) monitors: LiteMap<StatePathHash, Vec<NodeKey>>,
     pub(crate) mutators: Vec<Mutator>,
-    pub(crate) default_font_str: CheapString,
 
     state: StateValue,
     must_check_layout: bool,
@@ -139,7 +138,6 @@ impl Application {
             mutators,
             must_check_layout: false,
             _source_files: Vec::new(),
-            default_font_str: "default-font".into(),
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             _age: Duration::from_secs(0),
             render_list: Vec::new(),
@@ -161,22 +159,21 @@ impl Application {
         if true {
             let default_font = crate::NOTO_SANS.to_vec().into_boxed_slice();
             let font_parser = app.mutators[FONT_MUTATOR_INDEX].handlers.parser;
-            let default_font_str = app.default_font_str.clone();
             font_parser(
                 &mut app,
                 FONT_MUTATOR_INDEX.into(),
                 Default::default(),
-                &default_font_str,
+                &DEFAULT_FONT_NAME.into(),
                 default_font,
             ).unwrap();
-            app.assets.insert(default_font_str, Asset::Parsed);
+            app.assets.insert(DEFAULT_FONT_NAME.into(), Asset::Parsed);
         }
 
         let factory = Some(IMPORT_MUTATOR_INDEX.into()).into();
 
         let xml_root = app.xml_tree.create();
         app.xml_tree[xml_root].factory = factory;
-        app.xml_tree[xml_root].attributes.insert("file".into(), layout_asset.clone());
+        app.xml_tree[xml_root].attributes = AttributeValueVec::new_import(layout_asset.clone());
 
         app.root = app.view.create();
         app.view[app.root].factory = factory;
@@ -278,7 +275,7 @@ impl Application {
     }
 
     /// Retrieves a value from the JSON state
-    pub fn state_lookup<'a>(&'a mut self, node: NodeKey, namespace: &str, key: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
+    pub fn state_lookup<'a>(&'a mut self, node: NodeKey, namespace: &str, path: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
         let mut state_finder: Option<(StateFinder, NodeKey)> = None;
 
         let mut target = node;
@@ -292,30 +289,11 @@ impl Application {
         }
 
         if let Some((finder, masker)) = state_finder {
-            finder(self, masker, node, namespace, key, path_hash)
+            finder(self, masker, node, namespace, path, path_hash)
         } else {
-            if namespace == "root" {
-                let mut current = &mut self.state;
-                for path_step in path_steps(key) {
-                    let option = match path_step {
-                        StatePathStep::Index(index) => {
-                            path_hash.write_usize(index);
-                            current.get_mut(index)
-                        },
-                        StatePathStep::Key(key) => {
-                            path_hash.write(key.as_bytes());
-                            current.get_mut(key)
-                        },
-                    };
-
-                    current = match option {
-                        Some(value) => value,
-                        None => return Err(error!("Invalid state key: {}", key)),
-                    }
-                }
-                Ok(current)
-            } else {
-                Err(error!("Unknown state namespace: {}", namespace))
+            match namespace {
+                "root" => self.state.get_mut(path, path_hash),
+                _ => Err(error!("Unknown state namespace: {}", namespace)),
             }
         }
     }
@@ -382,48 +360,45 @@ impl Application {
     /// Here, the `text` attribute will contain the value of the JSON state at `some` / `json` / `path` / `items` / fourth item.
     ///
     /// `root` specifies the main JSON state namespace. Use [Iterating Containers](http://todo.io/) to create other ones.
-    pub fn attr(&mut self, node: NodeKey, attr: &str, default: Option<CheapString>) -> Result<StateFinderResult, Error> {
+    pub fn attr<T: TryFrom<AttributeValue, Error=Error>>(
+        &mut self,
+        node: NodeKey,
+        attr: usize,
+    ) -> Result<T, Error> {
         let xml_node_index = self.view[node].xml_node_index.get()
             .expect("cannot use Application::attr on nodes without xml_node_index");
         let xml_node_key = self.xml_tree.node_key(xml_node_index);
         let xml_node = &self.xml_tree[xml_node_key];
 
-        let alen = attr.len();
+        let (namespace, path, value_type) = match xml_node.attributes.get(attr).clone() {
+            AttributeValue::StateLookup { namespace, path, value_type } => (namespace, path, value_type),
+            value => return T::try_from(value),
+        };
 
-        let mut found = None;
-        for (key, value) in xml_node.attributes.iter() {
-            if key.deref() == attr {
-                return Ok(StateFinderResult::String(value.clone()));
-            } else if key.starts_with(attr) && key.get(alen..alen + 1) == Some(&":") {
-                found = Some((key.clone(), value.clone()))
-            }
-        }
+        let mut path_hash = Hasher::default();
+        let value = self.state_lookup(node, &namespace, path.deref(), &mut path_hash)?;
+        let path_hash = path_hash.finish();
 
-        if let Some((key, value)) = found {
-            let mut path_hash = Hasher::default();
-            let namespace = &key[alen + 1..];
-            let value = self.state_lookup(node, namespace, value.deref(), &mut path_hash)?;
-            let path_hash = path_hash.finish();
+        use AttributeValueType::*;
 
-            let retval = match value {
-                StateValue::Null => Err(error!("State value is null: {}", key)),
-                StateValue::Array(_) => Err(error!("State value isn't primitive: : {}", key)),
-                StateValue::Object(_) => Err(error!("State value isn't primitive: : {}", key)),
+        let value = match (value, value_type) {
+            // String dumps:
+            (StateValue::Null, OptOther) => AttributeValue::OptOther(Some("[null]".into())),
+            (StateValue::Null, Other) => AttributeValue::Other("[null]".into()),
+            (StateValue::Array(a), OptOther) => AttributeValue::OptOther(Some(format!("{:?}", a).into())),
+            (StateValue::Array(a), Other) => AttributeValue::Other(format!("{:?}", a).into()),
+            (StateValue::Object(o), OptOther) => AttributeValue::OptOther(Some(format!("{:?}", o).into())),
+            (StateValue::Object(o), Other) => AttributeValue::Other(format!("{:?}", o).into()),
 
-                StateValue::Bool(b) => Ok(StateFinderResult::Boolean(*b)),
-                StateValue::Number(_) => Ok(StateFinderResult::Number(value.as_f64().unwrap() as _)),
-                StateValue::String(s) => Ok(StateFinderResult::String(s.clone().into())),
-            };
+            // Common conversions:
+            (StateValue::String(s), _) => AttributeValue::parse(s, value_type)?,
 
-            self.subscribe_to_state(node, path_hash);
+            _ => return Err(error!("Invalid Attribute Conversion")),
+        };
 
-            retval
-        } else {
-            match default {
-                Some(default) => Ok(StateFinderResult::String(default)),
-                None => Err(error!("Missing {:?} attribute on <{}>", attr, self.xml_tag(node).deref())),
-            }
-        }
+        self.subscribe_to_state(node, path_hash);
+
+        T::try_from(value)
     }
 
     fn build_render_list(&mut self, fb_rect: &(Position, Size), key: NodeKey, querying: bool) {

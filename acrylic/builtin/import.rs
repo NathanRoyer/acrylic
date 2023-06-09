@@ -1,15 +1,17 @@
-use crate::core::xml::{XmlNodeKey, XmlTagParameters, parse_xml_tree};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType, parse_xml_tree};
 use crate::{Box, HashMap, CheapString, Error, cheap_string};
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::core::node::NodeKey;
 use oakwood::NodeKey as _;
 
+const FILE: usize = 0;
+
 pub const IMPORT_MUTATOR: Mutator = Mutator {
     name: cheap_string("ImportMutator"),
     xml_params: Some(XmlTagParameters {
         tag_name: cheap_string("import"),
-        attr_set: &[ "file" ],
+        attr_set: &[ ("file", AttributeValueType::Other, None) ],
         accepts_children: false,
     }),
     handlers: Handlers {
@@ -34,13 +36,21 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
 }
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let file = app.attr(node_key, "file", None)?.as_str()?;
-    app.request(&file, node_key, true)
+    let layout_asset = app.attr(node_key, FILE)?;
+    app.request(&layout_asset, node_key, true)
 }
 
 fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    let mut xml_tags = HashMap::<str, (&XmlTagParameters, MutatorIndex)>::new();
+    for i in 0..app.mutators.len() {
+        if let Some(params) = &app.mutators[i].xml_params {
+            xml_tags.insert_ref(&params.tag_name.clone(), (params, i.into()));
+        }
+    }
+
     let replacement = parse_xml_tree(
-        &mut app.mutators,
+        xml_tags,
+        &app.mutators,
         &mut app.xml_tree,
         &bytes,
     )?;
@@ -52,7 +62,7 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
 }
 
 fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let file = app.attr(node_key, "file", None)?.as_str()?;
+    let file: CheapString = app.attr(node_key, FILE)?;
 
     let replacement = {
         let storage: &mut SubLayouts = get_storage(&mut app.mutators, m).unwrap();

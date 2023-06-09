@@ -1,16 +1,22 @@
 use crate::core::visual::{aspect_ratio, LayoutMode};
 use crate::core::app::{Application, Mutator, MutatorIndex};
 use crate::core::glyph::{get_font, load_font_bytes};
-use crate::core::xml::{XmlNodeKey, XmlTagParameters};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Error, CheapString, cheap_string, Box};
+use crate::{Error, CheapString, cheap_string, Box, DEFAULT_FONT_NAME};
+
+const TEXT: usize = 0;
+const FONT: usize = 1;
 
 pub const LABEL_MUTATOR: Mutator = Mutator {
     name: cheap_string("LabelMutator"),
     xml_params: Some(XmlTagParameters {
         tag_name: cheap_string("label"),
-        attr_set: &["text", "font"],
+        attr_set: &[
+            ("text", AttributeValueType::Other, None),
+            ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
+        ],
         accepts_children: false,
     }),
     handlers: Handlers {
@@ -24,11 +30,12 @@ pub const LABEL_MUTATOR: Mutator = Mutator {
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    if app.attr(node_key, "text", None)?.display_len() > 0 {
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        app.request(&font_file, node_key, true)
-    } else {
-        Ok(())
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
+
+    match text.len() > 0 {
+        true => app.request(&font_file, node_key, true),
+        false => Ok(()),
     }
 }
 
@@ -37,16 +44,16 @@ fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &C
 }
 
 fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    if app.attr(node_key, "text", None)?.display_len() > 0 {
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        let text = &app.attr(node_key, "text", None)?;
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
 
+    if text.len() > 0 {
         let font_size = 100;
 
         let width = {
             let font = get_font(&mut app.mutators, &font_file).unwrap();
             let mut renderer = font.renderer(None, font_size);
-            renderer.write(text);
+            renderer.write(&text);
             renderer.width()
         };
 
@@ -60,9 +67,10 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 }
 
 fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    if app.attr(node_key, "text", None)?.display_len() > 0 && !app.debug.skip_glyph_rendering {
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        let text = &app.attr(node_key, "text", None)?;
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
+
+    if text.len() > 0 && !app.debug.skip_glyph_rendering {
 
         let color = rgb::RGBA8::new(255, 255, 255, 255);
         let font_size = app.view[node_key].size.h.round().to_num();
@@ -70,7 +78,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
         app.view[node_key].foreground = {
             let font = get_font(&mut app.mutators, &font_file).unwrap();
             let mut renderer = font.renderer(Some(color), font_size);
-            renderer.write(text);
+            renderer.write(&text);
             renderer.texture()
         };
     }

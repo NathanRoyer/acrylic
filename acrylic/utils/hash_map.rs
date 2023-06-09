@@ -24,15 +24,21 @@ static GEN: RandomState = RandomState::with_seeds(
     u64::from_ne_bytes(seed!(24)),
 );
 
-#[derive(Clone, Default)]
-pub struct HashMap<K, V>(LiteMap<u64, V>, PhantomData<K>);
+#[derive(Debug, Default)]
+pub struct HashMap<K: ?Sized, V>(LiteMap<u64, V>, PhantomData<K>);
 
-impl<K: Hash + Ord, V> HashMap<K, V> {
+impl<K: ?Sized, V: Clone> Clone for HashMap<K, V> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
+
+impl<K: Hash + Ord + ?Sized, V> HashMap<K, V> {
     pub fn new() -> Self {
         Self(LiteMap::new(), PhantomData)
     }
 
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+    pub fn insert_ref(&mut self, key: &K, value: V) -> Option<V> {
         let mut hasher = GEN.build_hasher();
         key.hash(&mut hasher);
         self.0.insert(hasher.finish(), value)
@@ -54,5 +60,11 @@ impl<K: Hash + Ord, V> HashMap<K, V> {
         let mut hasher = GEN.build_hasher();
         key.hash(&mut hasher);
         self.0.get_mut(&hasher.finish())
+    }
+}
+
+impl<K: Hash + Ord, V> HashMap<K, V> {
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.insert_ref(&key, value)
     }
 }

@@ -1,7 +1,7 @@
 use crate::core::visual::{PixelSource, Ratio, aspect_ratio, LayoutMode, Texture};
 use crate::core::visual::{RgbPixelBuffer, RgbaPixelBuffer, PixelBuffer};
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
-use crate::core::xml::{XmlNodeKey, XmlTagParameters};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::{Vec, Box, HashMap, CheapString, Rc, Error, cheap_string};
@@ -9,11 +9,13 @@ use crate::{Vec, Box, HashMap, CheapString, Rc, Error, cheap_string};
 use png::ColorType;
 use png::Decoder;
 
+const FILE: usize = 0;
+
 pub const PNG_MUTATOR: Mutator = Mutator {
     name: cheap_string("PngMutator"),
     xml_params: Some(XmlTagParameters {
         tag_name: cheap_string("png"),
-        attr_set: &["file"],
+        attr_set: &[ ("file", AttributeValueType::Other, None) ],
         accepts_children: false,
     }),
     handlers: Handlers {
@@ -65,12 +67,12 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
 }
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let file = app.attr(node_key, "file", None)?.as_str()?;
+    let file: CheapString = app.attr(node_key, FILE)?;
     app.request(&file, node_key, true)
 }
 
 fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let file = app.attr(node_key, "file", None)?.as_str()?;
+    let file: CheapString = app.attr(node_key, FILE)?;
 
     let (ratio, texture) = {
         let storage: &mut PngStorage = get_storage(&mut app.mutators, m).unwrap();

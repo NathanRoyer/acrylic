@@ -1,16 +1,81 @@
 //! JSON State
 
-use crate::{Error, error, CheapString, Hasher, LiteMap};
+use crate::{Error, error, format, CheapString, HashMap, Vec, Hasher, LiteMap};
 use super::app::Application;
-use super::visual::{Pixels, Ratio};
 use super::node::NodeKey;
-pub use serde_json::Value as StateValue;
-use core::{fmt::{self, Write}, write, str::Split, ops::Deref};
+pub use serde_json::Value as JsonValue;
+use core::{fmt, hash::Hasher as _};
+
+/// JSON state (internal representation)
+#[derive(Debug, Clone)]
+pub enum StateValue {
+    Object(HashMap<str, StateValue>),
+    Array(Vec<StateValue>),
+    /// Numbers & booleans are converted to strings, since
+    /// they're read as XML attribute values
+    String(CheapString),
+    Null,
+}
+
+impl StateValue {
+    pub fn get_mut(&mut self, path: &str, path_hash: &mut Hasher) -> Result<&mut Self, Error> {
+        let mut current = self;
+
+        for path_step in path_steps(path) {
+            let option = match path_step {
+                StatePathStep::Index(index) => {
+                    path_hash.write_usize(index);
+                    match current {
+                        Self::Array(array) => array.get_mut(index),
+                        _ => return Err(error!("Invalid state path: can only index into array & objects"))
+                    }
+                },
+                StatePathStep::Key(key) => {
+                    path_hash.write(key.as_bytes());
+                    match current {
+                        Self::Object(obj) => obj.get_mut(key),
+                        _ => return Err(error!("Invalid state path: cannot index into array & objects"))
+                    }
+                },
+            };
+
+            current = match option {
+                Some(value) => value,
+                None => return Err(error!("Invalid state path: {}", path)),
+            }
+        }
+
+        Ok(current)
+    }
+}
+
+fn map_value(value: JsonValue) -> StateValue {
+    match value {
+        JsonValue::Null => StateValue::Null,
+        JsonValue::Array(mut a) => StateValue::Array(a.drain(..).map(|v| map_value(v)).collect()),
+        JsonValue::Object(object) => StateValue::Object({
+            let mut hash_map = HashMap::<str, StateValue>::new();
+
+            for (key, value) in object {
+                hash_map.insert_ref(&key, map_value(value));
+            }
+
+            hash_map
+        }),
+
+        JsonValue::Bool(b) => StateValue::String(match b {
+            true => "true",
+            false => "false",
+        }.into()),
+        JsonValue::Number(n) => StateValue::String(format!("{}", n).into()),
+        JsonValue::String(s) => StateValue::String(s.into()),
+    }
+}
 
 /// Parses serialized JSON into a JSON State
 pub fn parse_state(json: &str) -> Result<StateValue, Error> {
     match serde_json::from_str(json) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(map_value(value)),
         Err(e) => Err(error!("JSON state parsing error: {:?}", e)),
     }
 }
@@ -22,143 +87,6 @@ pub type StatePathHash = u64;
 pub enum StatePathStep<'a> {
     Key(&'a str),
     Index(usize),
-}
-
-/// The result of a JSON state lookup
-#[derive(Clone)]
-pub enum StateFinderResult {
-    String(CheapString),
-    Boolean(bool),
-    Number(f32),
-}
-
-impl StateFinderResult {
-    pub fn as_bool(&self) -> Result<bool, Error> {
-        let msg = "Invalid boolean value";
-        match self {
-            Self::String(s) => match s.deref() {
-                "true" => Ok(true),
-                "false" => Ok(false),
-                _ => Err(error!("{}", msg)),
-            },
-            Self::Boolean(b) => Ok(*b),
-            Self::Number(_) => Err(error!("{}", msg)),
-        }
-    }
-
-    pub fn as_f32(self) -> Result<f32, Error> {
-        let msg = "Invalid float value";
-        match self {
-            Self::String(s) => match s.deref().parse() {
-                Ok(pixels) => Ok(pixels),
-                Err(e) => Err(error!("{}: {:?}", msg, e)),
-            },
-            Self::Boolean(_) => Err(error!("{}", msg)),
-            Self::Number(float) => Ok(float),
-        }
-    }
-
-    pub fn as_usize(self) -> Result<usize, Error> {
-        let msg = "Invalid unsigned integer value";
-        match self {
-            Self::String(s) => match s.deref().parse() {
-                Ok(uint) => Ok(uint),
-                Err(e) => Err(error!("{}: {:?}", msg, e)),
-            },
-            Self::Boolean(_) => Err(error!("{}", msg)),
-            Self::Number(float) => match (float.is_finite(), float.fract() == 0.0) {
-                (true, true) => Ok(float as _),
-                _ => Err(error!("{}", msg)),
-            },
-        }
-    }
-
-    pub fn as_str(self) -> Result<CheapString, Error> {
-        let msg = "Invalid string value";
-        match self {
-            Self::String(s) => Ok(s),
-            Self::Boolean(_) => Err(error!("{}", msg)),
-            Self::Number(_) => Err(error!("{}", msg)),
-        }
-    }
-
-    /// Counts the number of characters this value would take, if converted to a string
-    pub fn display_len(&self) -> usize {
-        let mut counter = CharCounter(0);
-        write!(&mut counter, "{}", self).unwrap();
-        counter.0
-    }
-
-    pub fn as_pixels(self) -> Result<Pixels, Error> {
-        Ok(Pixels::from_num(self.as_f32()?))
-    }
-
-    pub fn as_ratio(self) -> Result<Ratio, Error> {
-        Ok(Ratio::from_num(self.as_f32()?))
-    }
-
-    /// Tries to split this value at each whitespace character.
-    ///
-    /// If this value isn't a string, the returned iterator will yield the value (once).
-    pub fn split_space(&self) -> SpaceIterator {
-        match self {
-            Self::String(s) => SpaceIterator::String(s.split_space()),
-            _ => SpaceIterator::Other(self.clone(), false),
-        }
-    }
-}
-
-/// See [`StateFinderResult::split_space`]
-pub enum SpaceIterator<'a> {
-    String(Split<'a, char>),
-    Other(StateFinderResult, bool),
-}
-
-pub enum SpaceIteratorResult<'a> {
-    String(&'a str),
-    Boolean(bool),
-    Number(f32),
-}
-
-impl<'a> Iterator for SpaceIterator<'a> {
-    type Item = SpaceIteratorResult<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::String(split) => Some(SpaceIteratorResult::String(split.next()?)),
-            Self::Other(other, done) => {
-                if *done {
-                    None
-                } else {
-                    *done = true;
-                    Some(match other {
-                        StateFinderResult::String(_) => unreachable!(),
-                        StateFinderResult::Boolean(b) => SpaceIteratorResult::Boolean(*b),
-                        StateFinderResult::Number(f) => SpaceIteratorResult::Number(*f),
-                    })
-                }
-            },
-        }
-    }
-}
-
-impl fmt::Display for StateFinderResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::String(s) => write!(f, "{}", s.deref()),
-            Self::Boolean(b) => write!(f, "{}", b),
-            Self::Number(float) => write!(f, "{}", float),
-        }
-    }
-}
-
-impl<'a> fmt::Display for SpaceIteratorResult<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::String(s) => write!(f, "{}", s.deref()),
-            Self::Boolean(b) => write!(f, "{}", b),
-            Self::Number(float) => write!(f, "{}", float),
-        }
-    }
 }
 
 /// A callback function used as a custom State lookup function.

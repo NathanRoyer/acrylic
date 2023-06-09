@@ -130,7 +130,3 @@ pub mod railway;
 pub mod paragraph;
 pub mod label;
 pub mod import;
-
-pub fn default_font_size_attr() -> crate::CheapString {
-    "24.0".into()
-}

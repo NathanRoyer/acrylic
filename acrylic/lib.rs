@@ -13,7 +13,7 @@ use ::core::fmt;
 
 #[doc(hidden)]
 pub use {
-    alloc::{string::String, vec::Vec, boxed::Box, rc::Rc, format},
+    alloc::{string::String, vec::Vec, vec, boxed::Box, rc::Rc, format},
     ahash::AHasher as Hasher,
     litemap::LiteMap,
 };
@@ -25,6 +25,9 @@ pub mod utils;
 pub use utils::{cheap_string::{CheapString, cheap_string}, hash_map::HashMap};
 
 pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
+
+pub const DEFAULT_FONT_NAME: &'static str = "default-font";
+pub const DEFAULT_FONT_SIZE: &'static str = "24";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {

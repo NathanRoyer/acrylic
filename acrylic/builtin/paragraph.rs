@@ -1,17 +1,24 @@
 use crate::core::visual::{aspect_ratio, LayoutMode, Axis, Pixels};
 use crate::core::app::{Application, Mutator, MutatorIndex};
 use crate::core::glyph::{space_width, get_font, load_font_bytes};
-use crate::core::xml::{XmlNodeKey, XmlTagParameters};
+use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Error, error, CheapString, cheap_string, Box};
-use super::default_font_size_attr;
+use crate::{Error, error, CheapString, cheap_string, Box, DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE};
+
+const TEXT: usize = 0;
+const FONT: usize = 1;
+const SIZE: usize = 2;
 
 pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
     name: cheap_string("ParagraphMutator"),
     xml_params: Some(XmlTagParameters {
         tag_name: cheap_string("p"),
-        attr_set: &["text", "size", "font"],
+        attr_set: &[
+            ("text", AttributeValueType::Other, None),
+            ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
+            ("size", AttributeValueType::Pixels, Some(DEFAULT_FONT_SIZE)),
+        ],
         accepts_children: false,
     }),
     handlers: Handlers {
@@ -25,19 +32,19 @@ pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let xml_node = &app.xml_tree[xml_node_key];
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
 
     let parent = app.view.parent(node_key).ok_or_else(|| error!())?;
     if app.view[parent].layout_config.get_content_axis() != Axis::Vertical {
+        let xml_node = &app.xml_tree[xml_node_key];
         let line = xml_node.line.get().unwrap_or(0.into());
         return Err(error!("Paragraph is in an horizontal container; this is invalid! (line {})", line));
     }
 
-    if app.attr(node_key, "text", None)?.display_len() > 0 {
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        app.request(&font_file, node_key, true)
-    } else {
-        Ok(())
+    match text.len() > 0 {
+        true => app.request(&font_file, node_key, true),
+        false => Ok(()),
     }
 }
 
@@ -46,10 +53,12 @@ fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &C
 }
 
 fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    if app.attr(node_key, "text", None)?.display_len() > 0 {
-        let font_size = app.attr(node_key, "size", Some(default_font_size_attr()))?.as_usize()?;
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        let text = app.attr(node_key, "text", None)?.clone();
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let font_size:      Pixels = app.attr(node_key, SIZE)?;
+    let font_size = font_size.to_num();
+
+    if text.len() > 0 {
 
         let font = get_font(&mut app.mutators, &font_file).unwrap();
 
@@ -79,10 +88,12 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 }
 
 fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    if app.attr(node_key, "text", None)?.display_len() > 0 && !app.debug.skip_glyph_rendering {
-        let font_size = app.attr(node_key, "size", Some(default_font_size_attr()))?.as_usize()?;
-        let font_file = app.attr(node_key, "font", Some(app.default_font_str.clone()))?.as_str()?;
-        let text = app.attr(node_key, "text", None)?.clone();
+    let text:      CheapString = app.attr(node_key, TEXT)?;
+    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let font_size:      Pixels = app.attr(node_key, SIZE)?;
+    let font_size = font_size.to_num();
+
+    if text.len() > 0 && !app.debug.skip_glyph_rendering {
         let font = match get_font(&mut app.mutators, &font_file) {
             Some(font) => font,
             None => return Ok(()),
