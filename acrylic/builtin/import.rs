@@ -1,5 +1,5 @@
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType, parse_xml_tree};
-use crate::{Box, HashMap, CheapString, Error, cheap_string};
+use crate::{Box, HashMap, ArcStr, Error, ro_string};
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::core::node::NodeKey;
@@ -8,9 +8,9 @@ use oakwood::NodeKey as _;
 const FILE: usize = 0;
 
 pub const IMPORT_MUTATOR: Mutator = Mutator {
-    name: cheap_string("ImportMutator"),
+    name: ro_string!("ImportMutator"),
     xml_params: Some(XmlTagParameters {
-        tag_name: cheap_string("import"),
+        tag_name: ro_string!("import"),
         attr_set: &[ ("file", AttributeValueType::Other, None) ],
         accepts_children: false,
     }),
@@ -24,7 +24,7 @@ pub const IMPORT_MUTATOR: Mutator = Mutator {
     storage: None,
 };
 
-type SubLayouts = HashMap<CheapString, XmlNodeKey>;
+type SubLayouts = HashMap<ArcStr, XmlNodeKey>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     let storage = &mut app.mutators[usize::from(m)].storage;
@@ -40,7 +40,7 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_no
     app.request(&layout_asset, node_key, true)
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     let mut xml_tags = HashMap::<str, (&XmlTagParameters, MutatorIndex)>::new();
     for i in 0..app.mutators.len() {
         if let Some(params) = &app.mutators[i].xml_params {
@@ -62,7 +62,7 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
 }
 
 fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let file: CheapString = app.attr(node_key, FILE)?;
+    let file: ArcStr = app.attr(node_key, FILE)?;
 
     let replacement = {
         let storage: &mut SubLayouts = get_storage(&mut app.mutators, m).unwrap();

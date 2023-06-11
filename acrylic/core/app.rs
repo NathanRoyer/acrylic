@@ -2,16 +2,18 @@
 
 use super::xml::{XmlNodeTree, XmlNodeKey, XmlTagParameters, AttributeValue, AttributeValueVec, AttributeValueType};
 use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
-use super::state::{StateValue, StatePathHash, StateMasks, StateFinder};
 use super::event::{Handlers, UserInputEvent};
 use super::node::{NodeTree, NodeKey};
 use super::layout::{compute_layout, hit_test};
+use super::state::{Namespace, root_ns};
 use super::style::Theme;
 use super::rgb::RGBA8;
-use oakwood::{index, NodeKey as _};
-use crate::{Error, error, String, CheapString, Vec, Box, Rc, Hasher, HashMap, LiteMap, format, DEFAULT_FONT_NAME};
-use core::{time::Duration, ops::Deref, hash::Hasher as _, mem::replace, any::Any};
+use crate::{Error, error, String, ArcStr, Vec, Box, Rc, HashMap, LiteMap, DEFAULT_FONT_NAME};
+use core::{time::Duration, ops::Deref, any::Any};
 use super::for_each_child;
+
+use oakwood::{index, NodeKey as _};
+use lmfu::json::{JsonFile, JsonValue, JsonPath, parse_path};
 
 use super::glyph::FONT_MUTATOR;
 use crate::builtin::inflate::INFLATE_MUTATOR;
@@ -30,11 +32,11 @@ index!(MutatorIndex, OptionalMutatorIndex);
 pub type SimpleCallback = fn(&mut Application, NodeKey) -> Result<(), Error>;
 
 /// General-purpose callbacks that containers can call based on their attributes.
-pub type SimpleCallbackMap = HashMap<CheapString, SimpleCallback>;
+pub type SimpleCallbackMap = HashMap<ArcStr, SimpleCallback>;
 
 /// XML Tags & other event handlers are defined as Mutators
 pub struct Mutator {
-    pub name: CheapString,
+    pub name: ArcStr,
     pub xml_params: Option<XmlTagParameters>,
     pub handlers: Handlers,
     /// Must be None initially; initialize it via an [`Initializer`].
@@ -56,7 +58,7 @@ impl Clone for Mutator {
 }
 
 struct Request {
-    asset: CheapString,
+    asset: ArcStr,
     parse: bool,
     origin: NodeKey,
 }
@@ -89,17 +91,17 @@ pub struct Application {
     pub theme: Theme,
     pub callbacks: SimpleCallbackMap,
     pub debug: DebuggingOptions,
+    pub state: JsonFile,
 
-    pub(crate) state_masks: StateMasks,
-    pub(crate) monitors: LiteMap<StatePathHash, Vec<NodeKey>>,
+    pub(crate) namespaces: LiteMap<NodeKey, Namespace>,
+    // pub(crate) monitors: HashMap<(JsonPath, usize), NodeKey>,
     pub(crate) mutators: Vec<Mutator>,
 
-    state: StateValue,
     must_check_layout: bool,
     _source_files: Vec<String>,
     _age: Duration,
     render_list: Vec<(Position, Size)>,
-    assets: HashMap<CheapString, Asset>,
+    assets: HashMap<ArcStr, Asset>,
     requests: Vec<Request>,
 }
 
@@ -113,7 +115,7 @@ pub const FONT_MUTATOR_INDEX: usize = 1;
 
 impl Application {
     /// Main constructor
-    pub fn new(layout_asset: CheapString, callbacks: SimpleCallbackMap) -> Self {
+    pub fn new(layout_asset: ArcStr, callbacks: SimpleCallbackMap) -> Self {
         let default_mutators = &[
             IMPORT_MUTATOR,
             FONT_MUTATOR,
@@ -131,9 +133,9 @@ impl Application {
             root: Default::default(),
             view: NodeTree::new(),
             xml_tree: XmlNodeTree::new(),
-            state: super::state::parse_state(include_str!("default.json")).unwrap(),
-            state_masks: Default::default(),
-            monitors: LiteMap::new(),
+            state: JsonFile::parse(include_str!("default.json")).unwrap(),
+            namespaces: LiteMap::new(),
+            // monitors: LiteMap::new(),
             callbacks,
             mutators,
             must_check_layout: false,
@@ -163,25 +165,46 @@ impl Application {
                 &mut app,
                 FONT_MUTATOR_INDEX.into(),
                 Default::default(),
-                &DEFAULT_FONT_NAME.into(),
+                &DEFAULT_FONT_NAME,
                 default_font,
             ).unwrap();
-            app.assets.insert(DEFAULT_FONT_NAME.into(), Asset::Parsed);
+            app.assets.insert((*DEFAULT_FONT_NAME).clone(), Asset::Parsed);
         }
 
         let factory = Some(IMPORT_MUTATOR_INDEX.into()).into();
 
         let xml_root = app.xml_tree.create();
         app.xml_tree[xml_root].factory = factory;
-        app.xml_tree[xml_root].attributes = AttributeValueVec::new_import(layout_asset.clone());
+        app.xml_tree[xml_root].attributes = AttributeValueVec::new_import(layout_asset);
 
         app.root = app.view.create();
         app.view[app.root].factory = factory;
         app.view[app.root].xml_node_index = Some(xml_root.index().into()).into();
 
-        app.request(&layout_asset, app.root, true).unwrap();
+        app.namespaces.insert(app.root, root_ns());
+
+        app.populate(app.root, xml_root).unwrap();
 
         app
+    }
+
+    /// Reload a node in the view and all its children
+    pub fn reload(&mut self, node: NodeKey) {
+        let backup = &self.view[node];
+        let factory = backup.factory;
+        let xml_node_index = backup.xml_node_index;
+
+        self.view.reset(node);
+        self.invalidate_layout();
+
+        let root = &mut self.view[node];
+        root.factory = factory;
+        root.xml_node_index = xml_node_index;
+
+        if let Some(xml_root) = xml_node_index.get() {
+            let xml_root = self.xml_tree.node_key(xml_root);
+            self.populate(node, xml_root).unwrap();
+        }
     }
 
     /// Quick way to tell the application to recompute its layout before the next frame
@@ -190,7 +213,7 @@ impl Application {
     }
 
     /// Read an asset from the internal cache
-    pub fn get_asset(&self, asset: &CheapString) -> Result<Rc<[u8]>, Error> {
+    pub fn get_asset(&self, asset: &ArcStr) -> Result<Rc<[u8]>, Error> {
         match self.assets.get(asset) {
             Some(Asset::Raw(rc)) => Ok(rc.clone()),
             Some(Asset::Parsed) => Err(error!("Asset {} was stored in mutator storage", asset.deref())),
@@ -199,7 +222,7 @@ impl Application {
     }
 
     /// Platforms use this method to read the next asset to load.
-    pub fn requested(&self) -> Option<CheapString> {
+    pub fn requested(&self) -> Option<ArcStr> {
         self.requests.first().map(|r| r.asset.clone())
     }
 
@@ -207,7 +230,7 @@ impl Application {
     ///
     /// If `asset` is already loaded, this will trigger
     /// Handling of an `AssetLoaded` event immediately
-    pub fn request(&mut self, asset: &CheapString, origin: NodeKey, parse: bool) -> Result<(), Error> {
+    pub fn request(&mut self, asset: &ArcStr, origin: NodeKey, parse: bool) -> Result<(), Error> {
         if let Some(content) = self.assets.get(&asset) {
             let illegal = match (parse, content) {
                 (true, Asset::Raw(_)) => true,
@@ -231,7 +254,7 @@ impl Application {
     }
 
     /// Platforms use this method to deliver an asset's content
-    pub fn data_response(&mut self, asset: CheapString, data: Box<[u8]>) -> Result<(), Error> {
+    pub fn data_response(&mut self, asset: ArcStr, data: Box<[u8]>) -> Result<(), Error> {
         let mut data = Some(data);
 
         let mut i = 0;
@@ -261,69 +284,28 @@ impl Application {
         Ok(())
     }
 
-    /// Bounds a [`Node`] to a JSON state value
-    pub fn subscribe_to_state(&mut self, node: NodeKey, path_hash: StatePathHash) {
-        if let Some(subscribed) = self.monitors.get_mut(&path_hash) {
-            if !subscribed.contains(&node) {
-                subscribed.push(node);
-            }
-        } else {
-            let mut subscribed = Vec::with_capacity(1);
-            subscribed.push(node);
-            self.monitors.insert(path_hash, subscribed);
-        }
-    }
-
     /// Retrieves a value from the JSON state
-    pub fn state_lookup<'a>(&'a mut self, node: NodeKey, namespace: &str, path: &str, path_hash: &mut Hasher) -> Result<&'a mut StateValue, Error> {
-        let mut state_finder: Option<(StateFinder, NodeKey)> = None;
-
+    pub fn resolve(
+        &self,
+        node: NodeKey,
+        ns_name: &str,
+        ns_path: &str,
+    ) -> Result<JsonPath, Error> {
         let mut target = node;
-        while let Some(parent) = self.view.parent(target) {
-            if let Some(finder) = self.state_masks.get(&parent) {
-                state_finder = Some((*finder, parent));
-                break;
-            } else {
-                target = parent;
+        loop {
+            match self.namespaces.get(&target) {
+                Some(ns) if &*ns.name == ns_name => {
+                    let mut jp = ns.path.clone();
+                    (ns.callback)(&self, target, node, &mut jp)?;
+                    jp.append(parse_path(ns_path));
+                    break Ok(jp);
+                },
+                _ => match self.view.parent(target) {
+                    Some(parent) => target = parent,
+                    None => break Err(error!("Missing {} namespace", ns_name)),
+                },
             }
         }
-
-        if let Some((finder, masker)) = state_finder {
-            finder(self, masker, node, namespace, path, path_hash)
-        } else {
-            match namespace {
-                "root" => self.state.get_mut(path, path_hash),
-                _ => Err(error!("Unknown state namespace: {}", namespace)),
-            }
-        }
-    }
-
-    /// Modifies a value in the JSON state
-    pub fn state_update(&mut self, path_scope: NodeKey, namespace: &str, key: &str, value: StateValue) -> Result<(), Error> {
-        let mut path_hash = Hasher::default();
-        let content = self.state_lookup(path_scope, namespace, key, &mut path_hash)?;
-        *content = value;
-        let path_hash = path_hash.finish();
-
-        if let Some(subscribed) = self.monitors.get_mut(&path_hash) {
-            for node_key in replace(subscribed, Vec::new()) {
-                if let Some(_) = self.view.get(node_key) {
-                    let xml_node_index = self.view[node_key].xml_node_index;
-                    let factory = self.view[node_key].factory;
-                    self.view.reset(node_key);
-                    self.view[node_key].xml_node_index = xml_node_index;
-                    self.view[node_key].factory = factory;
-
-                    if let Some(index) = xml_node_index.get() {
-                        self.populate(node_key, self.xml_tree.node_key(index))
-                    } else {
-                        Err(error!("Non-XML nodes cannot subscribe to state updates"))
-                    }?;
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// Retrieves the XML tag name of a node
@@ -331,7 +313,7 @@ impl Application {
     /// This can return the following special strings:
     /// - `<subnode>` if the node wasn't created from an XML tag
     /// - `<anon>` if the node's [`Mutator`] has no defined XML tag
-    pub fn xml_tag(&self, node: NodeKey) -> CheapString {
+    pub fn xml_tag(&self, node: NodeKey) -> ArcStr {
         let mutator_index = match self.view[node].factory.get() {
             Some(index) => index,
             None => return "<subnode>".into(),
@@ -365,6 +347,8 @@ impl Application {
         node: NodeKey,
         attr: usize,
     ) -> Result<T, Error> {
+        use AttributeValueType::*;
+
         let xml_node_index = self.view[node].xml_node_index.get()
             .expect("cannot use Application::attr on nodes without xml_node_index");
         let xml_node_key = self.xml_tree.node_key(xml_node_index);
@@ -375,28 +359,33 @@ impl Application {
             value => return T::try_from(value),
         };
 
-        let mut path_hash = Hasher::default();
-        let value = self.state_lookup(node, &namespace, path.deref(), &mut path_hash)?;
-        let path_hash = path_hash.finish();
-
-        use AttributeValueType::*;
-
-        let value = match (value, value_type) {
+        let json_path = self.resolve(node, &namespace, path.deref())?;
+        let value = match (&self.state[&json_path], value_type) {
             // String dumps:
-            (StateValue::Null, OptOther) => AttributeValue::OptOther(Some("[null]".into())),
-            (StateValue::Null, Other) => AttributeValue::Other("[null]".into()),
-            (StateValue::Array(a), OptOther) => AttributeValue::OptOther(Some(format!("{:?}", a).into())),
-            (StateValue::Array(a), Other) => AttributeValue::Other(format!("{:?}", a).into()),
-            (StateValue::Object(o), OptOther) => AttributeValue::OptOther(Some(format!("{:?}", o).into())),
-            (StateValue::Object(o), Other) => AttributeValue::Other(format!("{:?}", o).into()),
+            (
+                JsonValue::Array  (_) |
+                JsonValue::Object (_) |
+                JsonValue::Number (_) |
+                JsonValue::Boolean(_) |
+                JsonValue::Null,
+            Other | OptOther) => {
+                let string = self.state.dump(&json_path)
+                    .map_err(|e| error!("unexpected fmt error: {:?}", e))?;
+
+                match value_type {
+                    OptOther => AttributeValue::OptOther(Some(string)),
+                    Other => AttributeValue::Other(string),
+                    _ => unreachable!(),
+                }
+            },
 
             // Common conversions:
-            (StateValue::String(s), _) => AttributeValue::parse(s, value_type)?,
+            (JsonValue::String(s), _) => AttributeValue::parse(&s, value_type)?,
 
             _ => return Err(error!("Invalid Attribute Conversion")),
         };
 
-        self.subscribe_to_state(node, path_hash);
+        // self.subscribe_to_state(node, json_path);
 
         T::try_from(value)
     }
@@ -541,7 +530,7 @@ impl Application {
 }
 
 impl Application {
-    pub fn parse(&mut self, node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+    pub fn parse(&mut self, node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.parser)(self, i, node_key, asset, bytes),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),

@@ -9,25 +9,27 @@
 extern crate alloc;
 extern crate std;
 
-use ::core::fmt;
+use ::core::{fmt, mem::ManuallyDrop};
 
 #[doc(hidden)]
 pub use {
     alloc::{string::String, vec::Vec, vec, boxed::Box, rc::Rc, format},
-    ahash::AHasher as Hasher,
-    litemap::LiteMap,
+    lmfu::{
+        arcstr::{ArcStr, literal as ro_string},
+        hash_map::HashMap, LiteMap, self,
+    },
 };
 
 pub mod core;
 pub mod builtin;
-pub mod utils;
-
-pub use utils::{cheap_string::{CheapString, cheap_string}, hash_map::HashMap};
 
 pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 
-pub const DEFAULT_FONT_NAME: &'static str = "default-font";
-pub const DEFAULT_FONT_SIZE: &'static str = "24";
+pub(crate) const DEFAULT_FONT_NAME: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("default-font"));
+pub(crate) const DEFAULT_FONT_SIZE: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("24"));
+
+pub(crate) const ZERO_ARCSTR: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("0"));
+pub(crate) const ONE_ARCSTR: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("1"));
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {

@@ -4,7 +4,7 @@ use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Vec, Box, HashMap, CheapString, Rc, Error, cheap_string};
+use crate::{Vec, Box, HashMap, ArcStr, Rc, Error, ro_string};
 
 use png::ColorType;
 use png::Decoder;
@@ -12,9 +12,9 @@ use png::Decoder;
 const FILE: usize = 0;
 
 pub const PNG_MUTATOR: Mutator = Mutator {
-    name: cheap_string("PngMutator"),
+    name: ro_string!("PngMutator"),
     xml_params: Some(XmlTagParameters {
-        tag_name: cheap_string("png"),
+        tag_name: ro_string!("png"),
         attr_set: &[ ("file", AttributeValueType::Other, None) ],
         accepts_children: false,
     }),
@@ -28,7 +28,7 @@ pub const PNG_MUTATOR: Mutator = Mutator {
     storage: None,
 };
 
-type PngStorage = HashMap<CheapString, (Ratio, Rc<dyn Texture>)>;
+type PngStorage = HashMap<ArcStr, (Ratio, Rc<dyn Texture>)>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     let storage = &mut app.mutators[usize::from(m)].storage;
@@ -39,7 +39,7 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     Ok(())
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     let parsed = {
         let decoder = Decoder::new(&*bytes);
         let mut reader = decoder.read_info().unwrap();
@@ -67,12 +67,12 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ch
 }
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let file: CheapString = app.attr(node_key, FILE)?;
+    let file: ArcStr = app.attr(node_key, FILE)?;
     app.request(&file, node_key, true)
 }
 
 fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let file: CheapString = app.attr(node_key, FILE)?;
+    let file: ArcStr = app.attr(node_key, FILE)?;
 
     let (ratio, texture) = {
         let storage: &mut PngStorage = get_storage(&mut app.mutators, m).unwrap();

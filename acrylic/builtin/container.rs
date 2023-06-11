@@ -1,15 +1,15 @@
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS, UserInputEvent};
+use crate::core::state::Namespace;
 use crate::core::node::NodeKey;
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::visual::{Pixels, SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelBuffer, PixelBuffer};
-use crate::core::state::StateValue;
 use crate::core::style::DEFAULT_STYLE;
 use crate::core::{for_each_child, rgb::FromSlice};
 use crate::core::layout::{get_scroll, scroll};
-use crate::{Error, error, Hasher, Box, Vec, CheapString, cheap_string};
-use core::{ops::Deref, hash::Hasher as _};
+use crate::{Error, error, Box, Vec, ArcStr, ro_string};
 use oakwood::NodeKey as _;
+use lmfu::json::{JsonValue, JsonPath};
 
 use railway::{NaiveRenderer, computing::{Couple, C_ZERO}};
 
@@ -45,10 +45,10 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
 }
 
 fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let    for_attr: Option<CheapString> = app.attr(node_key,             FOR)?;
-    let     in_attr: Option<CheapString> = app.attr(node_key,              IN)?;
-    let  style_attr: Option<CheapString> = app.attr(node_key,           STYLE)?;
-    let qa_callback: Option<CheapString> = app.attr(node_key, ON_QUICK_ACTION)?;
+    let    for_attr: Option<ArcStr> = app.attr(node_key,             FOR)?;
+    let     in_attr: Option<ArcStr> = app.attr(node_key,              IN)?;
+    let  style_attr: Option<ArcStr> = app.attr(node_key,           STYLE)?;
+    let qa_callback: Option<ArcStr> = app.attr(node_key, ON_QUICK_ACTION)?;
     let content_gap: Pixels              = app.attr(node_key,             GAP)?;
     let margin_attr: Pixels              = app.attr(node_key,          MARGIN)?;
     let radius_attr: Pixels              = app.attr(node_key,   BORDER_RADIUS)?;
@@ -58,7 +58,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     let mutator = &app.mutators[usize::from(mutator_index)];
     let tag = mutator.xml_params.as_ref().unwrap().tag_name.clone();
 
-    let (content_axis, layout_mode) = parse_tag(app, node_key, tag.deref())?;
+    let (content_axis, layout_mode) = parse_tag(app, node_key, &*tag)?;
 
     if let Some(qa_callback) = qa_callback {
         if !app.callbacks.contains_key(&qa_callback) {
@@ -77,29 +77,53 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
         app.view[node_key].background = PixelSource::SolidColor(color);
     }
 
-    let to_generate = if for_attr.is_some() {
+    let to_generate = if let Some(new_ns_name) = for_attr {
         let namespace_path = match in_attr {
             Some(cs) => cs,
-            None => return Err(error!("<{} for=... in=...> - missing \"in\" attribute", tag.deref())),
+            None => return Err(error!("<{} for=... in=...> - missing \"in\" attribute", &*tag)),
         };
 
-        if !namespace_path.contains(':') {
-            return Err(error!("<{} for=... in=...> - missing colon in \"in\"", tag.deref()));
+        if let Some((parent_ns_name, parent_ns_path)) = namespace_path.split_once(':') {
+            fn callback(
+                app: &Application,
+                ns_creator: NodeKey,
+                ns_user: NodeKey,
+                path: &mut JsonPath,
+            ) -> Result<(), Error> {
+                let mut child = ns_user;
+                loop {
+                    let parent = app.view.parent(child).unwrap();
+                    match parent == ns_creator {
+                        true => break,
+                        false => child = parent,
+                    }
+                }
+
+                let index = app.view.child_num(child).unwrap();
+                path.index_num(index);
+
+                Ok(())
+            }
+
+            let path = app.resolve(node_key, parent_ns_name, parent_ns_path)?;
+
+            let len = match &app.state[&path] {
+                JsonValue::Array(vector_len) => *vector_len,
+                _ => return Err(error!("Generator: {}:{} is not an array", parent_ns_name, parent_ns_path)),
+            };
+
+            app.namespaces.insert(node_key, Namespace {
+                name: new_ns_name,
+                path,
+                callback,
+            });
+
+            Some(len)
+        } else {
+            return Err(error!("<{} for=... in=...> - missing colon in \"in\"", &*tag));
         }
-
-        app.state_masks.insert(node_key, generator);
-
-        let (namespace, masker_key) = namespace_path.split_once(':').unwrap();
-        let mut path_hash = Hasher::default();
-        let len = match app.state_lookup(node_key, namespace, masker_key, &mut path_hash)? {
-            StateValue::Array(vector) => vector.len(),
-            _ => return Err(error!("Generator: {}:{} is not an array", namespace, masker_key)),
-        };
-        app.subscribe_to_state(node_key, path_hash.finish());
-
-        Some(len)
     } else if in_attr.is_some() {
-        return Err(error!("<{} for=... in=...> - missing \"for\" attribute", tag.deref()));
+        return Err(error!("<{} for=... in=...> - missing \"for\" attribute", &*tag));
     } else {
         None
     };
@@ -136,7 +160,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         return Ok(());
     }
 
-    let        style: Option<CheapString> = app.attr(node_key,        STYLE)?;
+    let        style: Option<ArcStr> = app.attr(node_key,        STYLE)?;
     let border_width: Option<     Pixels> = app.attr(node_key, BORDER_WIDTH)?;
 
     if style.is_some() || border_width.is_some() {
@@ -146,7 +170,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         let mut parent_style = DEFAULT_STYLE.into();
         let mut current = node_key;
         while let Some(parent) = app.view.parent(current) {
-            let style: Option<CheapString> = app.attr(parent, STYLE)?;
+            let style: Option<ArcStr> = app.attr(parent, STYLE)?;
             if let Some(style) = style {
                 parent_style = style.clone();
                 break;
@@ -155,7 +179,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
             }
         }
 
-        let theme = app.theme.get(parent_style.deref()).unwrap();
+        let theme = app.theme.get(&*parent_style).unwrap();
         let size = app.view[node_key].size;
         let (w, h) = (size.w.to_num(), size.h.to_num());
         let couple = Couple::new(w as f32, h as f32);
@@ -165,7 +189,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         let ext_ba = Couple::new((ext.b as f32) / 255.0, (ext.a as f32) / 255.0);
 
         let border = match style {
-            Some(style) => app.theme.get(style.deref()).unwrap(),
+            Some(style) => app.theme.get(&*style).unwrap(),
             None => theme,
         }.outline;
 
@@ -233,7 +257,7 @@ fn user_input_handler(
 
         Ok(true)
     } else if let UserInputEvent::QuickAction1 = event {
-        let qa_callback: Option<CheapString> = app.attr(node_key, ON_QUICK_ACTION)?;
+        let qa_callback: Option<ArcStr> = app.attr(node_key, ON_QUICK_ACTION)?;
         if let Some(qa_callback) = qa_callback {
             let callback = app.callbacks.get(&qa_callback).unwrap();
             callback(app, node_key).map(|_| true)
@@ -242,44 +266,6 @@ fn user_input_handler(
         }
     } else {
         Ok(false)
-    }
-}
-
-fn generator<'a>(
-    app: &'a mut Application,
-    masker: NodeKey,
-    node: NodeKey,
-    namespace: &str,
-    key: &str,
-    path_hash: &mut Hasher,
-) -> Result<&'a mut StateValue, Error> {
-    let expected_namespace: Option<CheapString> = app.attr(masker, FOR)?;
-    let expected_namespace = expected_namespace.unwrap();
-
-    if namespace == &*expected_namespace {
-        let namespace_path: Option<CheapString> = app.attr(masker,  IN)?;
-        let namespace_path = namespace_path.unwrap();
-
-        let mut child = node;
-        loop {
-            let parent = app.view.parent(child).unwrap();
-            match parent == masker {
-                true => break,
-                false => child = parent,
-            }
-        }
-
-        let index = app.view.child_num(child).unwrap();
-        let (namespace, masker_key) = namespace_path.split_once(':').unwrap();
-        let array = match app.state_lookup(masker, namespace, masker_key, path_hash)? {
-            StateValue::Array(array) => array,
-            _ => return Err(error!("Generator: {}:{} is not an array", namespace, masker_key)),
-        };
-
-        path_hash.write_usize(index);
-        array[index].get_mut(key, path_hash)
-    } else {
-        app.state_lookup(masker, namespace, key, path_hash)
     }
 }
 
@@ -302,17 +288,17 @@ const          WEIGHT: usize = 8;
 macro_rules! container {
     ($name:ident, $tag:literal $(, $arg:expr)?) => {
         const $name: Mutator = Mutator {
-            name: cheap_string(stringify!($name)),
+            name: ro_string!(stringify!($name)),
             xml_params: Some(XmlTagParameters {
-                tag_name: cheap_string($tag),
+                tag_name: ro_string!($tag),
                 attr_set: &[
                     ("for", AttributeValueType::OptOther, None),
                     ("in", AttributeValueType::OptOther, None),
                     ("style", AttributeValueType::OptOther, None),
-                    ("margin", AttributeValueType::Pixels, Some("0")),
+                    ("margin", AttributeValueType::Pixels, Some(crate::ZERO_ARCSTR)),
                     ("border-width", AttributeValueType::OptPixels, None),
-                    ("border-radius", AttributeValueType::Pixels, Some("0")),
-                    ("gap", AttributeValueType::Pixels, Some("0")),
+                    ("border-radius", AttributeValueType::Pixels, Some(crate::ZERO_ARCSTR)),
+                    ("gap", AttributeValueType::Pixels, Some(crate::ZERO_ARCSTR)),
                     ("on-quick-action", AttributeValueType::OptOther, None),
                     $($arg)*
                 ],
@@ -338,7 +324,7 @@ container!(HC_CHUNKS_MUTATOR, VC_CHUNKS_MUTATOR, "h-chunks", "v-chunks", ("row",
 container!(HC_FIXED_MUTATOR, VC_FIXED_MUTATOR, "h-fixed", "v-fixed", ("length", AttributeValueType::Pixels, None));
 container!(HC_RATIO_MUTATOR, VC_RATIO_MUTATOR, "h-ratio", "v-ratio", ("ratio", AttributeValueType::Ratio, None));
 container!(HC_WRAP_MUTATOR, VC_WRAP_MUTATOR, "h-wrap", "v-wrap");
-container!(HC_REM_MUTATOR, VC_REM_MUTATOR, "h-rem", "v-rem", ("weight", AttributeValueType::Ratio, Some("1")));
+container!(HC_REM_MUTATOR, VC_REM_MUTATOR, "h-rem", "v-rem", ("weight", AttributeValueType::Ratio, Some(crate::ONE_ARCSTR)));
 
 pub const CONTAINERS: [Mutator; 10] = [
     HC_CHUNKS_MUTATOR, VC_CHUNKS_MUTATOR,

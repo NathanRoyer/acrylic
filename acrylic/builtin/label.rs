@@ -4,15 +4,15 @@ use crate::core::glyph::{get_font, load_font_bytes};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Error, CheapString, cheap_string, Box, DEFAULT_FONT_NAME};
+use crate::{Error, ArcStr, ro_string, Box, DEFAULT_FONT_NAME};
 
 const TEXT: usize = 0;
 const FONT: usize = 1;
 
 pub const LABEL_MUTATOR: Mutator = Mutator {
-    name: cheap_string("LabelMutator"),
+    name: ro_string!("LabelMutator"),
     xml_params: Some(XmlTagParameters {
-        tag_name: cheap_string("label"),
+        tag_name: ro_string!("label"),
         attr_set: &[
             ("text", AttributeValueType::Other, None),
             ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
@@ -30,8 +30,8 @@ pub const LABEL_MUTATOR: Mutator = Mutator {
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     match text.len() > 0 {
         true => app.request(&font_file, node_key, true),
@@ -39,13 +39,13 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _xml_no
     }
 }
 
-fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     load_font_bytes(app, asset, bytes)
 }
 
 fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     if text.len() > 0 {
         let font_size = 100;
@@ -67,8 +67,8 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 }
 
 fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     if text.len() > 0 && !app.debug.skip_glyph_rendering {
 

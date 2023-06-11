@@ -1,8 +1,8 @@
 //! Style, Theme, style_index, Color
 
 use rgb::RGBA8;
-use serde_json::Value as JsonValue;
-use crate::{Error, error, String, Vec};
+use lmfu::json::{JsonFile, JsonValue, JsonPath};
+use crate::{Error, error, ArcStr, Vec};
 
 fn parse_color(string: &str) -> Result<RGBA8, Error> {
     let len = string.len();
@@ -41,7 +41,7 @@ pub const DEFAULT_STYLE: &'static str = "default";
 /// A theme which can be used by the app.
 #[derive(Debug, Clone)]
 pub struct Theme {
-    pub name: String,
+    pub name: ArcStr,
     pub styles: Vec<Style>,
 }
 
@@ -94,33 +94,28 @@ impl Theme {
     /// - `incite-focus`
     ///
     pub fn parse(theme_json: &str) -> Result<Self, Error> {
-        let errmsg = "Error while parsing theme JSON";
-        let mut theme: JsonValue = serde_json::from_str(theme_json).map_err(|e| error!("{}: {:?}", errmsg, e))?;
-        let expect = |obj: &mut JsonValue, key: &'static str| {
-            if let Some(obj) = obj.as_object_mut() {
-                match obj.remove(key) {
-                    Some(JsonValue::String(string)) => Ok(string),
-                    _ => Err(error!("{}: missing {:?}", errmsg, key)),
-                }
-            } else {
-                Err(error!("{}: incorrect structure", errmsg))
-            }
-        };
+        let theme = JsonFile::parse(theme_json).map_err(|e| error!("JSON Style: parsing error: {:?}", e))?;
 
-        let version = &theme["version"];
-        if version.as_u64() == Some(0) {
-            let name = expect(&mut theme, "name")?;
+        macro_rules! expect {
+            ($theme:ident, $path:expr) => {
+                match &$theme[$path] {
+                    JsonValue::String(string) => string,
+                    _ => return Err(error!("JSON Style: missing {:?} (or it's not a string)", stringify!($path))),
+                }
+            }
+        }
+
+        let version = &theme[["version"]];
+        if version == &JsonValue::Number(0.0) {
+            let name = expect!(theme, ["name"]).clone();
             let mut styles = Vec::with_capacity(V0_STYLES.len());
 
-            for name in V0_STYLES {
-                let obj = &mut theme["styles"][name];
-                let background = parse_color(&expect(obj, "background")?)?;
-                let foreground = parse_color(&expect(obj, "foreground")?)?;
-                let outline    = parse_color(&expect(obj, "outline")?)?;
+            for style in V0_STYLES {
+                let path: JsonPath = ["styles", style].into();
                 styles.push(Style {
-                    background,
-                    foreground,
-                    outline,
+                    background: parse_color(&expect!(theme, path.clone().index_str("background")))?,
+                    foreground: parse_color(&expect!(theme, path.clone().index_str("foreground")))?,
+                    outline:    parse_color(&expect!(theme, path.clone().index_str("outline")))?,
                 });
             }
 
@@ -129,7 +124,7 @@ impl Theme {
                 styles,
             })
         } else {
-            Err(error!("Unsupported theme JSON version: {:?}", version))
+            Err(error!("JSON Style: Unsupported theme version: {:?}", version))
         }
     }
 

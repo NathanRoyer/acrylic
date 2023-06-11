@@ -1,4 +1,4 @@
-pub use acrylic::core::{app::Application, state::parse_state};
+pub use acrylic::core::{app::Application};
 use acrylic::core::{rgb::RGBA8, event::UserInputEvent, visual::{Position, SignedPixels}};
 
 use log::{error, set_logger, set_max_level, Record, LevelFilter, Level, Metadata};

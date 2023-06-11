@@ -4,16 +4,16 @@ use crate::core::glyph::{space_width, get_font, load_font_bytes};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Error, error, CheapString, cheap_string, Box, DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE};
+use crate::{Error, error, ArcStr, ro_string, Box, DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE};
 
 const TEXT: usize = 0;
 const FONT: usize = 1;
 const SIZE: usize = 2;
 
 pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
-    name: cheap_string("ParagraphMutator"),
+    name: ro_string!("ParagraphMutator"),
     xml_params: Some(XmlTagParameters {
-        tag_name: cheap_string("p"),
+        tag_name: ro_string!("p"),
         attr_set: &[
             ("text", AttributeValueType::Other, None),
             ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
@@ -32,8 +32,8 @@ pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
 };
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     let parent = app.view.parent(node_key).ok_or_else(|| error!())?;
     if app.view[parent].layout_config.get_content_axis() != Axis::Vertical {
@@ -48,13 +48,13 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_nod
     }
 }
 
-fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     load_font_bytes(app, asset, bytes)
 }
 
 fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
     let font_size:      Pixels = app.attr(node_key, SIZE)?;
     let font_size = font_size.to_num();
 
@@ -62,7 +62,7 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 
         let font = get_font(&mut app.mutators, &font_file).unwrap();
 
-        for unbreakable in text.split_space() {
+        for unbreakable in text.split_whitespace() {
             let new_node = app.view.create();
 
             let width = {
@@ -88,8 +88,8 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 }
 
 fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let text:      CheapString = app.attr(node_key, TEXT)?;
-    let font_file: CheapString = app.attr(node_key, FONT)?;
+    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let font_file: ArcStr = app.attr(node_key, FONT)?;
     let font_size:      Pixels = app.attr(node_key, SIZE)?;
     let font_size = font_size.to_num();
 
@@ -100,7 +100,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
         };
 
         let mut child = app.view.first_child(node_key).unwrap();
-        for unbreakable in text.split_space() {
+        for unbreakable in text.split_whitespace() {
             let color = rgb::RGBA8::new(230, 230, 230, 255);
             app.view[child].layout_config.set_dirty(true);
             app.view[child].foreground = {

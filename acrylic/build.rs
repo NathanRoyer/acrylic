@@ -1,7 +1,6 @@
 use railway::{*, computing::{*, Operation::*}};
 use std::{fs, path::Path, env};
 use core::f32::consts::FRAC_PI_2;
-use rand::random;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -9,10 +8,6 @@ fn main() {
 
     let cont_rwy_dst = Path::new(&out_dir).join("container.rwy");
     fs::write(cont_rwy_dst, &gen_container_rwy()).unwrap();
-
-    let rnd_seed_dst = Path::new(&out_dir).join("seed.dat");
-    let rnd_seed: [u8; 32] = random();
-    fs::write(rnd_seed_dst, &rnd_seed).unwrap();
 }
 
 fn gen_container_rwy() -> Vec<u8> {

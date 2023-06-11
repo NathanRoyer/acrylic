@@ -3,7 +3,7 @@ use crate::core::event::{Handlers, DEFAULT_HANDLERS};
 use crate::core::node::NodeKey;
 use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::visual::{Ratio, LayoutMode};
-use crate::{Error, cheap_string};
+use crate::{Error, ro_string};
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _: XmlNodeKey) -> Result<(), Error> {
     let layout_mode = LayoutMode::Remaining(Ratio::from_num(1));
@@ -14,9 +14,9 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _: XmlN
 }
 
 pub const INFLATE_MUTATOR: Mutator = Mutator {
-    name: cheap_string("InflateMutator"),
+    name: ro_string!("InflateMutator"),
     xml_params: Some(XmlTagParameters {
-        tag_name: cheap_string("inflate"),
+        tag_name: ro_string!("inflate"),
         attr_set: &[],
         accepts_children: false,
     }),

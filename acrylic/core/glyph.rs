@@ -7,7 +7,7 @@ use super::visual::{RgbaPixelBuffer, GrayScalePixelBuffer, PixelBuffer, PixelSou
 use super::rgb::RGBA8;
 use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
 use super::node::NodeKey;
-use crate::{Error, Vec, Box, HashMap, LiteMap, CheapString, cheap_string, Rc};
+use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
 use core::{fmt::{self, Write}};
 
 use ttf_parser::{Tag, Face, OutlineBuilder};
@@ -275,7 +275,7 @@ impl<'a> fmt::Write for GlyphRenderer<'a> {
     }
 }
 
-type FontStorage = HashMap<CheapString, Font>;
+type FontStorage = HashMap<ArcStr, Font>;
 
 fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     let storage = &mut app.mutators[usize::from(m)].storage;
@@ -287,7 +287,7 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn load_font_bytes(app: &mut Application, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+pub fn load_font_bytes(app: &mut Application, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     let storage = app.mutators[FONT_MUTATOR_INDEX].storage.as_mut().unwrap();
     let storage: &mut FontStorage = storage.downcast_mut().unwrap();
 
@@ -296,14 +296,14 @@ pub fn load_font_bytes(app: &mut Application, asset: &CheapString, bytes: Box<[u
     Ok(())
 }
 
-fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: &CheapString, bytes: Box<[u8]>) -> Result<(), Error> {
+fn parser(app: &mut Application, m: MutatorIndex, _: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
     assert_eq!(m, FONT_MUTATOR_INDEX.into());
     load_font_bytes(app, asset, bytes)
 }
 
 /// Tag-less Mutator which simply stores fonts
 pub const FONT_MUTATOR: Mutator = Mutator {
-    name: cheap_string("FontMutator"),
+    name: ro_string!("FontMutator"),
     xml_params: None,
     handlers: Handlers {
         initializer,
@@ -313,7 +313,7 @@ pub const FONT_MUTATOR: Mutator = Mutator {
     storage: None,
 };
 
-pub fn get_font<'a>(mutators: &'a mut [Mutator], font: &CheapString) -> Option<&'a mut Font> {
+pub fn get_font<'a>(mutators: &'a mut [Mutator], font: &ArcStr) -> Option<&'a mut Font> {
     let storage = mutators[FONT_MUTATOR_INDEX].storage.as_mut().unwrap();
     let storage: &mut FontStorage = storage.downcast_mut().unwrap();
     storage.get_mut(font)

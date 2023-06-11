@@ -1,9 +1,9 @@
 //! XML Layout Parsing
 
-use crate::{error, Error, String, Vec, vec, CheapString, cheap_string, HashMap};
+use crate::{error, Error, String, Vec, vec, ArcStr, HashMap};
 use super::app::{Mutator, MutatorIndex, OptionalMutatorIndex};
 use super::visual::{Ratio, Pixels, SignedPixels};
-use core::{ops::Deref, str::from_utf8 as str_from_utf8};
+use core::{ops::Deref, str::from_utf8 as str_from_utf8, mem::ManuallyDrop};
 use xmlparser::{Tokenizer, Token, StrSpan};
 use oakwood::{NoCookie, index, tree};
 
@@ -15,9 +15,9 @@ tree!(XmlNodeTree, XmlNode, XmlNodeKey, XmlNodeIndex, OptionalXmlNodeIndex, NoCo
 /// Parsing parameters for an XML Tag
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XmlTagParameters {
-    pub tag_name: CheapString,
+    pub tag_name: ArcStr,
     /// (xml_name, type, optional_default_value)
-    pub attr_set: &'static [(&'static str, AttributeValueType, Option<&'static str>)],
+    pub attr_set: &'static [(&'static str, AttributeValueType, Option<ManuallyDrop<ArcStr>>)],
     pub accepts_children: bool,
 }
 
@@ -200,11 +200,11 @@ pub enum AttributeValue {
     Pixels(Pixels),
     OptRatio(Option<Ratio>),
     Ratio(Ratio),
-    OptOther(Option<CheapString>),
-    Other(CheapString),
+    OptOther(Option<ArcStr>),
+    Other(ArcStr),
     StateLookup { 
-        namespace: CheapString,
-        path: CheapString,
+        namespace: ArcStr,
+        path: ArcStr,
         value_type: AttributeValueType,
     },
     Unset,
@@ -212,7 +212,7 @@ pub enum AttributeValue {
 
 impl AttributeValue {
     /// Tries to parse an XML Value as some value type
-    pub fn parse(xml_value: &CheapString, attr_type: AttributeValueType) -> Result<Self, Error> {
+    pub fn parse(xml_value: &ArcStr, attr_type: AttributeValueType) -> Result<Self, Error> {
         use AttributeValueType::*;
 
         macro_rules! parse_attr {
@@ -244,7 +244,7 @@ impl AttributeValue {
 }
 
 impl AttributeValueVec {
-    pub(crate) fn new_import(layout_asset: CheapString) -> Self {
+    pub(crate) fn new_import(layout_asset: ArcStr) -> Self {
         Self(vec![ AttributeValue::Other(layout_asset) ])
     }
 
@@ -253,7 +253,7 @@ impl AttributeValueVec {
 
         for (_name, attr_type, default_value) in params.attr_set {
             vec.push(match default_value {
-                Some(xml_value) => AttributeValue::parse(&cheap_string(xml_value), *attr_type).unwrap(),
+                Some(xml_value) => AttributeValue::parse(&xml_value, *attr_type).unwrap(),
                 None => AttributeValue::Unset,
             });
         }
@@ -298,9 +298,9 @@ macro_rules! impl_try_from_opt {
 impl_try_from_opt!(Option<SignedPixels>, OptSignedPixels);
 impl_try_from_opt!(Option<Pixels>, OptPixels);
 impl_try_from_opt!(Option<Ratio>, OptRatio);
-impl_try_from_opt!(Option<CheapString>, OptOther);
+impl_try_from_opt!(Option<ArcStr>, OptOther);
 
 impl_try_from!(SignedPixels, SignedPixels);
 impl_try_from!(Pixels, Pixels);
 impl_try_from!(Ratio, Ratio);
-impl_try_from!(CheapString, Other);
+impl_try_from!(ArcStr, Other);
