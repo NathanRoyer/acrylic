@@ -12,7 +12,7 @@ use tempfile::tempfile;
 
 use simple_logger::SimpleLogger;
 
-pub use acrylic::core::{app::Application, state::parse_state};
+pub use acrylic::core::{app::Application, visual::{Position, SignedPixels}, event::UserInputEvent};
 use acrylic::core::rgb::FromSlice as _;
 
 pub fn run(app: Application, assets: &str) {
@@ -316,8 +316,13 @@ impl Dispatch<wl_callback::WlCallback, ()> for State {
             }
 
             let size = (fb.width, fb.height);
-            let (_mx, _my) = state.mouse;
-            let _clicked = state.clicked;
+            let (mx, my) = state.mouse;
+
+            if state.clicked {
+                let (mx, my) = (SignedPixels::from_num(mx), SignedPixels::from_num(my));
+                let node_key = state.app.hit_test(Position::new(mx, my));
+                state.app.handle_user_input(node_key, &UserInputEvent::QuickAction1).unwrap();
+            }
 
             let damages = state.app.render(size, fb.mapping.as_rgba_mut()).unwrap();
             state.clicked = false;

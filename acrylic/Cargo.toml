@@ -17,7 +17,7 @@ path = "lib.rs"
 static_assertions = "1.1.0"
 ttf-parser = "0.18.1"
 xmlparser = "0.13.5"
-lmfu = "1.0.1"
+lmfu = "1.0.2"
 tinyvec = "1.6.0"
 oakwood = "0.1.3"
 railway = "0.3.1"
@@ -27,7 +27,7 @@ log = "0.4.17"
 rgb = "0.8.36"
 png = "0.17"
 
-vek        = { version = "0.15.8", default-features = false }
+vek = { version = "0.15.8", default-features = false }
 
 [build-dependencies]
 railway = "0.3.1"
