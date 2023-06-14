@@ -11,7 +11,7 @@ pub type NamespaceCallback = fn(
     path: &mut JsonPath,
 ) -> Result<(), Error>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Namespace {
     pub name: ArcStr,
     pub path: JsonPath,
