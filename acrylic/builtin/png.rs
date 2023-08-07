@@ -1,5 +1,5 @@
 use crate::core::visual::{PixelSource, Ratio, aspect_ratio, LayoutMode, Texture};
-use crate::core::visual::{RgbPixelBuffer, RgbaPixelBuffer, PixelBuffer};
+use crate::core::visual::{RgbPixelArray, RgbaPixelArray};
 use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::NodeKey;
@@ -52,8 +52,8 @@ fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &Ar
         let ratio = aspect_ratio(width, height);
 
         let texture: Rc<dyn Texture> = match info.color_type {
-            ColorType::Rgb  => Rc::new( RgbPixelBuffer::new(buf.into_boxed_slice(), width, height)),
-            ColorType::Rgba => Rc::new(RgbaPixelBuffer::new(buf.into_boxed_slice(), width, height)),
+            ColorType::Rgb  => Rc::new( RgbPixelArray::new(buf.into_boxed_slice(), width, height)),
+            ColorType::Rgba => Rc::new(RgbaPixelArray::new(buf.into_boxed_slice(), width, height)),
             _ => panic!("unsupported PNG color type"),
         };
 

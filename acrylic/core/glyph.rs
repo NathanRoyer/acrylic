@@ -3,7 +3,7 @@
 //! todo: implement <https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
 
 use super::event::{Handlers, DEFAULT_HANDLERS};
-use super::visual::{RgbaPixelBuffer, GrayScalePixelBuffer, PixelBuffer, PixelSource};
+use super::visual::{RgbaPixelArray, GrayScalePixelArray, PixelSource};
 use super::rgb::RGBA8;
 use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
 use super::node::NodeKey;
@@ -11,25 +11,25 @@ use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
 use core::{fmt::{self, Write}};
 
 use ttf_parser::{Tag, Face, OutlineBuilder};
-
+use simd_blit::PixelArray;
 use wizdraw::{push_cubic_bezier_segments, fill};
 use vek::{Vec2, QuadraticBezier2, CubicBezier2};
 use rgb::FromSlice;
 
 const APPLY_SIDE_BEARING: bool = false;
 
-type GlyphCache = LiteMap<(char, usize), Rc<GrayScalePixelBuffer>>;
+type GlyphCache = LiteMap<(char, usize), Rc<GrayScalePixelArray>>;
 
 const WGHT: Tag = Tag::from_bytes(b"wght");
 
-fn failed_glyph(font_size: usize) -> Rc<GrayScalePixelBuffer> {
+fn failed_glyph(font_size: usize) -> Rc<GrayScalePixelArray> {
     let width = font_size;
     let height = font_size;
     let len = width * height;
     let mut mask = Vec::with_capacity(len);
     mask.resize(len, 255);
     let mask = mask.into_boxed_slice();
-    Rc::new(GrayScalePixelBuffer::new(mask, width, height))
+    Rc::new(GrayScalePixelArray::new(mask, width, height))
 }
 
 /// Raw font bytes & glyph cache (a LiteMap)
@@ -88,7 +88,7 @@ impl<'a> GlyphRenderer<'a> {
         &mut self,
         glyph: char,
         _next_glyph: Option<char>,
-    ) -> (usize, usize, Rc<GrayScalePixelBuffer>) {
+    ) -> (usize, usize, Rc<GrayScalePixelArray>) {
         let font_size_f32 = self.font_size as f32;
 
         let font_height = self.font_face.height() as f32;
@@ -128,10 +128,11 @@ impl<'a> GlyphRenderer<'a> {
                 let mut mask = Vec::with_capacity(len);
                 mask.resize(len, 0);
 
-                fill::<_, 8>(&segments, &mut mask, Vec2::new(width, height));
+                // this runs quite rarely, so we force a SSAA of six (which is a lot)
+                fill::<6, 36>(&segments, &mut mask, Vec2::new(width, height));
 
                 let mask = mask.into_boxed_slice();
-                let glyph_mask = Rc::new(GrayScalePixelBuffer::new(mask, width, height));
+                let glyph_mask = Rc::new(GrayScalePixelArray::new(mask, width, height));
 
                 *self.glyph_cache_weight += len;
                 // log::info!("glyph_cache_weight: {}B", self.glyph_cache_weight);
@@ -220,7 +221,7 @@ impl<'a> GlyphRenderer<'a> {
                 for _ in 0..self.font_size {
                     for x in 0..advance {
                         let dst = &mut fake_fb[dst_offset + x];
-                        let src = glyph_mask.buffer(src_offset + x);
+                        let src = glyph_mask.get(src_offset + x);
                         dst.r = (((src.a as u32) * (color.r as u32)) / 255) as u8;
                         dst.g = (((src.a as u32) * (color.g as u32)) / 255) as u8;
                         dst.b = (((src.a as u32) * (color.b as u32)) / 255) as u8;
@@ -250,7 +251,7 @@ impl<'a> GlyphRenderer<'a> {
     /// This panics if this renderer was configured for width computation only.
     pub fn texture(self) -> PixelSource {
         if let Some((pixels, _color)) = self.render_data {
-            let pixel_buffer = RgbaPixelBuffer::new(pixels.into_boxed_slice(), self.width, self.font_size);
+            let pixel_buffer = RgbaPixelArray::new(pixels.into_boxed_slice(), self.width, self.font_size);
             PixelSource::TextureNoSSAA(Box::new(pixel_buffer))
         } else {
             panic!("StrTexture: No render color → no texture");
@@ -369,7 +370,7 @@ impl OutlineBuilder for Outline {
             end,
         };
         let curve = CubicBezier2::from(curve);
-        push_cubic_bezier_segments::<_, 6>(&curve, 0.2, &mut self.points);
+        push_cubic_bezier_segments::<6>(&curve, 0.2, &mut self.points);
         self.last_point = end;
     }
 
@@ -383,7 +384,7 @@ impl OutlineBuilder for Outline {
             ctrl1,
             end,
         };
-        push_cubic_bezier_segments::<_, 6>(&curve, 0.2, &mut self.points);
+        push_cubic_bezier_segments::<6>(&curve, 0.2, &mut self.points);
         self.last_point = end;
     }
 

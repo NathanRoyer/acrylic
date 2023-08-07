@@ -3,9 +3,11 @@
 use static_assertions::const_assert_eq;
 use fixed::types::{U20F12, U12F20, I21F11};
 use fixed::traits::LosslessTryFrom;
-use super::rgb::{RGBA, RGBA8, RGB8, FromSlice, alt::Gray};
-use crate::{Box, Vec, Rc};
+use super::rgb::{RGBA8, RGB8, FromSlice, alt::Gray};
+use crate::{SSAA, SSAA_SQ, Box, Vec, Rc};
 use core::fmt::Debug;
+
+use simd_blit::{PixelArray, EightPixels, SsaaCoords, AlphaConfig, ssaa8, blend8};
 
 pub type Pixels = U20F12;
 pub type SignedPixels = I21F11;
@@ -364,29 +366,6 @@ impl AsRgba for RGB8 { fn has_alpha() -> bool { false } }
 const_assert_eq!(core::mem::size_of::<RGBA8>(), 4);
 const_assert_eq!(core::mem::size_of::<RGB8>(), 3);
 
-/// Blend two colors together
-#[inline(always)]
-pub fn blend_pixel(src_pixel: RGBA8, dst_pixel: &mut RGBA8) {
-    let src_alpha = src_pixel.a as u32;
-    let u8_max = u8::MAX as u32;
-    let dst_alpha = u8_max - src_alpha;
-
-    let blend = |src, dst: &mut _| {
-        if src_alpha == 255 {
-            *dst = src;
-        } else if src_alpha != 0 {
-            let src_scaled = (src as u32) * src_alpha;
-            let dst_scaled = (*dst as u32) * dst_alpha;
-            *dst = ((src_scaled + dst_scaled) / u8_max) as u8;
-        }
-    };
-
-    blend(src_pixel.r, &mut dst_pixel.r);
-    blend(src_pixel.g, &mut dst_pixel.g);
-    blend(src_pixel.b, &mut dst_pixel.b);
-    blend(src_pixel.a, &mut dst_pixel.a);
-}
-
 /// Trait for anything that can be painted onto the framebuffer
 pub trait Texture: Debug {
     fn paint(
@@ -395,8 +374,8 @@ pub trait Texture: Debug {
         texture_coords: (Position, Size),
         sampling_window: (Position, Size),
         dst_stride: usize,
-        ssaa: usize,
         alpha_blend: bool,
+        skip_ssaa: bool,
     );
 }
 
@@ -418,8 +397,8 @@ impl Texture for PixelSource {
         texture_coords: (Position, Size),
         sampling_window: (Position, Size),
         dst_stride: usize,
-        ssaa: usize,
         alpha_blend: bool,
+        skip_ssaa: bool,
     ) {
         if texture_coords.1.is_zero() || sampling_window.1.is_zero() {
             return;
@@ -427,13 +406,13 @@ impl Texture for PixelSource {
 
         match self {
             PixelSource::Texture(texture) => {
-                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, ssaa, alpha_blend);
+                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, alpha_blend, skip_ssaa);
             },
             PixelSource::RcTexture(texture) => {
-                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, ssaa, alpha_blend);
+                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, alpha_blend, skip_ssaa);
             },
             PixelSource::TextureNoSSAA(texture) => {
-                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, 1, alpha_blend);
+                texture.paint(framebuffer, texture_coords, sampling_window, dst_stride, alpha_blend, true);
             },
             PixelSource::Debug => {
                 let x = texture_coords.0.x.to_num::<isize>();
@@ -472,10 +451,11 @@ impl Texture for PixelSource {
                 }
             },
             PixelSource::SolidColor(color) => {
+                let alpha_blend = color.a != 255;
                 let width  = texture_coords.1.w.to_num();
                 let height = texture_coords.1.h.to_num();
-                let fpb = FakePixelBuffer::new_fake(*color, width, height);
-                fpb.paint(framebuffer, texture_coords, sampling_window, dst_stride, ssaa, alpha_blend);
+                let fpb = FakePixelArray::new_fake(*color, width, height);
+                fpb.paint(framebuffer, texture_coords, sampling_window, dst_stride, alpha_blend, true);
             },
             PixelSource::None => (),
         }
@@ -488,31 +468,23 @@ impl Default for PixelSource {
     }
 }
 
-/// Trait for 2D-sized & indexed pixel storage
-pub trait PixelBuffer {
-    fn buffer(&self, index: usize) -> RGBA8;
-    fn width (&self) -> usize;
-    fn height(&self) -> usize;
-    fn new(buffer: Box<[u8]>, width: usize, height: usize) -> Self;
-    fn has_alpha() -> bool;
-}
-
 #[derive(Debug)]
-struct FakePixelBuffer {
+struct FakePixelArray {
     color: RGBA8,
     width: usize,
     height: usize,
 }
 
-impl PixelBuffer for FakePixelBuffer {
-    fn buffer(&self, _index: usize) -> RGBA8 { self.color }
+impl PixelArray for FakePixelArray {
+    fn get(&self, _index: usize) -> RGBA8 { self.color }
     fn width (&self) -> usize { self.width }
     fn height(&self) -> usize { self.height }
-    fn new(_buffer: Box<[u8]>, _width: usize, _height: usize) -> Self { unreachable!() }
+    fn length(&self) -> usize { usize::MAX }
+    fn bytes_per_pixel() -> usize { 4 }
     fn has_alpha() -> bool { true }
 }
 
-impl FakePixelBuffer {
+impl FakePixelArray {
     pub fn new_fake(color: RGBA8, width: usize, height: usize) -> Self {
         Self {
             color,
@@ -531,17 +503,20 @@ macro_rules! pixel_buffer {
             height: usize,
         }
 
-        impl PixelBuffer for $name {
-            fn buffer(&self, index: usize) -> RGBA8 {
-                use core::ops::Deref;
-                $to_rgba(self.buffer.deref().$method()[index])
+        impl PixelArray for $name {
+            fn get(&self, index: usize) -> RGBA8 {
+                $to_rgba((self.buffer).$method()[index])
             }
 
             fn width (&self) -> usize { self.width }
             fn height(&self) -> usize { self.height }
+            fn length(&self) -> usize { (self.buffer).$method().len() }
+            fn bytes_per_pixel() -> usize { ::core::mem::size_of::<$type>() }
             fn has_alpha() -> bool { $has_alpha }
+        }
 
-            fn new(buffer: Box<[u8]>, width: usize, height: usize) -> Self {
+        impl $name {
+            pub fn new(buffer: Box<[u8]>, width: usize, height: usize) -> Self {
                 assert_eq!(buffer.len(), width * height * ::core::mem::size_of::<$type>());
                 Self {
                     buffer,
@@ -565,31 +540,31 @@ macro_rules! pixel_buffer {
 fn as_rgba_to_rgba<T: AsRgba>(this: T) -> RGBA8 { this.into() }
 fn gray_to_rgba(this: Gray<u8>) -> RGBA8 { RGBA8::new(255, 255, 255, *this) }
 
-pixel_buffer!(GrayScalePixelBuffer, Gray<u8>, as_gray, gray_to_rgba, true);
-pixel_buffer!(RgbPixelBuffer, RGB8, as_rgb, as_rgba_to_rgba, false);
-pixel_buffer!(RgbaPixelBuffer, RGBA8, as_rgba, as_rgba_to_rgba, true);
+pixel_buffer!(GrayScalePixelArray, Gray<u8>, as_gray, gray_to_rgba, true);
+pixel_buffer!(RgbPixelArray, RGB8, as_rgb, as_rgba_to_rgba, false);
+pixel_buffer!(RgbaPixelArray, RGBA8, as_rgba, as_rgba_to_rgba, true);
 
 /// Paint a rectangle of a framebuffer with a solid color
 pub fn write_framebuffer(fb: &mut [RGBA8], stride: usize, window: (Position, Size), color: RGBA8) {
     let src = PixelSource::SolidColor(color);
-    src.paint(fb, window, window, stride, 1, false);
+    src.paint(fb, window, window, stride, false, true);
 }
 
 /// Highlight a rectangle in a framebuffer
 pub fn debug_framebuffer(fb: &mut [RGBA8], stride: usize, window: (Position, Size)) {
     let src = PixelSource::Debug;
-    src.paint(fb, window, window, stride, 1, false);
+    src.paint(fb, window, window, stride, false, true);
 }
 
-impl<T> Texture for T where T: Debug + PixelBuffer {
+impl<T> Texture for T where T: Debug + PixelArray {
     fn paint(
         &self,
         framebuffer: &mut [RGBA8],
         texture_coords: (Position, Size),
         sampling_window: (Position, Size),
         dst_stride: usize,
-        ssaa: usize,
         alpha_blend: bool,
+        skip_ssaa: bool,
     ) {
         let texture_size = Size::new(
             Pixels::from_num(self.width()),
@@ -611,51 +586,72 @@ impl<T> Texture for T where T: Debug + PixelBuffer {
 
         let ratio = (texture_size.h / texture_coords.1.h).to_num::<SignedPixels>();
 
-        let ssaa_unit = ratio / SignedPixels::from_num(ssaa);
+        let ssaa_unit = ratio / SignedPixels::from_num(SSAA);
         let ssaa_init = SignedPixels::ZERO; // ssaa_unit / 2.0;
         let mut line = y_min * dst_stride;
-        let mut samp_y = y_offset * ratio;
+        let mut samp_y  = y_offset * ratio;
         let samp_x_init = x_offset * ratio;
 
         for _ in y_min..y_max {
             let mut samp_x = samp_x_init;
-            for x in x_min..x_max {
-                let dst_pixel = &mut framebuffer[line + x];
 
-                let mut src_pixel_u32: RGBA<u32> = Default::default();
-                let mut ssaa_px = 0;
+            let mut x = x_min;
+            while x < x_max {
+                use rgb::ComponentBytes;
 
-                let mut ssaa_y = SignedPixels::ZERO;
-                for _ in 0..ssaa {
-                    let mut ssaa_x = SignedPixels::ZERO;
-                    for _ in 0..ssaa {
-                        let texture_x: usize = (samp_x + ssaa_init + ssaa_x).round().to_num();
-                        let texture_y: usize = (samp_y + ssaa_init + ssaa_y).round().to_num();
+                let limit = (x_max - x).min(8);
+                let dst = &mut framebuffer[(line + x)..][..limit].as_bytes_mut();
 
-                        if texture_x < self.width() && texture_y < self.height() {
-                            let p = self.buffer(texture_y * self.width() + texture_x);
-                            src_pixel_u32 += RGBA::<u32>::new(p.r as _, p.g as _, p.b as _, p.a as _);
-                            ssaa_px += 1;
+                let src = if !skip_ssaa {
+                    let mut ssaa_coords = SsaaCoords::<SSAA_SQ>::new();
+
+                    for i in 0..limit {
+                        let mut ssaa_i = 0;
+                        let mut ssaa_y = SignedPixels::ZERO;
+                        for _ in 0..SSAA {
+                            let mut ssaa_x = SignedPixels::ZERO;
+                            for _ in 0..SSAA {
+                                let texture_x: usize = (samp_x + ssaa_init + ssaa_x).round().to_num();
+                                let texture_y: usize = (samp_y + ssaa_init + ssaa_y).round().to_num();
+
+                                ssaa_coords.set(i, ssaa_i, texture_x, texture_y);
+
+                                ssaa_i += 1;
+                                ssaa_x += ssaa_unit;
+                            }
+
+                            ssaa_y += ssaa_unit;
                         }
 
-                        ssaa_x += ssaa_unit;
+                        samp_x += ratio;
                     }
 
-                    ssaa_y += ssaa_unit;
-                }
+                    ssaa8(ssaa_coords, self)
+                } else {
+                    let mut src = [0u8; 32];
 
-                if ssaa_px != 0 {
-                    let p = src_pixel_u32 / ssaa_px;
-                    let src_pixel = RGBA8::new(p.r as _, p.g as _, p.b as _, p.a as _);
+                    for i in 0..limit {
+                        let texture_x: usize = samp_x.round().to_num();
+                        let texture_y: usize = samp_y.round().to_num();
 
-                    if alpha_blend {
-                        blend_pixel(src_pixel, dst_pixel);
-                    } else {
-                        *dst_pixel = src_pixel;
+                        if texture_x < self.width() && texture_y < self.height() {
+                            let index = texture_y * self.width() + texture_x;
+                            let pixel: [u8; 4] = self.get(index).into();
+                            src[(i * 4)..][..4].copy_from_slice(&pixel);
+                        }
+
+                        samp_x += ratio;
                     }
-                }
 
-                samp_x += ratio;
+                    EightPixels::new(&src)
+                };
+
+                blend8(src, dst, match alpha_blend {
+                    true => AlphaConfig::FourthByte,
+                    false => AlphaConfig::None,
+                });
+
+                x += limit;
             }
 
             line += dst_stride;

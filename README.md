@@ -1,6 +1,8 @@
 ## 🎨 acrylic
 
-This is a **work-in-progress**, easily portable, small, single-thread, web-inspired user interface toolkit.
+Ultra-portable, web-inspired UI toolkit with SIMD graphics.
+
+Work in progress!
 
 ## 🪂 Features
 

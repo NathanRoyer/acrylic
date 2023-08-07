@@ -381,7 +381,7 @@ impl Dispatch<wl_pointer::WlPointer, ()> for State {
             wl_pointer::Event::Button { button: 272, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } => {
                 state.clicked = true;
             },
-            _ => println!("WlPointer: {:?}", event),
+            _ => (),//println!("WlPointer: {:?}", event),
         }
     }
 }

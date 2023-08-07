@@ -3,11 +3,11 @@ use crate::core::event::{Handlers, DEFAULT_HANDLERS, UserInputEvent};
 use crate::core::state::Namespace;
 use crate::core::node::NodeKey;
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
-use crate::core::visual::{Pixels, SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelBuffer, PixelBuffer};
+use crate::core::visual::{Pixels, SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelArray};
 use crate::core::style::DEFAULT_STYLE;
 use crate::core::{for_each_child, rgb::FromSlice};
 use crate::core::layout::{get_scroll, scroll};
-use crate::{Error, error, Box, Vec, ArcStr, ro_string};
+use crate::{SSAA, SSAA_SQ, Error, error, Box, Vec, ArcStr, ro_string};
 use oakwood::NodeKey as _;
 use lmfu::json::{JsonValue, JsonPath};
 
@@ -217,10 +217,10 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
             let mut canvas: Vec<u8> = Vec::with_capacity(length * 4);
             canvas.resize(length * 4, 0);
             mask.resize(length, 0);
-            railway.render(canvas.as_rgba_mut(), mask, w, h, w, 4, true).unwrap();
+            railway.render::<SSAA, SSAA_SQ>(canvas.as_rgba_mut(), mask, w, h, w, true).unwrap();
 
             let canvas = canvas.into_boxed_slice();
-            PixelSource::Texture(Box::new(RgbaPixelBuffer::new(canvas, w, h)))
+            PixelSource::TextureNoSSAA(Box::new(RgbaPixelArray::new(canvas, w, h)))
         };
     }
 

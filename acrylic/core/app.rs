@@ -94,7 +94,6 @@ pub struct Application {
     pub state: JsonFile,
 
     pub(crate) namespaces: LiteMap<NodeKey, Namespace>,
-    // pub(crate) monitors: HashMap<(JsonPath, usize), NodeKey>,
     pub(crate) mutators: Vec<Mutator>,
 
     must_check_layout: bool,
@@ -432,7 +431,7 @@ impl Application {
             let mut sampling_window = *sampling_window;
             constrain(&texture_coords, &mut sampling_window);
             constrain(restrict, &mut sampling_window);
-            self.view[key].background.paint(fb, texture_coords, sampling_window, stride, 3, true);
+            self.view[key].background.paint(fb, texture_coords, sampling_window, stride, true, false);
         }
 
         for_each_child!(self.view, key, child, {
@@ -448,7 +447,7 @@ impl Application {
                 super::visual::debug_framebuffer(fb, stride, sampling_window);
             }
 
-            self.view[key].foreground.paint(fb, texture_coords, sampling_window, stride, 3, true);
+            self.view[key].foreground.paint(fb, texture_coords, sampling_window, stride, true, false);
         }
 
         *restrict = backup;

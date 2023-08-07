@@ -75,3 +75,22 @@ macro_rules! error {
     () => { $crate::Error::new(::core::line!(), ::core::file!(), None) };
     ($($arg:tt)*) => { $crate::Error::new(::core::line!(), ::core::file!(), Some($crate::format!($($arg)*))) };
 }
+
+/// Super-Sampling Anti-Aliasing (squared)
+pub const SSAA_SQ: usize = SSAA * SSAA;
+
+#[cfg(not(any(feature = "ssaa-x2", feature = "ssaa-x3", feature = "ssaa-x4")))]
+/// Super-Sampling Anti-Aliasing
+pub const SSAA: usize = 1;
+
+#[cfg(feature = "ssaa-x2")]
+/// Super-Sampling Anti-Aliasing
+pub const SSAA: usize = 2;
+
+#[cfg(feature = "ssaa-x3")]
+/// Super-Sampling Anti-Aliasing
+pub const SSAA: usize = 3;
+
+#[cfg(feature = "ssaa-x4")]
+/// Super-Sampling Anti-Aliasing
+pub const SSAA: usize = 4;
