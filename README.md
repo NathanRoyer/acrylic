@@ -4,6 +4,8 @@ Ultra-portable, web-inspired UI toolkit with SIMD graphics.
 
 Work in progress!
 
+Also, requires a nightly toolchain if you've enabled SIMD support.
+
 ## 🪂 Features
 
 - feels familiar to web developers
@@ -116,16 +118,16 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.3.2"
+acrylic = "0.3"
 
 # building for the web
-platform = { package = "acrylic-web", version = "0.3.2" }
+platform = { package = "acrylic-web", version = "0.3" }
 ```
 
 ### Building
 
 ```bash
-cargo build --release --target wasm32-unknown-unknown
+cargo +nightly build --release --target wasm32-unknown-unknown
 ```
 
 #### Install a web server
