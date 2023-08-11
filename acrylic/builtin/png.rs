@@ -80,9 +80,9 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     };
 
     app.view[node_key].foreground = PixelSource::RcTexture(texture);
-    app.view[node_key].layout_config.set_dirty(true);
+    app.view[node_key].config.set_dirty(true);
 
-    app.view[node_key].layout_config.set_layout_mode(LayoutMode::AspectRatio(ratio));
+    app.view[node_key].config.set_layout_mode(LayoutMode::AspectRatio(ratio));
     app.invalidate_layout();
 
     Ok(())

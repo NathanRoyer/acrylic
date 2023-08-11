@@ -7,7 +7,7 @@ use crate::{Error, ro_string};
 
 fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, _: XmlNodeKey) -> Result<(), Error> {
     let layout_mode = LayoutMode::Remaining(Ratio::from_num(1));
-    app.view[node_key].layout_config.set_layout_mode(layout_mode);
+    app.view[node_key].config.set_layout_mode(layout_mode);
     app.invalidate_layout();
 
     Ok(())

@@ -48,9 +48,9 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     let     in_attr: Option<ArcStr> = app.attr(node_key,              IN)?;
     let  style_attr: Option<ArcStr> = app.attr(node_key,           STYLE)?;
     let qa_callback: Option<ArcStr> = app.attr(node_key, ON_QUICK_ACTION)?;
-    let content_gap: Pixels              = app.attr(node_key,             GAP)?;
-    let margin_attr: Pixels              = app.attr(node_key,          MARGIN)?;
-    let radius_attr: Pixels              = app.attr(node_key,   BORDER_RADIUS)?;
+    let content_gap: Pixels         = app.attr(node_key,             GAP)?;
+    let margin_attr: Pixels         = app.attr(node_key,          MARGIN)?;
+    let radius_attr: Pixels         = app.attr(node_key,   BORDER_RADIUS)?;
 
     let xml_node = &app.xml_tree[xml_node_key];
     let mutator_index = xml_node.factory.get().unwrap();
@@ -66,9 +66,9 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     }
 
     app.view[node_key].margin = Margin::quad(margin_attr + radius_attr);
-    app.view[node_key].layout_config.set_content_axis(content_axis);
-    app.view[node_key].layout_config.set_content_gap(content_gap);
-    app.view[node_key].layout_config.set_layout_mode(layout_mode);
+    app.view[node_key].config.set_content_axis(content_axis);
+    app.view[node_key].config.set_content_gap(content_gap);
+    app.view[node_key].config.set_layout_mode(layout_mode);
     app.invalidate_layout();
 
     if let Some(style) = style_attr {
@@ -204,7 +204,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         railway.set_argument("ext-ba", ext_ba).unwrap();
         railway.compute().unwrap();
 
-        app.view[node_key].layout_config.set_dirty(true);
+        app.view[node_key].config.set_dirty(true);
         app.view[node_key].foreground = {
             let length = w * h;
             let mut canvas: Vec<u8> = Vec::with_capacity(length * 4);
@@ -245,7 +245,7 @@ fn user_input_handler(
             candidate = current_scroll;
         }
 
-        app.view[node_key].layout_config.set_dirty(true);
+        app.view[node_key].config.set_dirty(true);
         scroll(app, node_key, axis, candidate);
 
         Ok(true)

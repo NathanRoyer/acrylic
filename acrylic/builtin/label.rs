@@ -56,7 +56,7 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
         let width = font.quick_width(&text, font_size);
 
         let ratio = aspect_ratio(width, font_size);
-        app.view[node_key].layout_config.set_layout_mode(LayoutMode::AspectRatio(ratio));
+        app.view[node_key].config.set_layout_mode(LayoutMode::AspectRatio(ratio));
 
         app.invalidate_layout();
     }
@@ -77,7 +77,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
     if text.len() > 0 && !app.debug.skip_glyph_rendering {
         let color = Some(inherited_style.foreground);
         let font_size = app.view[node_key].size.h.round().to_num();
-        app.view[node_key].layout_config.set_dirty(true);
+        app.view[node_key].config.set_dirty(true);
         app.view[node_key].foreground = {
             let font = get_font(&mut app.mutators, &font_file).unwrap();
             let mut renderer = font.renderer(color, cursors, font_size);

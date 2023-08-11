@@ -436,9 +436,9 @@ impl Application {
     fn build_render_list(&mut self, fb_rect: &(Position, Size), key: NodeKey, querying: bool) {
         // let _tag = self.xml_tag(key);
         let node = &mut self.view[key];
-        if node.layout_config.get_dirty() {
+        if node.config.get_dirty() {
             // log::info!("node {} ({}) is dirty", _tag, key.index());
-            node.layout_config.set_dirty(false);
+            node.config.set_dirty(false);
 
             if querying {
                 let mut rect = (node.position, node.size);

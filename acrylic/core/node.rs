@@ -1,7 +1,7 @@
 //! The Node structure
 
 use super::xml::{OptionalXmlNodeIndex, XmlTagParameters};
-use super::visual::{PixelSource, LayoutConfig, Margin, Size, Position};
+use super::visual::{PixelSource, NodeConfig, Margin, Size, Position};
 use oakwood::{Cookie64, tree, index};
 use super::event::Handlers;
 use crate::{ArcStr, Box};
@@ -21,7 +21,7 @@ tree!(NodeTree, Node, NodeKey, NodeIndex, OptionalNodeIndex, Cookie64);
 /// [`Mutator`]s typically convert XML Tags to one or more nodes.
 #[derive(Debug, Default)]
 pub struct Node {                                 // bits    div4
-    pub layout_config: LayoutConfig,              // 2x4     2
+    pub config: NodeConfig,              // 2x4     2
     pub margin: Margin,                           // 4x4     4
 
     pub size: Size,                               // 2x4     2

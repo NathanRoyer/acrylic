@@ -61,7 +61,7 @@ pub fn aspect_ratio(width: usize, height: usize) -> Ratio {
 /// A structure storing a [`LayoutMode`], an [`Axis`] and a [`Pixels`]
 /// struct (representing a container gap) in 8 bytes.
 #[derive(Debug, Copy, Clone, Default)]
-pub struct LayoutConfig {
+pub struct NodeConfig {
     cfg: u32,
     arg: f32,
 }
@@ -78,7 +78,7 @@ const SZFD_MASK: u32 = 0x04_00_00_00;
 const RESZ_MASK: u32 = 0x02_00_00_00;
 const  GAP_MASK: u32 = 0x01_ff_ff_ff;
 
-impl LayoutConfig {
+impl NodeConfig {
     #[inline(always)]
     pub fn set_content_axis(&mut self, content_axis: Axis) {
         self.cfg &= !AXIS_MASK;
@@ -200,12 +200,12 @@ impl LayoutConfig {
 }
 
 #[test]
-fn layout_config() {
+fn config() {
     let px = Pixels::from_num(3.5);
     let ratio = Ratio::from_num(3.5);
     let axis = Axis::Vertical;
     let layout_mode = LayoutMode::Remaining(ratio);
-    let cfg = LayoutConfig::new_container(axis, px, layout_mode);
+    let cfg = NodeConfig::new_container(axis, px, layout_mode);
 
     assert_eq!(cfg.content_axis(), axis);
     assert_eq!(cfg.content_gap(), px);

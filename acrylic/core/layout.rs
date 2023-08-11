@@ -36,7 +36,7 @@ pub fn hit_test(tree: &NodeTree, root: NodeKey, p: Position) -> NodeKey {
 /// Compute the current scroll amount of a container
 pub fn get_scroll(app: &Application, container: NodeKey) -> (Axis, Option<SignedPixels>, Option<Pixels>) {
     let node = &app.view[container];
-    let axis = node.layout_config.get_length_axis();
+    let axis = node.config.get_length_axis();
     let p = node.position.add_size(node.margin.top_left).get_for_axis(axis);
     let content_capacity = node.size.get_for_axis(axis);
     let mut scroll = None;
@@ -65,8 +65,8 @@ pub fn scroll(app: &mut Application, container: NodeKey, axis: Axis, diff: Signe
 
 /// (Re)Compute the layout of a view
 pub fn compute_layout(app: &mut Application, root: NodeKey) -> Result<(), Error> {
-    app.view[root].layout_config.set_size_found(true);
-    let axis = app.view[root].layout_config.get_content_axis();
+    app.view[root].config.set_size_found(true);
+    let axis = app.view[root].config.get_content_axis();
     let comp_axis = axis.complement();
     let mut cross = app.view[root].size.get_for_axis(comp_axis);
     cross = cross.checked_sub(app.view[root].margin.total_on(comp_axis)).unwrap_or(Pixels::ZERO);
@@ -78,9 +78,9 @@ pub fn compute_layout(app: &mut Application, root: NodeKey) -> Result<(), Error>
 impl Node {
     #[inline(always)]
     fn set_size(&mut self, size: Size) {
-        self.layout_config.set_size_found(true);
+        self.config.set_size_found(true);
         if self.size != size {
-            self.layout_config.set_resized(true);
+            self.config.set_resized(true);
             self.size = size;
         }
     }
@@ -89,13 +89,13 @@ impl Node {
 fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) -> Result<(), Error> {
     let mut cursor = Cursor::new(&app.view[key], top_left);
     for_each_child!(app.view, key, child, {
-        let size_found = app.view[child].layout_config.get_size_found();
+        let size_found = app.view[child].config.get_size_found();
         if size_found {
-            app.view[child].layout_config.set_size_found(false);
+            app.view[child].config.set_size_found(false);
         } else {
             if app.view[child].size != Size::zero() {
                 app.view[child].set_size(Size::zero());
-                app.view[child].layout_config.set_resized(true);
+                app.view[child].config.set_resized(true);
             }
         }
 
@@ -105,13 +105,13 @@ fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) ->
 
         compute_positions(app, child, position)?;
 
-        let resized = app.view[child].layout_config.get_resized();
+        let resized = app.view[child].config.get_resized();
         if moved | resized {
-            app.view[child].layout_config.set_dirty(true);
+            app.view[child].config.set_dirty(true);
         }
 
         if resized {
-            app.view[child].layout_config.set_resized(false);
+            app.view[child].config.set_resized(false);
             app.resize(child)?;
         }
     });
@@ -120,7 +120,7 @@ fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) ->
 }
 
 fn handle_children(tree: &mut NodeTree, container: NodeKey) {
-    let axis = tree[container].layout_config.get_content_axis();
+    let axis = tree[container].config.get_content_axis();
     let cross = tree[container].size.get_for_axis(axis.complement());
     if let Some(cross) = adjust_cross(&tree[container], cross) {
         compute_children_sizes(tree, container, cross);
@@ -129,12 +129,12 @@ fn handle_children(tree: &mut NodeTree, container: NodeKey) {
 }
 
 fn get_children_length_on_cont_axis(tree: &mut NodeTree, container: NodeKey) -> Pixels {
-    let axis = tree[container].layout_config.get_content_axis();
-    let gap = tree[container].layout_config.get_content_gap();
+    let axis = tree[container].config.get_content_axis();
+    let gap = tree[container].config.get_content_gap();
     let mut length = Pixels::ZERO;
 
     for_each_child!(tree, container, child, {
-        if tree[child].layout_config.get_size_found() {
+        if tree[child].config.get_size_found() {
             length += tree[child].size.get_for_axis(axis) + gap;
         }
     });
@@ -148,9 +148,9 @@ fn get_children_length_on_cont_axis(tree: &mut NodeTree, container: NodeKey) -> 
 }
 
 fn compute_children_sizes(tree: &mut NodeTree, container: NodeKey, cross: Pixels) {
-    let axis = tree[container].layout_config.get_content_axis();
+    let axis = tree[container].config.get_content_axis();
     for_each_child!(tree, container, child, {
-        match tree[child].layout_config.get_layout_mode() {
+        match tree[child].config.get_layout_mode() {
             WrapContent => compute_wrapper_size(tree, axis, child, Some(cross)),
             Fixed(l) => compute_fixed_size(tree, axis, child, Some(cross), l),
             Chunks(r) => compute_chunks_size(tree, axis, child, cross, r),
@@ -176,19 +176,19 @@ fn compute_children_sizes(tree: &mut NodeTree, container: NodeKey, cross: Pixels
 }
 
 fn compute_remaining_children_sizes(tree: &mut NodeTree, container: NodeKey, cross: Pixels) {
-    let layout_config = tree[container].layout_config;
-    if !layout_config.get_size_found() {
+    let config = tree[container].config;
+    if !config.get_size_found() {
         return;
     }
 
-    let axis = layout_config.get_content_axis();
-    let gap = layout_config.get_content_gap();
+    let axis = config.get_content_axis();
+    let gap = config.get_content_gap();
     let mut quota_sum = Ratio::ZERO;
     let mut used = Pixels::ZERO;
     let mut seen = false;
 
     for_each_child!(tree, container, child, {
-        if let Remaining(_) = tree[child].layout_config.get_layout_mode() {
+        if let Remaining(_) = tree[child].config.get_layout_mode() {
             seen = true;
             break;
         }
@@ -198,11 +198,11 @@ fn compute_remaining_children_sizes(tree: &mut NodeTree, container: NodeKey, cro
         return;
     }
 
-    let available = if let Chunks(_) = layout_config.get_layout_mode() {
+    let available = if let Chunks(_) = config.get_layout_mode() {
         Pixels::ZERO
     } else {
         for_each_child!(tree, container, child, {
-            if let Remaining(q) = tree[child].layout_config.get_layout_mode() {
+            if let Remaining(q) = tree[child].config.get_layout_mode() {
                 quota_sum += q;
                 used += gap;
             } else {
@@ -221,7 +221,7 @@ fn compute_remaining_children_sizes(tree: &mut NodeTree, container: NodeKey, cro
     };
 
     for_each_child!(tree, container, child, {
-        if let Remaining(q) = tree[child].layout_config.get_layout_mode() {
+        if let Remaining(q) = tree[child].config.get_layout_mode() {
             let fraction = q.checked_div(quota_sum.to_num()).unwrap_or(Default::default());
             let length = available.saturating_mul(fraction.to_num());
 
@@ -242,7 +242,7 @@ fn compute_wrapper_size(
     wrapper: NodeKey,
     mut cross: Option<Pixels>,
 ) -> Option<()> {
-    let wrapper_axis = tree[wrapper].layout_config.get_content_axis();
+    let wrapper_axis = tree[wrapper].config.get_content_axis();
     let mut length = Pixels::ZERO;
 
     if wrapper_axis != cont_axis {
@@ -282,7 +282,7 @@ fn compute_fixed_size(
     mut cross: Option<Pixels>,
     length: Pixels,
 ) -> Option<()> {
-    let axis = tree[fixed].layout_config.get_content_axis();
+    let axis = tree[fixed].config.get_content_axis();
     let has_children = tree.first_child(fixed).is_some();
 
     // if this is a non-empty container, the cross-length
@@ -329,8 +329,8 @@ fn compute_chunks_size(
     cross: Pixels,
     row: Pixels,
 ) -> Option<()> {
-    let this_axis = tree[this].layout_config.get_content_axis();
-    let gap = tree[this].layout_config.get_content_gap();
+    let this_axis = tree[this].config.get_content_axis();
+    let gap = tree[this].config.get_content_gap();
 
     if this_axis == cont_axis {
         return compute_wrapper_size(tree, cont_axis, this, Some(cross));
@@ -376,7 +376,7 @@ fn get_max_length_on(
     cross: Option<Pixels>,
 ) -> Option<Pixels> {
     // vertical
-    let cont_axis = tree[cont].layout_config.get_content_axis();
+    let cont_axis = tree[cont].config.get_content_axis();
 
     let cross = match cross {
         Some(c) => Some(adjust_cross(&tree[cont], c)?),
@@ -387,11 +387,11 @@ fn get_max_length_on(
     for_each_child!(tree, cont, child, {
         // fixed: horizontal
         let child_axis = tree.first_child(child).map(|_| {
-            tree[child].layout_config.get_content_axis()
+            tree[child].config.get_content_axis()
         });
         let child_and_cont_same_axis = Some(cont_axis) == child_axis;
 
-        let candidate = match tree[child].layout_config.get_layout_mode() {
+        let candidate = match tree[child].config.get_layout_mode() {
             WrapContent => match (Some(wanted_axis) == child_axis, child_and_cont_same_axis) {
                 (true, _) => {
                     compute_wrapper_size(tree, cont_axis, child, cross).map(|_| {
@@ -464,14 +464,14 @@ impl Cursor {
     pub fn new(container: &Node, mut top_left: Position) -> Self {
         top_left = top_left.add_size(container.margin.top_left);
 
-        let axis = container.layout_config.get_content_axis();
-        let gap = container.layout_config.get_content_gap();
+        let axis = container.config.get_content_axis();
+        let gap = container.config.get_content_gap();
         let length = container.size.get_for_axis(axis);
         let minus = container.margin.total_on(axis);
         let length = length.checked_sub(minus);
         let max_chunk_length = length.unwrap_or(Pixels::ZERO);
 
-        let (content_length, row) = match container.layout_config.get_layout_mode() {
+        let (content_length, row) = match container.config.get_layout_mode() {
             Chunks(row) => (row, Some(row)),
             _ => (Pixels::ZERO, None),
         };
@@ -525,7 +525,7 @@ impl Cursor {
 }
 
 fn adjust_cross(cont: &Node, cross: Pixels) -> Option<Pixels> {
-    let axis = cont.layout_config.get_content_axis();
+    let axis = cont.config.get_content_axis();
     let to_sub = cont.margin.total_on(axis.complement());
     cross.checked_sub(to_sub)
 }

@@ -50,7 +50,7 @@ fn populator(app: &mut Application, _m: MutatorIndex, node_key: NodeKey, xml_nod
     let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     let parent = app.view.parent(node_key).ok_or_else(|| error!())?;
-    if app.view[parent].layout_config.get_content_axis() != Axis::Vertical {
+    if app.view[parent].config.get_content_axis() != Axis::Vertical {
         let xml_node = &app.xml_tree[xml_node_key];
         let line = xml_node.line.get().unwrap_or(0.into());
         return Err(error!("Paragraph is in an horizontal container; this is invalid! (line {})", line));
@@ -81,7 +81,7 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 
             let width = font.quick_width(&unbreakable, font_size);
             let ratio = aspect_ratio(width, font_size);
-            app.view[new_node].layout_config.set_layout_mode(LayoutMode::AspectRatio(ratio));
+            app.view[new_node].config.set_layout_mode(LayoutMode::AspectRatio(ratio));
 
             let factory = Some(UNBREAKABLE_MUTATOR_INDEX.into()).into();
             app.view[new_node].factory = factory;
@@ -91,9 +91,9 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
 
         let row = Pixels::from_num(font_size);
         let gap = Pixels::from_num(space_width(font_size));
-        app.view[node_key].layout_config.set_layout_mode(LayoutMode::Chunks(row));
-        app.view[node_key].layout_config.set_content_axis(Axis::Horizontal);
-        app.view[node_key].layout_config.set_content_gap(gap);
+        app.view[node_key].config.set_layout_mode(LayoutMode::Chunks(row));
+        app.view[node_key].config.set_content_axis(Axis::Horizontal);
+        app.view[node_key].config.set_content_gap(gap);
         app.invalidate_layout();
     }
 
@@ -124,7 +124,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
             };
 
             let color = Some(inherited_style.foreground);
-            app.view[child].layout_config.set_dirty(true);
+            app.view[child].config.set_dirty(true);
             app.view[child].foreground = {
                 let mut renderer = font.renderer(color, cursors, font_size);
                 renderer.write(&unbreakable);
