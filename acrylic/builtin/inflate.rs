@@ -1,6 +1,6 @@
-use crate::core::app::{Application, Mutator, MutatorIndex};
+use crate::core::app::Application;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::core::node::NodeKey;
+use crate::core::node::{NodeKey, Mutator, MutatorIndex};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters};
 use crate::core::visual::{Ratio, LayoutMode};
 use crate::{Error, ro_string};

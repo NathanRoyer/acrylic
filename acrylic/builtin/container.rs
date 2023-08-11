@@ -1,7 +1,7 @@
-use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
+use crate::core::app::Application;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS, UserInputEvent};
 use crate::core::state::Namespace;
-use crate::core::node::NodeKey;
+use crate::core::node::{NodeKey, Mutator, MutatorIndex, get_storage};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::visual::{Pixels, SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelArray};
 use crate::core::style::DEFAULT_STYLE;
@@ -9,7 +9,7 @@ use crate::core::{for_each_child, rgb::FromSlice};
 use crate::core::layout::{get_scroll, scroll};
 use crate::{SSAA, SSAA_SQ, Error, error, Box, Vec, ArcStr, ro_string};
 use oakwood::NodeKey as _;
-use lmfu::json::{JsonValue, JsonPath};
+use lmfu::json::{Value, Path};
 
 use railway::{NaiveRenderer, computing::{Couple, C_ZERO}};
 
@@ -88,7 +88,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
                 app: &Application,
                 ns_creator: NodeKey,
                 ns_user: NodeKey,
-                path: &mut JsonPath,
+                path: &mut Path,
             ) -> Result<(), Error> {
                 let mut child = ns_user;
                 loop {
@@ -108,7 +108,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
             let path = app.resolve(node_key, parent_ns_name, parent_ns_path)?;
 
             let len = match &app.state[&path] {
-                JsonValue::Array(vector_len) => *vector_len,
+                Value::Array(vector_len) => *vector_len,
                 _ => return Err(error!("Generator: {}:{} is not an array", parent_ns_name, parent_ns_path)),
             };
 

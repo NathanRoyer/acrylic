@@ -3,13 +3,14 @@
 //! todo: implement <https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
 
 use super::event::{Handlers, DEFAULT_HANDLERS};
-use super::visual::{RgbaPixelArray, GrayScalePixelArray, PixelSource};
+use super::visual::{RgbaPixelArray, GrayScalePixelArray, PixelSource, SignedPixels};
 use super::rgb::RGBA8;
-use super::app::{Application, Mutator, MutatorIndex, FONT_MUTATOR_INDEX};
-use super::node::NodeKey;
+use super::app::{Application, FONT_MUTATOR_INDEX};
+use super::node::{NodeKey, Mutator, MutatorIndex};
 use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
 use core::{fmt::{self, Write}};
 
+use lmfu::json::{Value, ArrayIter};
 use ttf_parser::{Tag, Face, OutlineBuilder};
 use simd_blit::PixelArray;
 use wizdraw::{push_cubic_bezier_segments, fill};
@@ -17,6 +18,7 @@ use vek::{Vec2, QuadraticBezier2, CubicBezier2};
 use rgb::FromSlice;
 
 const APPLY_SIDE_BEARING: bool = false;
+const CURSOR_WIDTH: usize = 2;
 
 type GlyphCache = LiteMap<(char, usize), Rc<GrayScalePixelArray>>;
 
@@ -47,8 +49,10 @@ pub struct GlyphRenderer<'a> {
     glyph_cache: &'a mut GlyphCache,
     glyph_cache_weight: &'a mut usize,
     render_data: Option<(Vec<u8>, RGBA8)>,
+    cursors: Option<(usize, ArrayIter<'a>)>,
     font_size: usize,
     width: usize,
+    char_pos: usize,
 }
 
 impl Font {
@@ -65,7 +69,12 @@ impl Font {
     /// Passing `None` as render color will create a renderer suitable for
     /// computing only the width of the text. No texture will be created in
     /// mode.
-    pub fn renderer(&mut self, color: Option<RGBA8>, font_size: usize) -> GlyphRenderer {
+    pub fn renderer<'a>(
+        &'a mut self,
+        color: Option<RGBA8>,
+        cursors: Option<(usize, ArrayIter<'a>)>,
+        font_size: usize,
+    ) -> GlyphRenderer<'a> {
         let mut font_face = Face::parse(&self.bytes, 0).unwrap();
 
         if false {
@@ -77,10 +86,64 @@ impl Font {
             glyph_cache: &mut self.glyph_cache,
             glyph_cache_weight: &mut self.glyph_cache_weight,
             render_data: color.map(|c| (Vec::new(), c)),
+            cursors,
             font_size,
-            width: 0,
+            width: CURSOR_WIDTH,
+            char_pos: 0,
         }
     }
+
+    /// Shorthand for the following code:
+    ///
+    /// ```rust
+    /// let mut renderer = font.renderer(None, font_size);
+    /// renderer.write(text);
+    /// renderer.width()
+    /// ```
+    pub fn quick_width(&mut self, text: &str, font_size: usize) -> usize {
+        let mut renderer = self.renderer(None, None, font_size);
+        renderer.write(text);
+        renderer.width()
+    }
+
+    pub fn px_to_char_index(&mut self, px: SignedPixels, text: &str, font_size: usize) -> usize {
+        let lim = text.chars().count();
+        let slice_len = |i| text.chars().take(i + 1).fold(0, |acc, c| acc + c.len_utf8());
+
+        let mut candidate = 0;
+        let mut best_distance = px;
+
+        for i in 0..lim {
+            let b = slice_len(i);
+            let char_left_boundary = self.quick_width(&text[..b], font_size);
+            let d = (px - SignedPixels::from_num(char_left_boundary)).abs();
+            if d < best_distance {
+                best_distance = d;
+                candidate = i + 1;
+            }
+        }
+
+        candidate
+    }
+}
+
+fn has_cursor(cursors: &Option<(usize, ArrayIter)>, char_pos: usize) -> bool {
+    if let Some((unbrk_index, iter)) = cursors.clone() {
+        for (_, file, path) in iter {
+            let mut unbrk_index_path = path.clone();
+            let unbrk_index_path = unbrk_index_path.index_num(0);
+            let mut char_pos_path = path.clone();
+            let char_pos_path = char_pos_path.index_num(1);
+
+            if file.get(unbrk_index_path) == &Value::Number(unbrk_index as _) {
+                if file.get(char_pos_path) == &Value::Number(char_pos as _) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 impl<'a> GlyphRenderer<'a> {
@@ -231,7 +294,35 @@ impl<'a> GlyphRenderer<'a> {
                     src_offset += advance;
                 }
 
+                if has_cursor(&self.cursors, self.char_pos) {
+                    let mut dst_offset = 0;
+                    for _ in 0..self.font_size {
+                        for x in 0..CURSOR_WIDTH {
+                            let dst = &mut fake_fb[dst_offset + x];
+                            *dst = RGBA8::new(230, 230, 230, 255);
+                        }
+                        dst_offset += self.width;
+                    }
+                }
+
                 cursor += advance;
+                self.char_pos += 1;
+            }
+
+            if has_cursor(&self.cursors, self.char_pos) {
+                // lifetime trick
+                let (pixels, _) = &mut self.render_data.as_mut().unwrap();
+
+                let fake_fb = pixels.as_rgba_mut();
+                if let Some(mut dst_offset) = self.width.checked_sub(CURSOR_WIDTH) {
+                    for _ in 0..self.font_size {
+                        for x in 0..CURSOR_WIDTH {
+                            let dst = &mut fake_fb[dst_offset + x];
+                            *dst = RGBA8::new(230, 230, 230, 255);
+                        }
+                        dst_offset += self.width;
+                    }
+                }
             }
         }
     }
@@ -254,14 +345,14 @@ impl<'a> GlyphRenderer<'a> {
             let pixel_buffer = RgbaPixelArray::new(pixels.into_boxed_slice(), self.width, self.font_size);
             PixelSource::TextureNoSSAA(Box::new(pixel_buffer))
         } else {
-            panic!("StrTexture: No render color → no texture");
+            panic!("StrTexture: No render color -> no texture");
         }
     }
 }
 
 /// Utility to compute the size of a whitespace based on font size.
 pub fn space_width(font_size: usize) -> usize {
-    font_size / 4
+    (font_size / 4) - CURSOR_WIDTH
 }
 
 fn interchar_width(font_size: usize) -> usize {

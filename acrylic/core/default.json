@@ -1,9 +1,10 @@
 {
     "img": "acrylic.png",
     "test": [
-        "this is a list",
-        "hey nice item",
-        "damn what a list list list list",
+        "flexbox",
+        "SIMD",
+        "XML views",
         "click anywhere"
-    ]
+    ],
+    "omg": "Rewrite me senpai"
 }

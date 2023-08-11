@@ -1,8 +1,9 @@
-pub use acrylic::core::{app::Application};
+pub use acrylic::core::app::Application;
 use acrylic::core::{rgb::RGBA8, event::UserInputEvent, visual::{Position, SignedPixels}};
 
 use log::{error, set_logger, set_max_level, Record, LevelFilter, Level, Metadata};
 use std::fmt::Write;
+use core::str::from_utf8;
 
 extern "C" {
     fn raw_error(s: *const u8, l: usize);
@@ -111,12 +112,8 @@ pub extern "C" fn frame(app: &mut Application, _age_ms: usize) {
     ensure_pending_request(app);
 }
 
-/*pub static mut TEXT_INPUT: [u8; 16] = [0; 16];
-pub static mut FOCUS_GRABBED: bool = false;
-pub static mut FOCUS_POINT: Point = Point {
-    x: 0,
-    y: 0,
-};
+pub static mut TEXT_INPUT: [u8; 16] = [0; 16];
+pub static mut _FOCUS_GRABBED: bool = false;
 
 #[export_name = "get_text_input_buffer"]
 pub extern "C" fn get_text_input_buffer() -> *const u8 {
@@ -125,21 +122,26 @@ pub extern "C" fn get_text_input_buffer() -> *const u8 {
 
 #[export_name = "send_text_input"]
 pub extern "C" fn send_text_input(app: &mut Application, len: usize, replace: bool) {
-    let bytes = unsafe { &TEXT_INPUT[..len] }.to_vec();
-    if let Ok(string) = String::from_utf8(bytes) {
+    let slice = unsafe { &TEXT_INPUT[..len] };
+    if let Ok(string) = from_utf8(slice) {
         let event = match replace {
-            true => Event::TextReplace(string),
-            false => Event::TextInsert(string),
+            true => UserInputEvent::TextReplace(string),
+            false => UserInputEvent::TextInsert(string),
         };
-        let _ = app.fire_event(&event);
+        let focus_coords = app.get_focus_coords();
+        let node_key = app.hit_test(focus_coords);
+        let _ = app.handle_user_input(node_key, &event);
     }
 }
 
 #[export_name = "send_text_delete"]
 pub extern "C" fn send_text_delete(app: &mut Application, delete: isize) {
-    let _ = app.fire_event(&Event::TextDelete(delete));
+    let event = UserInputEvent::TextDelete(delete);
+    let focus_coords = app.get_focus_coords();
+    let node_key = app.hit_test(focus_coords);
+    let _ = app.handle_user_input(node_key, &event);
 }
-
+/*
 #[export_name = "send_dir_input"]
 pub extern "C" fn send_dir_input(_app: &mut Application, _dir: usize) {
     let direction = [
@@ -171,8 +173,10 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize, x: usize, y
         }
     }*/
 
+    app.clear_focused_node().unwrap();
+
     let (x, y) = (SignedPixels::from_num(x), SignedPixels::from_num(y));
-    let node_key = app.hit_test(Position::new(x, y));
+    let node_key = app.get_focused_node(Position::new(x, y));
     app.handle_user_input(node_key, &input_event).unwrap();
 
     /*if grabbed {

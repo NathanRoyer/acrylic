@@ -1,61 +1,39 @@
 //! The state of your Application
 
-use super::xml::{XmlNodeTree, XmlNodeKey, XmlTagParameters, AttributeValue, AttributeValueVec, AttributeValueType};
+use super::xml::{XmlNodeTree, XmlNodeKey, AttributeValue, AttributeValueVec, AttributeValueType};
+use crate::{Error, error, String, ArcStr, Vec, Box, Rc, HashMap, LiteMap, DEFAULT_FONT_NAME};
 use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
-use super::event::{Handlers, UserInputEvent};
-use super::node::{NodeTree, NodeKey};
 use super::layout::{compute_layout, hit_test};
+use super::node::{NodeTree, NodeKey, Mutator};
 use super::state::{Namespace, root_ns};
+use core::{time::Duration, ops::Deref};
+use super::event::UserInputEvent;
+use super::for_each_child;
 use super::style::Theme;
 use super::rgb::RGBA8;
-use crate::{Error, error, String, ArcStr, Vec, Box, Rc, HashMap, LiteMap, DEFAULT_FONT_NAME};
-use core::{time::Duration, ops::Deref, any::Any};
-use super::for_each_child;
 
-use oakwood::{index, NodeKey as _};
-use lmfu::json::{JsonFile, JsonValue, JsonPath, parse_path};
+use oakwood::{NodeKey as _};
+use lmfu::json::{JsonFile, Value, Path, parse_path};
 
 use super::glyph::FONT_MUTATOR;
-use crate::builtin::inflate::INFLATE_MUTATOR;
-use crate::builtin::import::IMPORT_MUTATOR;
-use crate::builtin::png::PNG_MUTATOR;
-use crate::builtin::container::CONTAINERS;
-use crate::builtin::label::LABEL_MUTATOR;
-use crate::builtin::paragraph::PARAGRAPH_MUTATOR;
+
+use crate::builtin::{
+    inflate::INFLATE_MUTATOR,
+    import::IMPORT_MUTATOR,
+    png::PNG_MUTATOR,
+    container::CONTAINERS,
+    label::LABEL_MUTATOR,
+    paragraph::{PARAGRAPH_MUTATOR, UNBREAKABLE_MUTATOR},
+};
 
 #[cfg(doc)]
-use super::{node::Node, event::Initializer};
-
-index!(MutatorIndex, OptionalMutatorIndex);
+use super::node::Node;
 
 /// General-purpose callbacks that containers can call based on their attributes.
 pub type SimpleCallback = fn(&mut Application, NodeKey) -> Result<(), Error>;
 
 /// General-purpose callbacks that containers can call based on their attributes.
 pub type SimpleCallbackMap = HashMap<ArcStr, SimpleCallback>;
-
-/// XML Tags & other event handlers are defined as Mutators
-pub struct Mutator {
-    pub name: ArcStr,
-    pub xml_params: Option<XmlTagParameters>,
-    pub handlers: Handlers,
-    /// Must be None initially; initialize it via an [`Initializer`].
-    pub storage: Option<Box<dyn Any>>,
-}
-
-impl Clone for Mutator {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            xml_params: self.xml_params.clone(),
-            handlers: self.handlers.clone(),
-            storage: match self.storage.is_some() {
-                true => panic!("Tried to Clone Mutator with an initialized storage"),
-                false => None,
-            },
-        }
-    }
-}
 
 struct Request {
     asset: ArcStr,
@@ -93,9 +71,12 @@ pub struct Application {
     pub debug: DebuggingOptions,
     pub state: JsonFile,
 
+    // cleared on reload
     pub(crate) namespaces: LiteMap<NodeKey, Namespace>,
     pub(crate) mutators: Vec<Mutator>,
 
+    focus_coords: Position,
+    focused: Option<NodeKey>,
     must_check_layout: bool,
     _source_files: Vec<String>,
     _age: Duration,
@@ -104,13 +85,9 @@ pub struct Application {
     requests: Vec<Request>,
 }
 
-/// Utility function for event handlers to get and downcast their storage
-pub fn get_storage<T: Any>(mutators: &mut [Mutator], m: MutatorIndex) -> Option<&mut T> {
-    mutators[usize::from(m)].storage.as_mut()?.downcast_mut()
-}
-
 pub const IMPORT_MUTATOR_INDEX: usize = 0;
 pub const FONT_MUTATOR_INDEX: usize = 1;
+pub const UNBREAKABLE_MUTATOR_INDEX: usize = 5;
 
 impl Application {
     /// Main constructor
@@ -121,8 +98,13 @@ impl Application {
             PNG_MUTATOR,
             LABEL_MUTATOR,
             PARAGRAPH_MUTATOR,
+            UNBREAKABLE_MUTATOR,
             INFLATE_MUTATOR,
         ];
+
+        assert_eq!(default_mutators[IMPORT_MUTATOR_INDEX].name, "ImportMutator");
+        assert_eq!(default_mutators[FONT_MUTATOR_INDEX].name, "FontMutator");
+        assert_eq!(default_mutators[UNBREAKABLE_MUTATOR_INDEX].name, "UnbreakableMutator");
 
         let mut mutators = Vec::with_capacity(default_mutators.len() + CONTAINERS.len());
         mutators.extend_from_slice(default_mutators);
@@ -132,13 +114,15 @@ impl Application {
             root: Default::default(),
             view: NodeTree::new(),
             xml_tree: XmlNodeTree::new(),
-            state: JsonFile::parse(include_str!("default.json")).unwrap(),
+            state: JsonFile::new(Some(include_str!("default.json"))).unwrap(),
             namespaces: LiteMap::new(),
             // monitors: LiteMap::new(),
             callbacks,
             mutators,
             must_check_layout: false,
             _source_files: Vec::new(),
+            focus_coords: Position::zero(),
+            focused: None,
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             _age: Duration::from_secs(0),
             render_list: Vec::new(),
@@ -187,22 +171,25 @@ impl Application {
         app
     }
 
-    /// Reload a node in the view and all its children
-    pub fn reload(&mut self, node: NodeKey) {
-        let backup = &self.view[node];
+    /// Reload the view, allowing it to pick up state changes
+    pub fn reload_view(&mut self) {
+        let backup = &self.view[self.root];
         let factory = backup.factory;
         let xml_node_index = backup.xml_node_index;
 
-        self.view.reset(node);
+        self.view.reset(self.root);
         self.invalidate_layout();
+        let root_ns = self.namespaces.remove(&self.root).unwrap();
+        self.namespaces.clear();
+        self.namespaces.insert(self.root, root_ns);
 
-        let root = &mut self.view[node];
+        let root = &mut self.view[self.root];
         root.factory = factory;
         root.xml_node_index = xml_node_index;
 
         if let Some(xml_root) = xml_node_index.get() {
             let xml_root = self.xml_tree.node_key(xml_root);
-            self.populate(node, xml_root).unwrap();
+            self.populate(self.root, xml_root).unwrap();
         }
     }
 
@@ -289,7 +276,7 @@ impl Application {
         node: NodeKey,
         ns_name: &str,
         ns_path: &str,
-    ) -> Result<JsonPath, Error> {
+    ) -> Result<Path, Error> {
         let mut target = node;
         loop {
             match self.namespaces.get(&target) {
@@ -324,6 +311,21 @@ impl Application {
         }
     }
 
+    #[doc(hidden)]
+    pub fn attr_state_path(&mut self, node: NodeKey, attr: usize) -> Result<Result<(Path, AttributeValueType), AttributeValue>, Error> {
+        let xml_node_index = self.view[node].xml_node_index.get()
+            .expect("cannot use Application::attr on nodes without xml_node_index");
+        let xml_node_key = self.xml_tree.node_key(xml_node_index);
+        let xml_node = &self.xml_tree[xml_node_key];
+
+        let (namespace, path, value_type) = match xml_node.attributes.get(attr).clone() {
+            AttributeValue::StateLookup { namespace, path, value_type } => (namespace, path, value_type),
+            value => return Ok(Err(value)),
+        };
+
+        Ok(Ok((self.resolve(node, &namespace, path.deref())?, value_type)))
+    }
+
     /// Retrieves the value of an XML attribute, resolving optional JSON state dependencies.
     ///
     /// # Attribute syntax
@@ -348,26 +350,22 @@ impl Application {
     ) -> Result<T, Error> {
         use AttributeValueType::*;
 
-        let xml_node_index = self.view[node].xml_node_index.get()
-            .expect("cannot use Application::attr on nodes without xml_node_index");
-        let xml_node_key = self.xml_tree.node_key(xml_node_index);
-        let xml_node = &self.xml_tree[xml_node_key];
-
-        let (namespace, path, value_type) = match xml_node.attributes.get(attr).clone() {
-            AttributeValue::StateLookup { namespace, path, value_type } => (namespace, path, value_type),
-            value => return T::try_from(value),
+        let (json_path, value_type) = match self.attr_state_path(node, attr)? {
+            Ok(tuple) => tuple,
+            Err(value) => return T::try_from(value),
         };
 
-        let json_path = self.resolve(node, &namespace, path.deref())?;
         let value = match (&self.state[&json_path], value_type) {
             // String dumps:
             (
-                JsonValue::Array  (_) |
-                JsonValue::Object (_) |
-                JsonValue::Number (_) |
-                JsonValue::Boolean(_) |
-                JsonValue::Null,
-            Other | OptOther) => {
+                Value::Array  (_) |
+                Value::Object (_) |
+                Value::Number (_) |
+                Value::Boolean(_) |
+                Value::Null,
+
+                Other | OptOther,
+            ) => {
                 let string = self.state.dump(&json_path)
                     .map_err(|e| error!("unexpected fmt error: {:?}", e))?;
 
@@ -379,7 +377,7 @@ impl Application {
             },
 
             // Common conversions:
-            (JsonValue::String(s), _) => AttributeValue::parse(&s, value_type)?,
+            (Value::String(s), _) => AttributeValue::parse(&s, value_type)?,
 
             _ => return Err(error!("Invalid Attribute Conversion")),
         };
@@ -393,7 +391,7 @@ impl Application {
         let _tag = self.xml_tag(key);
         let node = &mut self.view[key];
         if node.layout_config.get_dirty() {
-            // log::info!("node {} ({}) is dirty", _tag, key.index());
+            log::info!("node {} ({}) is dirty", _tag, key.index());
             node.layout_config.set_dirty(false);
 
             if querying {
@@ -458,6 +456,40 @@ impl Application {
     /// Alias of [`hit_test`]
     pub fn hit_test(&self, position: Position) -> NodeKey {
         hit_test(&self.view, self.root, position)
+    }
+
+    pub fn get_focus_coords(&self) -> Position {
+        self.focus_coords
+    }
+
+    pub fn set_focus(&mut self, focus_coords: Position) -> NodeKey {
+        self.focus_coords = focus_coords;
+        self.hit_test(focus_coords)
+    }
+
+    pub fn set_focused_node(&mut self, node_key: NodeKey) -> Result<(), Error> {
+        self.clear_focused_node()?;
+        self.focused = Some(node_key);
+
+        Ok(())
+    }
+
+    pub fn clear_focused_node(&mut self) -> Result<(), Error> {
+        if let Some(node_key) = self.focused {
+            let input_event = UserInputEvent::FocusLoss;
+            self.handle_user_input(node_key, &input_event)?;
+            self.focused = None;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_focused_node(&mut self, focus_coords: Position) -> NodeKey {
+        let under_focus_coords = self.set_focus(focus_coords);
+        match self.focused {
+            Some(node_key) => node_key,
+            None => under_focus_coords,
+        }
     }
 
     /// Renders the current view in a `framebuffer`.

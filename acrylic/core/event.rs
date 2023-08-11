@@ -1,8 +1,8 @@
 //! Event definitions
 
-use super::app::{Application, MutatorIndex};
+use super::app::Application;
 use super::xml::XmlNodeKey;
-use super::node::NodeKey;
+use super::node::{NodeKey, MutatorIndex};
 use super::visual::{Direction, Ratio, SignedPixels};
 use crate::{Box, ArcStr, Error, error};
 
@@ -74,6 +74,10 @@ pub type Resizer = fn(
 /// - `node_key`: The node which was selected for handling
 /// - `target`: The node with which the user interacted
 /// - `event`: The type and details of this user input event
+///
+/// # Return value
+///
+/// `true` if the event was handled and shouldn't be propagated.
 pub type UserInputHandler = fn(
     app: &mut Application,
     m: MutatorIndex,
@@ -160,10 +164,13 @@ pub enum UserInputEvent<'a> {
     /// Insert some text at the current position
     TextInsert(&'a str),
     /// Delete text, from the current position to an offset;
+    /// the offset is a byte offset (todo: make this a char offset);
     /// A value of zero means nothing is deleted.
     TextDelete(isize),
-    /// User selected/unselected this node
-    FocusGrab(bool),
+    /// User unselected this node
+    ///
+    /// Set app.focused to a nodekey to grab focus
+    FocusLoss,
     /// Nodes which grabbed the focus
     /// receives this special event:
     DirInput(Direction),

@@ -26,10 +26,10 @@ Also, requires a nightly toolchain if you've enabled SIMD support.
 - ☑ textual nodes
 - ☑ state store
 - ☑ round containers
-- ☐ templating [WiP]
-- ☐ input events [WiP]
-- ☐ event handlers [WiP]
+- ☑ input events
+- ☑ event handlers
 - ☐ text editing
+- ☐ templating [WiP]
 - ☐ scrolling [WiP]
 - ☐ rich text
 - ☐ external links

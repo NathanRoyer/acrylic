@@ -1,7 +1,7 @@
 //! Style, Theme, style_index, Color
 
 use rgb::RGBA8;
-use lmfu::json::{JsonFile, JsonValue, JsonPath};
+use lmfu::json::{JsonFile, Value, Path};
 use crate::{Error, error, ArcStr, Vec};
 
 fn parse_color(string: &str) -> Result<RGBA8, Error> {
@@ -94,24 +94,24 @@ impl Theme {
     /// - `incite-focus`
     ///
     pub fn parse(theme_json: &str) -> Result<Self, Error> {
-        let theme = JsonFile::parse(theme_json).map_err(|e| error!("JSON Style: parsing error: {:?}", e))?;
+        let theme = JsonFile::new(Some(theme_json)).map_err(|e| error!("JSON Style: parsing error: {:?}", e))?;
 
         macro_rules! expect {
             ($theme:ident, $path:expr) => {
                 match &$theme[$path] {
-                    JsonValue::String(string) => string,
+                    Value::String(string) => string,
                     _ => return Err(error!("JSON Style: missing {:?} (or it's not a string)", stringify!($path))),
                 }
             }
         }
 
         let version = &theme[["version"]];
-        if version == &JsonValue::Number(0.0) {
+        if version == &Value::Number(0.0) {
             let name = expect!(theme, ["name"]).clone();
             let mut styles = Vec::with_capacity(V0_STYLES.len());
 
             for style in V0_STYLES {
-                let path: JsonPath = ["styles", style].into();
+                let path: Path = ["styles", style].into();
                 styles.push(Style {
                     background: parse_color(&expect!(theme, path.clone().index_str("background")))?,
                     foreground: parse_color(&expect!(theme, path.clone().index_str("foreground")))?,

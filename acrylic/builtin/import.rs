@@ -1,8 +1,8 @@
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType, parse_xml_tree};
 use crate::{Box, HashMap, ArcStr, Error, ro_string};
-use crate::core::app::{Application, Mutator, MutatorIndex, get_storage};
+use crate::core::app::Application;
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::core::node::NodeKey;
+use crate::core::node::{NodeKey, Mutator, MutatorIndex, get_storage};
 use oakwood::NodeKey as _;
 
 const FILE: usize = 0;
