@@ -177,6 +177,18 @@ impl Application {
         let factory = backup.factory;
         let xml_node_index = backup.xml_node_index;
 
+        let focused_path = self.focused.map(|mut node_key| {
+            let mut path = Vec::new();
+
+            while let Some(parent) = self.view.parent(node_key) {
+                let index = self.view.child_index(node_key).unwrap();
+                path.push(index);
+                node_key = parent;
+            }
+
+            path
+        });
+
         self.view.reset(self.root);
         self.invalidate_layout();
         let root_ns = self.namespaces.remove(&self.root).unwrap();
@@ -190,6 +202,23 @@ impl Application {
         if let Some(xml_root) = xml_node_index.get() {
             let xml_root = self.xml_tree.node_key(xml_root);
             self.populate(self.root, xml_root).unwrap();
+        }
+
+        self.focused = focused_path.map(|mut path| {
+            let mut node_key = self.root;
+
+            while let Some(index) = path.pop() {
+                node_key = self.view.first_child(node_key).unwrap();
+                for _ in 0..index {
+                    node_key = self.view.next_sibling(node_key);
+                }
+            }
+
+            node_key
+        });
+
+        if let Some(focused) = self.focused {
+            log::warn!("focused: {:#?}", self.view[focused]);
         }
     }
 
@@ -388,10 +417,10 @@ impl Application {
     }
 
     fn build_render_list(&mut self, fb_rect: &(Position, Size), key: NodeKey, querying: bool) {
-        let _tag = self.xml_tag(key);
+        // let _tag = self.xml_tag(key);
         let node = &mut self.view[key];
         if node.layout_config.get_dirty() {
-            log::info!("node {} ({}) is dirty", _tag, key.index());
+            // log::info!("node {} ({}) is dirty", _tag, key.index());
             node.layout_config.set_dirty(false);
 
             if querying {
@@ -484,12 +513,16 @@ impl Application {
         Ok(())
     }
 
-    pub fn get_focused_node(&mut self, focus_coords: Position) -> NodeKey {
+    pub fn get_focused_node_or_at(&mut self, focus_coords: Position) -> NodeKey {
         let under_focus_coords = self.set_focus(focus_coords);
         match self.focused {
             Some(node_key) => node_key,
             None => under_focus_coords,
         }
+    }
+
+    pub fn get_focused_node(&mut self) -> Option<NodeKey> {
+        self.focused
     }
 
     /// Renders the current view in a `framebuffer`.

@@ -99,7 +99,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
                     }
                 }
 
-                let index = app.view.child_num(child).unwrap();
+                let index = app.view.child_index(child).unwrap();
                 path.index_num(index);
 
                 Ok(())

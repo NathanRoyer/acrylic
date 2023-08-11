@@ -128,18 +128,19 @@ pub extern "C" fn send_text_input(app: &mut Application, len: usize, replace: bo
             true => UserInputEvent::TextReplace(string),
             false => UserInputEvent::TextInsert(string),
         };
-        let focus_coords = app.get_focus_coords();
-        let node_key = app.hit_test(focus_coords);
-        let _ = app.handle_user_input(node_key, &event);
+
+        if let Some(node_key) = app.get_focused_node() {
+            app.handle_user_input(node_key, &event).unwrap();
+        }
     }
 }
 
 #[export_name = "send_text_delete"]
 pub extern "C" fn send_text_delete(app: &mut Application, delete: isize) {
     let event = UserInputEvent::TextDelete(delete);
-    let focus_coords = app.get_focus_coords();
-    let node_key = app.hit_test(focus_coords);
-    let _ = app.handle_user_input(node_key, &event);
+    if let Some(node_key) = app.get_focused_node() {
+        app.handle_user_input(node_key, &event).unwrap();
+    }
 }
 /*
 #[export_name = "send_dir_input"]
@@ -176,7 +177,7 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize, x: usize, y
     app.clear_focused_node().unwrap();
 
     let (x, y) = (SignedPixels::from_num(x), SignedPixels::from_num(y));
-    let node_key = app.get_focused_node(Position::new(x, y));
+    let node_key = app.get_focused_node_or_at(Position::new(x, y));
     app.handle_user_input(node_key, &input_event).unwrap();
 
     /*if grabbed {

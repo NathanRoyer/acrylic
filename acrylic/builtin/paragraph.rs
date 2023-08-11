@@ -188,6 +188,8 @@ fn user_input_handler(
     _target: NodeKey,
     event: &UserInputEvent,
 ) -> Result<bool, Error> {
+    let mut handled = false;
+
     if let UserInputEvent::QuickAction1 = event {
         // for every unbreakable
         //   if it's vertically contained:
@@ -278,6 +280,8 @@ fn user_input_handler(
 
         // trigger buffer refresh
         app.resize(node_key)?;
+
+        handled = true;
     }
 
     else if let UserInputEvent::TextInsert(addition) = event {
@@ -321,6 +325,8 @@ fn user_input_handler(
 
             app.reload_view();
         }
+
+        handled = true;
     }
 
     else if let UserInputEvent::TextDelete(deletion) = event {
@@ -378,6 +384,8 @@ fn user_input_handler(
         app.state.set_string(&attr_path, string.into());
 
         app.reload_view();
+
+        handled = true;
     }
 
     else if let UserInputEvent::FocusLoss = event {
@@ -391,7 +399,9 @@ fn user_input_handler(
 
         // trigger buffer refresh
         app.resize(node_key)?;
+
+        handled = true;
     }
 
-    Ok(false)
+    Ok(handled)
 }
