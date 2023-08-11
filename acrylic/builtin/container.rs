@@ -4,7 +4,6 @@ use crate::core::state::Namespace;
 use crate::core::node::{NodeKey, Mutator, MutatorIndex, get_storage};
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::visual::{Pixels, SignedPixels, Margin, Axis, LayoutMode, PixelSource, RgbaPixelArray};
-use crate::core::style::DEFAULT_STYLE;
 use crate::core::{for_each_child, rgb::FromSlice};
 use crate::core::layout::{get_scroll, scroll};
 use crate::{SSAA, SSAA_SQ, Error, error, Box, Vec, ArcStr, ro_string};
@@ -73,15 +72,21 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     app.invalidate_layout();
 
     if let Some(style) = style_attr {
-        let color = app.theme.get(&style).unwrap().background;
+        let style_index = match app.theme.resolve(&style) {
+            Some(index) => Ok(index),
+            None => Err(error!("Invalid style name")),
+        }?;
+
+        let color = app.theme.get(style_index).background;
         app.view[node_key].background = PixelSource::SolidColor(color);
+        app.view[node_key].style_override = Some(style_index.into()).into();
     }
 
     let to_generate = if let Some(new_ns_name) = for_attr {
         let namespace_path = match in_attr {
-            Some(cs) => cs,
-            None => return Err(error!("<{} for=... in=...> - missing \"in\" attribute", &*tag)),
-        };
+            Some(cs) => Ok(cs),
+            None => Err(error!("<{} for=... in=...> - missing \"in\" attribute", &*tag)),
+        }?;
 
         if let Some((parent_ns_name, parent_ns_path)) = namespace_path.split_once(':') {
             fn callback(
@@ -160,37 +165,25 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         return Ok(());
     }
 
-    let        style: Option<ArcStr> = app.attr(node_key,        STYLE)?;
     let border_width: Option<     Pixels> = app.attr(node_key, BORDER_WIDTH)?;
+    let style = app.view[node_key].style_override.get();
 
     if style.is_some() || border_width.is_some() {
         let margin: Pixels = app.attr(node_key,        MARGIN)?;
         let radius: Pixels = app.attr(node_key, BORDER_RADIUS)?;
+        let inherited_style = app.get_inherited_style(node_key)?;
 
-        let mut parent_style = DEFAULT_STYLE.into();
-        let mut current = node_key;
-        while let Some(parent) = app.view.parent(current) {
-            let style: Option<ArcStr> = app.attr(parent, STYLE)?;
-            if let Some(style) = style {
-                parent_style = style.clone();
-                break;
-            } else {
-                current = parent;
-            }
-        }
-
-        let theme = app.theme.get(&*parent_style).unwrap();
         let size = app.view[node_key].size;
         let (w, h) = (size.w.to_num(), size.h.to_num());
         let couple = Couple::new(w as f32, h as f32);
 
-        let ext = theme.background;
+        let ext = inherited_style.background;
         let ext_rg = Couple::new((ext.r as f32) / 255.0, (ext.g as f32) / 255.0);
         let ext_ba = Couple::new((ext.b as f32) / 255.0, (ext.a as f32) / 255.0);
 
         let border = match style {
-            Some(style) => app.theme.get(&*style).unwrap(),
-            None => theme,
+            Some(style) => app.theme.get(style.into()),
+            None => inherited_style,
         }.outline;
 
         let border_rg = Couple::new((border.r as f32) / 255.0, (border.g as f32) / 255.0);

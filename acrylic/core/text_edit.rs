@@ -165,7 +165,7 @@ pub fn text_edit(
         };
 
         if let Some(last_new_unb) = maybe_unb {
-            let last_new_unb_len = last_new_unb.len();
+            let last_new_unb_len = last_new_unb.chars().count();
 
             let mut string = String::from(text.as_str());
             string.insert_str(insert_pos, addition);
@@ -212,7 +212,7 @@ pub fn text_edit(
                 };
 
                 if let Some(last_new_unb) = maybe_unb {
-                    cursor.char_pos = last_new_unb.len();
+                    cursor.char_pos = last_new_unb.chars().count();
                     cursor.unbreakable = match paragraph {
                         true => break_ws(substring).count() - 1,
                         false => 0,

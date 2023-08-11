@@ -3,6 +3,7 @@
 use super::xml::{XmlNodeTree, XmlNodeKey, AttributeValue, AttributeValueVec, AttributeValueType};
 use crate::{Error, error, String, ArcStr, Vec, Box, Rc, HashMap, LiteMap, DEFAULT_FONT_NAME};
 use super::visual::{Pixels, Position, Size, write_framebuffer, constrain, Texture as _};
+use super::style::{Theme, Style, DEFAULT_STYLE};
 use super::layout::{compute_layout, hit_test};
 use super::node::{NodeTree, NodeKey, Mutator};
 use super::state::{Namespace, root_ns};
@@ -10,7 +11,6 @@ use core::{time::Duration, ops::Deref};
 use super::event::UserInputEvent;
 use super::text_edit::Cursor;
 use super::for_each_child;
-use super::style::Theme;
 use super::rgb::RGBA8;
 
 use oakwood::{NodeKey as _};
@@ -295,6 +295,25 @@ impl Application {
         }
 
         Ok(())
+    }
+
+    pub fn get_inherited_style(&self, node_key: NodeKey) -> Result<Style, Error> {
+        let mut parent_style = match self.theme.resolve(DEFAULT_STYLE) {
+            Some(style_index) => Ok(style_index),
+            None => Err(error!("Missing default style in theme")),
+        }?;
+
+        let mut current = node_key;
+        while let Some(parent) = self.view.parent(current) {
+            if let Some(p_style) = self.view[parent].style_override.get() {
+                parent_style = p_style.into();
+                break;
+            } else {
+                current = parent;
+            }
+        }
+
+        Ok(self.theme.get(parent_style))
     }
 
     /// Retrieves a value from the JSON state

@@ -68,18 +68,19 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
     let text:      ArcStr = app.attr(node_key, TEXT)?;
     let font_file: ArcStr = app.attr(node_key, FONT)?;
 
+    let inherited_style = app.get_inherited_style(node_key)?;
     let cursors = match Some(node_key) == app.get_focused_node() {
         true => Some((0, app.text_cursors.as_slice())),
         false => None,
     };
 
     if text.len() > 0 && !app.debug.skip_glyph_rendering {
-        let color = rgb::RGBA8::new(255, 255, 255, 255);
+        let color = Some(inherited_style.foreground);
         let font_size = app.view[node_key].size.h.round().to_num();
         app.view[node_key].layout_config.set_dirty(true);
         app.view[node_key].foreground = {
             let font = get_font(&mut app.mutators, &font_file).unwrap();
-            let mut renderer = font.renderer(Some(color), cursors, font_size);
+            let mut renderer = font.renderer(color, cursors, font_size);
             renderer.write(&text);
             renderer.texture()
         };

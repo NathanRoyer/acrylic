@@ -128,7 +128,11 @@ impl Theme {
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<Style> {
-        Some(self.styles[V0_STYLES.iter().position(|&n| n == name)?])
+    pub fn resolve(&self, name: &str) -> Option<usize> {
+        V0_STYLES.iter().position(|&n| n == name)
+    }
+
+    pub fn get(&self, index: usize) -> Style {
+        self.styles[index]
     }
 }

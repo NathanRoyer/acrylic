@@ -107,6 +107,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
 
     let font_size = font_size.to_num();
     let is_focused = Some(node_key) == app.get_focused_node();
+    let inherited_style = app.get_inherited_style(node_key)?;
 
     if text.len() > 0 && !app.debug.skip_glyph_rendering {
         let font = match get_font(&mut app.mutators, &font_file) {
@@ -122,10 +123,10 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
                 false => None,
             };
 
-            let color = rgb::RGBA8::new(230, 230, 230, 255);
+            let color = Some(inherited_style.foreground);
             app.view[child].layout_config.set_dirty(true);
             app.view[child].foreground = {
-                let mut renderer = font.renderer(Some(color), cursors, font_size);
+                let mut renderer = font.renderer(color, cursors, font_size);
                 renderer.write(&unbreakable);
                 renderer.texture()
             };
