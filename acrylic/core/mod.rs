@@ -3,6 +3,7 @@
 pub mod app;
 pub mod event;
 pub mod glyph;
+pub mod text_edit;
 pub mod layout;
 pub mod node;
 pub mod state;

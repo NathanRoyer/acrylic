@@ -8,6 +8,7 @@ use super::node::{NodeTree, NodeKey, Mutator};
 use super::state::{Namespace, root_ns};
 use core::{time::Duration, ops::Deref};
 use super::event::UserInputEvent;
+use super::text_edit::Cursor;
 use super::for_each_child;
 use super::style::Theme;
 use super::rgb::RGBA8;
@@ -71,9 +72,9 @@ pub struct Application {
     pub debug: DebuggingOptions,
     pub state: JsonFile,
 
-    // cleared on reload
     pub(crate) namespaces: LiteMap<NodeKey, Namespace>,
     pub(crate) mutators: Vec<Mutator>,
+    pub(crate) text_cursors: Vec<Cursor>,
 
     focus_coords: Position,
     focused: Option<NodeKey>,
@@ -121,6 +122,7 @@ impl Application {
             mutators,
             must_check_layout: false,
             _source_files: Vec::new(),
+            text_cursors: Vec::new(),
             focus_coords: Position::zero(),
             focused: None,
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
@@ -216,10 +218,6 @@ impl Application {
 
             node_key
         });
-
-        if let Some(focused) = self.focused {
-            log::warn!("focused: {:#?}", self.view[focused]);
-        }
     }
 
     /// Quick way to tell the application to recompute its layout before the next frame

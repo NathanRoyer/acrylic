@@ -2,15 +2,15 @@
 //!
 //! todo: implement <https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
 
-use super::event::{Handlers, DEFAULT_HANDLERS};
 use super::visual::{RgbaPixelArray, GrayScalePixelArray, PixelSource, SignedPixels};
-use super::rgb::RGBA8;
+use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
 use super::app::{Application, FONT_MUTATOR_INDEX};
 use super::node::{NodeKey, Mutator, MutatorIndex};
-use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
+use super::event::{Handlers, DEFAULT_HANDLERS};
 use core::{fmt::{self, Write}};
+use super::text_edit::Cursor;
+use super::rgb::RGBA8;
 
-use lmfu::json::{Value, ArrayIter};
 use ttf_parser::{Tag, Face, OutlineBuilder};
 use simd_blit::PixelArray;
 use wizdraw::{push_cubic_bezier_segments, fill};
@@ -49,7 +49,7 @@ pub struct GlyphRenderer<'a> {
     glyph_cache: &'a mut GlyphCache,
     glyph_cache_weight: &'a mut usize,
     render_data: Option<(Vec<u8>, RGBA8)>,
-    cursors: Option<(usize, ArrayIter<'a>)>,
+    cursors: Option<(usize, &'a [Cursor])>,
     font_size: usize,
     width: usize,
     char_pos: usize,
@@ -72,7 +72,7 @@ impl Font {
     pub fn renderer<'a>(
         &'a mut self,
         color: Option<RGBA8>,
-        cursors: Option<(usize, ArrayIter<'a>)>,
+        cursors: Option<(usize, &'a [Cursor])>,
         font_size: usize,
     ) -> GlyphRenderer<'a> {
         let mut font_face = Face::parse(&self.bytes, 0).unwrap();
@@ -127,23 +127,17 @@ impl Font {
     }
 }
 
-fn has_cursor(cursors: &Option<(usize, ArrayIter)>, char_pos: usize) -> bool {
-    if let Some((unbrk_index, iter)) = cursors.clone() {
-        for (_, file, path) in iter {
-            let mut unbrk_index_path = path.clone();
-            let unbrk_index_path = unbrk_index_path.index_num(0);
-            let mut char_pos_path = path.clone();
-            let char_pos_path = char_pos_path.index_num(1);
+fn has_cursor(cursors: &Option<(usize, &[Cursor])>, char_pos: usize) -> bool {
+    if let Some((unbreakable, cursors)) = cursors.clone() {
+        let expected = Cursor {
+            unbreakable,
+            char_pos,
+        };
 
-            if file.get(unbrk_index_path) == &Value::Number(unbrk_index as _) {
-                if file.get(char_pos_path) == &Value::Number(char_pos as _) {
-                    return true;
-                }
-            }
-        }
+        cursors.contains(&expected)
+    } else {
+        false
     }
-
-    return false;
 }
 
 impl<'a> GlyphRenderer<'a> {
@@ -216,7 +210,7 @@ impl<'a> GlyphRenderer<'a> {
         let old_width = self.width;
 
         for glyph in text.chars() {
-            if glyph == ' ' {
+            if glyph.is_whitespace() {
                 self.width += space_width(self.font_size);
                 continue;
             }
@@ -253,9 +247,9 @@ impl<'a> GlyphRenderer<'a> {
 
             let mut cursor = old_width;
             for glyph in text.chars() {
-                if glyph == ' ' {
+                if glyph.is_whitespace() {
                     // lifetime trick
-                    let (pixels, _) = &mut self.render_data.as_mut().unwrap();
+                    let (pixels, color) = &mut self.render_data.as_mut().unwrap();
 
                     let advance = space_width(self.font_size);
                     let mut px_offset = cursor * 4;
@@ -263,7 +257,21 @@ impl<'a> GlyphRenderer<'a> {
                         pixels[px_offset..px_offset + (advance * 4)].fill(0);
                         px_offset += new_line_len;
                     }
+
+                    if has_cursor(&self.cursors, self.char_pos) {
+                        let fake_fb = pixels.as_rgba_mut();
+                        let mut dst_offset = cursor;
+                        for _ in 0..self.font_size {
+                            for x in 0..CURSOR_WIDTH {
+                                let dst = &mut fake_fb[dst_offset + x];
+                                *dst = *color;
+                            }
+                            dst_offset += self.width;
+                        }
+                    }
+
                     cursor += advance;
+                    self.char_pos += 1;
                     continue;
                 }
 
@@ -299,7 +307,7 @@ impl<'a> GlyphRenderer<'a> {
                     for _ in 0..self.font_size {
                         for x in 0..CURSOR_WIDTH {
                             let dst = &mut fake_fb[dst_offset + x];
-                            *dst = RGBA8::new(230, 230, 230, 255);
+                            *dst = *color;
                         }
                         dst_offset += self.width;
                     }
@@ -311,14 +319,14 @@ impl<'a> GlyphRenderer<'a> {
 
             if has_cursor(&self.cursors, self.char_pos) {
                 // lifetime trick
-                let (pixels, _) = &mut self.render_data.as_mut().unwrap();
+                let (pixels, color) = &mut self.render_data.as_mut().unwrap();
 
                 let fake_fb = pixels.as_rgba_mut();
                 if let Some(mut dst_offset) = self.width.checked_sub(CURSOR_WIDTH) {
                     for _ in 0..self.font_size {
                         for x in 0..CURSOR_WIDTH {
                             let dst = &mut fake_fb[dst_offset + x];
-                            *dst = RGBA8::new(230, 230, 230, 255);
+                            *dst = *color;
                         }
                         dst_offset += self.width;
                     }
