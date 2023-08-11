@@ -316,12 +316,18 @@ impl Dispatch<wl_callback::WlCallback, ()> for State {
             }
 
             let size = (fb.width, fb.height);
-            let (mx, my) = state.mouse;
+            let mouse_position = {
+                let (mx, my) = state.mouse;
+                let (mx, my) = (SignedPixels::from_num(mx), SignedPixels::from_num(my));
+                Position::new(mx, my)
+            };
+
+            state.app.set_focus_coords(mouse_position).unwrap();
 
             if state.clicked {
-                let (mx, my) = (SignedPixels::from_num(mx), SignedPixels::from_num(my));
-                let node_key = state.app.hit_test(Position::new(mx, my));
-                state.app.handle_user_input(node_key, &UserInputEvent::QuickAction1).unwrap();
+                let node_key = state.app.get_implicit_focus();
+                let event = UserInputEvent::QuickAction1;
+                state.app.call_user_input_handler(node_key, &event).unwrap();
             }
 
             let damages = state.app.render(size, fb.mapping.as_rgba_mut()).unwrap();
@@ -396,10 +402,13 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         if let wl_keyboard::Event::Key { key, .. } = event {
+            println!("KEY PRESS: {:?}", key);
             if key == 1 {
                 // ESC key
                 state.running = false;
             }
+        } else {
+            println!("other keyboard event: {:?}", event);
         }
     }
 }
