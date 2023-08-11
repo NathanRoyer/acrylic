@@ -1,3 +1,7 @@
+//! An input handler for text edition
+//!
+//! The handler is pub(crate); it's not shown in the documentation.
+
 use crate::core::visual::{Pixels, SignedPixels};
 use crate::core::event::UserInputEvent;
 use crate::{Error, error, String, ArcStr};
@@ -6,14 +10,13 @@ use crate::core::glyph::get_font;
 use crate::core::for_each_child;
 use crate::core::node::NodeKey;
 
-use lmfu::json::Path;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Cursor {
     pub unbreakable: usize,
     pub char_pos: usize,
 }
 
+/// Splits a string at each whitespace character
 pub fn break_ws(text: &str) -> impl Iterator<Item=&str> {
     text.split(char::is_whitespace)
 }
@@ -45,16 +48,32 @@ fn get_cursor(
     Ok((cursor, str_index))
 }
 
-pub fn text_edit(
+pub(crate) fn text_edit(
     paragraph: bool,
     app: &mut Application,
     node_key: NodeKey,
     event: &UserInputEvent,
-    font_file: ArcStr,
+    editable: usize,
+    font_file: usize,
     font_size: Pixels,
-    text: ArcStr,
-    text_path: Path,
+    text: usize,
 ) -> Result<bool, Error> {
+    let editable: ArcStr = app.attr(node_key, editable)?;
+    if editable != "true" {
+        return Ok(false);
+    }
+
+    let text_path = match app.attr_state_path(node_key, text)? {
+        Err(_) => {
+            log::error!("Cannot modify state during TextInsert: attribute isn't a state path");
+            return Ok(true);
+        },
+        Ok((attr_path, _)) => attr_path,
+    };
+
+    let font_file: ArcStr = app.attr(node_key, font_file)?;
+    let text: ArcStr = app.attr(node_key, text)?;
+
     let mut handled = false;
 
     if let UserInputEvent::QuickAction1 = event {
@@ -146,7 +165,7 @@ pub fn text_edit(
         }
 
         // trigger buffer refresh
-        app.resize(node_key)?;
+        app.call_resizer(node_key)?;
 
         handled = true;
     }
@@ -246,7 +265,7 @@ pub fn text_edit(
         app.text_cursors.clear();
 
         // trigger buffer refresh
-        app.resize(node_key)?;
+        app.call_resizer(node_key)?;
 
         handled = true;
     }

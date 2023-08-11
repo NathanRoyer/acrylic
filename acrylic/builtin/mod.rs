@@ -6,6 +6,7 @@
 //!
 //! - `for`, `in`: see Iterating Containers
 //! - `style`: name of the style to apply to this container
+//! - `hover`: style override when the container is hovered by a cursor
 //! - `margin`: node margin, as a number of pixels
 //! - `border-width`: node border width, as a number of pixels
 //! - `border-radius`: node border radius, as a number of pixels
@@ -104,10 +105,17 @@
 //!
 //! - `text`: the text to be displayed; no default
 //! - `font`: asset name for the font, defaults to `default`
+//! - `editable`: whether or not to allow text edition; defaults to `false`
 //!
 //! ## `<label>`
 //!
 //! Text displayed in a single line.
+//!
+//! ### Special Attribute: `weight`
+//!
+//! If this attribute is present, it should specify the relative weight
+//! of this label in its container. If it's absent, the label takes as
+//! much space as required for its content.
 //!
 //! ## `<p>`
 //!

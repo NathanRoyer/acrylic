@@ -6,13 +6,14 @@ use crate::core::app::{Application, UNBREAKABLE_MUTATOR_INDEX};
 use crate::core::node::{NodeKey, Mutator, MutatorIndex};
 use crate::core::text_edit::{text_edit, break_ws};
 use crate::{
-    DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE,
+    DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, FALSE_STR,
     Error, error, ArcStr, ro_string, Box,
 };
 
 const TEXT: usize = 0;
 const FONT: usize = 1;
 const SIZE: usize = 2;
+const EDITABLE: usize = 3;
 
 pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
     name: ro_string!("ParagraphMutator"),
@@ -22,6 +23,7 @@ pub const PARAGRAPH_MUTATOR: Mutator = Mutator {
             ("text", AttributeValueType::Other, None),
             ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
             ("size", AttributeValueType::Pixels, Some(DEFAULT_FONT_SIZE)),
+            ("editable", AttributeValueType::Other, Some(FALSE_STR)),
         ],
         accepts_children: false,
     }),
@@ -106,7 +108,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
     let text:            ArcStr = app.attr(node_key, TEXT)?;
 
     let font_size = font_size.to_num();
-    let is_focused = Some(node_key) == app.get_focused_node();
+    let is_focused = Some(node_key) == app.get_explicit_focus();
     let inherited_style = app.get_inherited_style(node_key)?;
 
     if text.len() > 0 && !app.debug.skip_glyph_rendering {
@@ -146,17 +148,6 @@ fn user_input_handler(
     _target: NodeKey,
     event: &UserInputEvent,
 ) -> Result<bool, Error> {
-    let font_file:       ArcStr = app.attr(node_key, FONT)?;
-    let font_size:       Pixels = app.attr(node_key, SIZE)?;
-    let text:            ArcStr = app.attr(node_key, TEXT)?;
-
-    let text_path = match app.attr_state_path(node_key, TEXT)? {
-        Err(_) => {
-            log::error!("Cannot modify state during TextInsert: attribute isn't a state path");
-            return Ok(true);
-        },
-        Ok((attr_path, _)) => attr_path,
-    };
-
-    text_edit(true, app, node_key, event, font_file, font_size, text, text_path)
+    let font_size: Pixels = app.attr(node_key, SIZE)?;
+    text_edit(true, app, node_key, event, EDITABLE, FONT, font_size, TEXT)
 }

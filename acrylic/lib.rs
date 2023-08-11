@@ -23,14 +23,17 @@ pub use {
 pub mod core;
 pub mod builtin;
 
+/// The default font bytes
 pub const NOTO_SANS: &'static [u8] = include_bytes!("noto-sans.ttf");
 
 pub(crate) const DEFAULT_FONT_NAME: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("default-font"));
 pub(crate) const DEFAULT_FONT_SIZE: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("24"));
+pub(crate) const FALSE_STR: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("false"));
 
 pub(crate) const ZERO_ARCSTR: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("0"));
 pub(crate) const ONE_ARCSTR: ManuallyDrop<ArcStr> = ManuallyDrop::new(ro_string!("1"));
 
+/// See [`error`]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
     pub line: u32,

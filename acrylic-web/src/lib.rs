@@ -129,8 +129,8 @@ pub extern "C" fn send_text_input(app: &mut Application, len: usize, replace: bo
             false => UserInputEvent::TextInsert(string),
         };
 
-        if let Some(node_key) = app.get_focused_node() {
-            app.handle_user_input(node_key, &event).unwrap();
+        if let Some(node_key) = app.get_explicit_focus() {
+            app.call_user_input_handler(node_key, &event).unwrap();
         }
     }
 }
@@ -138,8 +138,8 @@ pub extern "C" fn send_text_input(app: &mut Application, len: usize, replace: bo
 #[export_name = "send_text_delete"]
 pub extern "C" fn send_text_delete(app: &mut Application, delete: isize) {
     let event = UserInputEvent::TextDelete(delete);
-    if let Some(node_key) = app.get_focused_node() {
-        app.handle_user_input(node_key, &event).unwrap();
+    if let Some(node_key) = app.get_explicit_focus() {
+        app.call_user_input_handler(node_key, &event).unwrap();
     }
 }
 /*
@@ -154,6 +154,12 @@ pub extern "C" fn send_dir_input(_app: &mut Application, _dir: usize) {
     let _ = app.fire_event(&Event::DirInput(direction));
 }*/
 
+#[export_name = "mouse_move"]
+pub extern "C" fn mouse_move(app: &mut Application, x: usize, y: usize) {
+    let (x, y) = (SignedPixels::from_num(x), SignedPixels::from_num(y));
+    app.set_focus_coords(Position::new(x, y)).unwrap();
+}
+
 #[export_name = "quick_action"]
 pub extern "C" fn quick_action(app: &mut Application, action: usize, x: usize, y: usize) {
     let input_event = match action {
@@ -166,24 +172,13 @@ pub extern "C" fn quick_action(app: &mut Application, action: usize, x: usize, y
         _ => unreachable!(),
     };
 
-    /*let grabbed = unsafe { FOCUS_GRABBED };
-    if action == 1 {
-        if app.can_grab_focus(Some(EventType::QUICK_ACTION_1)) {
-            unsafe { FOCUS_GRABBED = !grabbed };
-            input_event = Event::FocusGrab(!grabbed);
-        }
-    }*/
-
     app.clear_focused_node().unwrap();
 
     let (x, y) = (SignedPixels::from_num(x), SignedPixels::from_num(y));
-    let node_key = app.get_focused_node_or_at(Position::new(x, y));
-    app.handle_user_input(node_key, &input_event).unwrap();
+    app.set_focus_coords(Position::new(x, y)).unwrap();
 
-    /*if grabbed {
-        app.pointing_at(unsafe { FOCUS_POINT });
-        quick_action(app, action)
-    }*/
+    let node_key = app.get_implicit_focus();
+    app.call_user_input_handler(node_key, &input_event).unwrap();
 }
 
 pub fn pre_init() {

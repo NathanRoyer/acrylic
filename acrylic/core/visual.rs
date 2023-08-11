@@ -71,12 +71,14 @@ const MODE_SHIFT: usize = 28;
 const DIRT_SHIFT: usize = 27;
 const SZFD_SHIFT: usize = 26;
 const RESZ_SHIFT: usize = 25;
+const HOVR_SHIFT: usize = 24;
 const AXIS_MASK: u32 = 0x80_00_00_00;
 const MODE_MASK: u32 = 0x70_00_00_00;
 const DIRT_MASK: u32 = 0x08_00_00_00;
 const SZFD_MASK: u32 = 0x04_00_00_00;
 const RESZ_MASK: u32 = 0x02_00_00_00;
-const  GAP_MASK: u32 = 0x01_ff_ff_ff;
+const HOVR_MASK: u32 = 0x01_00_00_00;
+const  GAP_MASK: u32 = 0x00_ff_ff_ff;
 
 impl NodeConfig {
     #[inline(always)]
@@ -151,6 +153,23 @@ impl NodeConfig {
     #[inline(always)]
     pub const fn get_resized(&self) -> bool {
         match self.cfg & RESZ_MASK {
+            0 => false,
+            _ => true,
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_hover_sensitivity(&mut self, hover_sensitivity: bool) {
+        self.cfg &= !HOVR_MASK;
+        self.cfg |= match hover_sensitivity {
+            false => 0 << HOVR_SHIFT,
+            true  => 1 << HOVR_SHIFT,
+        };
+    }
+
+    #[inline(always)]
+    pub const fn get_hover_sensitivity(&self) -> bool {
+        match self.cfg & HOVR_MASK {
             0 => false,
             _ => true,
         }

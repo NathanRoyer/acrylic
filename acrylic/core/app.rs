@@ -49,7 +49,7 @@ enum Asset {
 
 pub struct DebuggingOptions {
     pub skip_glyph_rendering: bool,
-    pub skip_container_borders: bool,
+    pub skip_container_decoration: bool,
     pub freeze_layout: bool,
     pub draw_layout: bool,
 }
@@ -75,9 +75,10 @@ pub struct Application {
     pub(crate) namespaces: LiteMap<NodeKey, Namespace>,
     pub(crate) mutators: Vec<Mutator>,
     pub(crate) text_cursors: Vec<Cursor>,
+    implicit_focus: NodeKey,
 
     focus_coords: Position,
-    focused: Option<NodeKey>,
+    explicit_focus: Option<NodeKey>,
     must_check_layout: bool,
     _source_files: Vec<String>,
     _age: Duration,
@@ -124,13 +125,14 @@ impl Application {
             _source_files: Vec::new(),
             text_cursors: Vec::new(),
             focus_coords: Position::zero(),
-            focused: None,
+            implicit_focus: Default::default(),
+            explicit_focus: None,
             theme: Theme::parse(include_str!("default-theme.json")).unwrap(),
             _age: Duration::from_secs(0),
             render_list: Vec::new(),
             debug: DebuggingOptions {
                 skip_glyph_rendering: false,
-                skip_container_borders: false,
+                skip_container_decoration: false,
                 freeze_layout: false,
                 draw_layout: false,
             },
@@ -167,10 +169,36 @@ impl Application {
         app.view[app.root].xml_node_index = Some(xml_root.index().into()).into();
 
         app.namespaces.insert(app.root, root_ns());
+        app.implicit_focus = app.root;
 
-        app.populate(app.root, xml_root).unwrap();
+        app.call_populator(app.root, xml_root).unwrap();
 
         app
+    }
+
+    fn node_path(&self, mut node_key: NodeKey) -> Vec<usize> {
+        let mut path = Vec::new();
+
+        while let Some(parent) = self.view.parent(node_key) {
+            let index = self.view.child_index(node_key).unwrap();
+            path.push(index);
+            node_key = parent;
+        }
+
+        path
+    }
+
+    fn resolve_path(&self, mut path: Vec<usize>) -> NodeKey {
+        let mut node_key = self.root;
+
+        while let Some(index) = path.pop() {
+            node_key = self.view.first_child(node_key).unwrap();
+            for _ in 0..index {
+                node_key = self.view.next_sibling(node_key);
+            }
+        }
+
+        node_key
     }
 
     /// Reload the view, allowing it to pick up state changes
@@ -179,17 +207,8 @@ impl Application {
         let factory = backup.factory;
         let xml_node_index = backup.xml_node_index;
 
-        let focused_path = self.focused.map(|mut node_key| {
-            let mut path = Vec::new();
-
-            while let Some(parent) = self.view.parent(node_key) {
-                let index = self.view.child_index(node_key).unwrap();
-                path.push(index);
-                node_key = parent;
-            }
-
-            path
-        });
+        let exf = self.explicit_focus.map(|nk| self.node_path(nk));
+        let imf = self.node_path(self.implicit_focus);
 
         self.view.reset(self.root);
         self.invalidate_layout();
@@ -203,21 +222,11 @@ impl Application {
 
         if let Some(xml_root) = xml_node_index.get() {
             let xml_root = self.xml_tree.node_key(xml_root);
-            self.populate(self.root, xml_root).unwrap();
+            self.call_populator(self.root, xml_root).unwrap();
         }
 
-        self.focused = focused_path.map(|mut path| {
-            let mut node_key = self.root;
-
-            while let Some(index) = path.pop() {
-                node_key = self.view.first_child(node_key).unwrap();
-                for _ in 0..index {
-                    node_key = self.view.next_sibling(node_key);
-                }
-            }
-
-            node_key
-        });
+        self.explicit_focus = exf.map(|p| self.resolve_path(p));
+        self.implicit_focus = self.resolve_path(imf);
     }
 
     /// Quick way to tell the application to recompute its layout before the next frame
@@ -255,7 +264,7 @@ impl Application {
                 return Err(error!("Asset {} was previously loaded with a different `parse` flag", asset.deref()));
             }
 
-            self.finalize(origin)
+            self.call_finalizer(origin)
         } else {
             self.requests.push(Request {
                 asset: asset.clone(),
@@ -278,7 +287,7 @@ impl Application {
 
                 if let Some(data) = data.take() {
                     let result = if request.parse {
-                        self.parse(node_key, &asset, data)?;
+                        self.call_parser(node_key, &asset, data)?;
 
                         Asset::Parsed
                     } else {
@@ -297,6 +306,7 @@ impl Application {
         Ok(())
     }
 
+    /// Retrieves the style that the nearest parent of `node_key` has set.
     pub fn get_inherited_style(&self, node_key: NodeKey) -> Result<Style, Error> {
         let mut parent_style = match self.theme.resolve(DEFAULT_STYLE) {
             Some(style_index) => Ok(style_index),
@@ -504,42 +514,84 @@ impl Application {
         hit_test(&self.view, self.root, position)
     }
 
+    /// Retrieves the latest value that was passed to [`Self::set_focus_coords`]
     pub fn get_focus_coords(&self) -> Position {
         self.focus_coords
     }
 
-    pub fn set_focus(&mut self, focus_coords: Position) -> NodeKey {
-        self.focus_coords = focus_coords;
-        self.hit_test(focus_coords)
+    fn resize_hover_sensitive_nodes(&mut self, node_key: NodeKey) -> Result<(), Error> {
+        let mut current = Some(node_key);
+        while let Some(node_key) = current {
+            if self.view[node_key].config.get_hover_sensitivity() {
+                self.call_resizer(node_key)?;
+            }
+            current = self.view.parent(node_key);
+        }
+
+        Ok(())
     }
 
+    /// Returns true if the current focus coords is over a node.
+    pub fn is_hovered(&self, node_key: NodeKey) -> bool {
+        let mut current = Some(self.implicit_focus);
+        while let Some(c) = current {
+            if node_key == c {
+                return true;
+            }
+            current = self.view.parent(c);
+        }
+
+        false
+    }
+
+    /// Updates the position of the pointer device
+    pub fn set_focus_coords(&mut self, focus_coords: Position) -> Result<(), Error> {
+        let old = self.implicit_focus;
+        let new = self.hit_test(focus_coords);
+        self.implicit_focus = new;
+
+        if old != new {
+            self.resize_hover_sensitive_nodes(old)?;
+            self.resize_hover_sensitive_nodes(new)?;
+        }
+
+        self.focus_coords = focus_coords;
+
+        Ok(())
+    }
+
+    /// Sets a node as explicitely focused
+    ///
+    /// This is normally called by nodes which want to grab focus.
+    ///
+    /// The explicitly focused node will receive a FocusLoss event
+    /// when it loses focus.
     pub fn set_focused_node(&mut self, node_key: NodeKey) -> Result<(), Error> {
         self.clear_focused_node()?;
-        self.focused = Some(node_key);
+        self.explicit_focus = Some(node_key);
 
         Ok(())
     }
 
+    /// Unsets the current explicit focus
     pub fn clear_focused_node(&mut self) -> Result<(), Error> {
-        if let Some(node_key) = self.focused {
+        if let Some(node_key) = self.explicit_focus {
             let input_event = UserInputEvent::FocusLoss;
-            self.handle_user_input(node_key, &input_event)?;
-            self.focused = None;
+            self.call_user_input_handler(node_key, &input_event)?;
+            self.explicit_focus = None;
         }
 
         Ok(())
     }
 
-    pub fn get_focused_node_or_at(&mut self, focus_coords: Position) -> NodeKey {
-        let under_focus_coords = self.set_focus(focus_coords);
-        match self.focused {
-            Some(node_key) => node_key,
-            None => under_focus_coords,
-        }
+    /// Retrieves the current implicit focus target, which is under the focus coordinates
+    pub fn get_implicit_focus(&mut self) -> NodeKey {
+        self.implicit_focus
     }
 
-    pub fn get_focused_node(&mut self) -> Option<NodeKey> {
-        self.focused
+    /// Retrieves the current explicit focus target, which was set using [`Self::set_focused_node`]
+    pub fn get_explicit_focus(&mut self) -> Option<NodeKey> {
+        self.explicit_focus
     }
 
     /// Renders the current view in a `framebuffer`.
@@ -611,35 +663,35 @@ impl Application {
 }
 
 impl Application {
-    pub fn parse(&mut self, node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
+    pub fn call_parser(&mut self, node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.parser)(self, i, node_key, asset, bytes),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
         }
     }
 
-    pub fn populate(&mut self, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
+    pub fn call_populator(&mut self, node_key: NodeKey, xml_node_key: XmlNodeKey) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.populator)(self, i, node_key, xml_node_key),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
         }
     }
 
-    pub fn finalize(&mut self, node_key: NodeKey) -> Result<(), Error> {
+    pub fn call_finalizer(&mut self, node_key: NodeKey) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.finalizer)(self, i, node_key),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
         }
     }
 
-    pub fn resize(&mut self, node_key: NodeKey) -> Result<(), Error> {
+    pub fn call_resizer(&mut self, node_key: NodeKey) -> Result<(), Error> {
         match self.view[node_key].factory.get() {
             Some(i) => (self.mutators[usize::from(i)].handlers.resizer)(self, i, node_key),
             None => Err(error!("Node {:?} cannot parse: it has no factory", node_key)),
         }
     }
 
-    pub fn handle_user_input(&mut self, target: NodeKey, event: &UserInputEvent) -> Result<bool, Error> {
+    pub fn call_user_input_handler(&mut self, target: NodeKey, event: &UserInputEvent) -> Result<bool, Error> {
         let mut node_key = target;
         loop {
             match self.view[node_key].factory.get() {

@@ -47,6 +47,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
     let    for_attr: Option<ArcStr> = app.attr(node_key,             FOR)?;
     let     in_attr: Option<ArcStr> = app.attr(node_key,              IN)?;
     let  style_attr: Option<ArcStr> = app.attr(node_key,           STYLE)?;
+    let  hover_attr: Option<ArcStr> = app.attr(node_key,           HOVER)?;
     let qa_callback: Option<ArcStr> = app.attr(node_key, ON_QUICK_ACTION)?;
     let content_gap: Pixels         = app.attr(node_key,             GAP)?;
     let margin_attr: Pixels         = app.attr(node_key,          MARGIN)?;
@@ -80,6 +81,10 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
         let color = app.theme.get(style_index).background;
         app.view[node_key].background = PixelSource::SolidColor(color);
         app.view[node_key].style_override = Some(style_index.into()).into();
+    }
+
+    if hover_attr.is_some() {
+        app.view[node_key].config.set_hover_sensitivity(true);
     }
 
     let to_generate = if let Some(new_ns_name) = for_attr {
@@ -141,7 +146,7 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
             app.view[child_node].xml_node_index = xml_node_index;
             app.view[child_node].factory = app.xml_tree[xml_child].factory;
 
-            app.populate(child_node, xml_child)
+            app.call_populator(child_node, xml_child)
         };
 
         if let Some(to_generate) = to_generate {
@@ -161,12 +166,24 @@ fn populator(app: &mut Application, _: MutatorIndex, node_key: NodeKey, xml_node
 }
 
 fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    if app.debug.skip_container_borders {
+    if app.debug.skip_container_decoration {
         return Ok(());
     }
 
-    let border_width: Option<     Pixels> = app.attr(node_key, BORDER_WIDTH)?;
-    let style = app.view[node_key].style_override.get();
+    let border_width: Option<Pixels> = app.attr(node_key, BORDER_WIDTH)?;
+    let hover_attr: Option<ArcStr> = app.attr(node_key, HOVER)?;
+    let mut style = app.view[node_key].style_override.get();
+
+    if app.is_hovered(node_key) {
+        if let Some(style_name) = hover_attr {
+            let style_index = match app.theme.resolve(&style_name) {
+                Some(index) => Ok(index),
+                None => Err(error!("Invalid style name")),
+            }?;
+
+            style = Some(style_index.into()).into();
+        }
+    }
 
     if style.is_some() || border_width.is_some() {
         let margin: Pixels = app.attr(node_key,        MARGIN)?;
@@ -174,7 +191,7 @@ fn resizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Result<
         let inherited_style = app.get_inherited_style(node_key)?;
 
         let size = app.view[node_key].size;
-        let (w, h) = (size.w.to_num(), size.h.to_num());
+        let (w, h): (usize, usize) = (size.w.to_num(), size.h.to_num());
         let couple = Couple::new(w as f32, h as f32);
 
         let ext = inherited_style.background;
@@ -263,20 +280,21 @@ fn user_input_handler(
 }
 
 // common attributes
-const             FOR: usize = 0;
-const              IN: usize = 1;
-const           STYLE: usize = 2;
-const          MARGIN: usize = 3;
-const    BORDER_WIDTH: usize = 4;
-const   BORDER_RADIUS: usize = 5;
-const             GAP: usize = 6;
+const FOR:             usize = 0;
+const IN:              usize = 1;
+const STYLE:           usize = 2;
+const MARGIN:          usize = 3;
+const BORDER_WIDTH:    usize = 4;
+const BORDER_RADIUS:   usize = 5;
+const GAP:             usize = 6;
 const ON_QUICK_ACTION: usize = 7;
+const HOVER:           usize = 8;
 
 // specific
-const             ROW: usize = 8;
-const          LENGTH: usize = 8;
-const           RATIO: usize = 8;
-const          WEIGHT: usize = 8;
+const ROW:             usize = 9;
+const LENGTH:          usize = 9;
+const RATIO:           usize = 9;
+const WEIGHT:          usize = 9;
 
 macro_rules! container {
     ($name:ident, $tag:literal $(, $arg:expr)?) => {
@@ -293,6 +311,7 @@ macro_rules! container {
                     ("border-radius", AttributeValueType::Pixels, Some(crate::ZERO_ARCSTR)),
                     ("gap", AttributeValueType::Pixels, Some(crate::ZERO_ARCSTR)),
                     ("on-quick-action", AttributeValueType::OptOther, None),
+                    ("hover", AttributeValueType::OptOther, None),
                     $($arg)*
                 ],
                 accepts_children: true,

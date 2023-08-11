@@ -1,14 +1,16 @@
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::event::{Handlers, UserInputEvent, DEFAULT_HANDLERS};
+use crate::core::visual::{aspect_ratio, Ratio, LayoutMode};
 use crate::core::node::{NodeKey, Mutator, MutatorIndex};
-use crate::core::visual::{aspect_ratio, LayoutMode};
 use crate::core::glyph::{get_font, load_font_bytes};
 use crate::core::text_edit::text_edit;
 use crate::core::app::Application;
-use crate::{DEFAULT_FONT_NAME, Error, ArcStr, ro_string, Box};
+use crate::{DEFAULT_FONT_NAME, FALSE_STR, Error, ArcStr, ro_string, Box};
 
 const TEXT: usize = 0;
 const FONT: usize = 1;
+const EDITABLE: usize = 2;
+const RATIO: usize = 3;
 
 pub const LABEL_MUTATOR: Mutator = Mutator {
     name: ro_string!("LabelMutator"),
@@ -17,6 +19,8 @@ pub const LABEL_MUTATOR: Mutator = Mutator {
         attr_set: &[
             ("text", AttributeValueType::Other, None),
             ("font", AttributeValueType::Other, Some(DEFAULT_FONT_NAME)),
+            ("editable", AttributeValueType::Other, Some(FALSE_STR)),
+            ("weight", AttributeValueType::OptRatio, None),
         ],
         accepts_children: false,
     }),
@@ -46,8 +50,9 @@ fn parser(app: &mut Application, _m: MutatorIndex, _node_key: NodeKey, asset: &A
 }
 
 fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result<(), Error> {
-    let text:      ArcStr = app.attr(node_key, TEXT)?;
+    let ratio: Option<Ratio> = app.attr(node_key, RATIO)?;
     let font_file: ArcStr = app.attr(node_key, FONT)?;
+    let text: ArcStr = app.attr(node_key, TEXT)?;
 
     if text.len() > 0 {
         let font_size = 100;
@@ -55,8 +60,12 @@ fn finalizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Resu
         let font = get_font(&mut app.mutators, &font_file).unwrap();
         let width = font.quick_width(&text, font_size);
 
-        let ratio = aspect_ratio(width, font_size);
-        app.view[node_key].config.set_layout_mode(LayoutMode::AspectRatio(ratio));
+        let layout_mode = match ratio {
+            Some(ratio) => LayoutMode::Remaining(ratio),
+            None => LayoutMode::AspectRatio(aspect_ratio(width, font_size)),
+        };
+
+        app.view[node_key].config.set_layout_mode(layout_mode);
 
         app.invalidate_layout();
     }
@@ -69,7 +78,7 @@ fn resizer(app: &mut Application, _m: MutatorIndex, node_key: NodeKey) -> Result
     let font_file: ArcStr = app.attr(node_key, FONT)?;
 
     let inherited_style = app.get_inherited_style(node_key)?;
-    let cursors = match Some(node_key) == app.get_focused_node() {
+    let cursors = match Some(node_key) == app.get_explicit_focus() {
         true => Some((0, app.text_cursors.as_slice())),
         false => None,
     };
@@ -96,17 +105,6 @@ fn user_input_handler(
     _target: NodeKey,
     event: &UserInputEvent,
 ) -> Result<bool, Error> {
-    let font_file:       ArcStr = app.attr(node_key, FONT)?;
-    let text:            ArcStr = app.attr(node_key, TEXT)?;
-
     let font_size = app.view[node_key].size.h.round().to_num();
-    let text_path = match app.attr_state_path(node_key, TEXT)? {
-        Err(_) => {
-            log::error!("Cannot modify state during TextInsert: attribute isn't a state path");
-            return Ok(true);
-        },
-        Ok((attr_path, _)) => attr_path,
-    };
-
-    text_edit(false, app, node_key, event, font_file, font_size, text, text_path)
+    text_edit(false, app, node_key, event, EDITABLE, FONT, font_size, TEXT)
 }

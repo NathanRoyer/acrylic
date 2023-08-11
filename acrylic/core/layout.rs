@@ -112,7 +112,7 @@ fn compute_positions(app: &mut Application, key: NodeKey, top_left: Position) ->
 
         if resized {
             app.view[child].config.set_resized(false);
-            app.resize(child)?;
+            app.call_resizer(child)?;
         }
     });
 

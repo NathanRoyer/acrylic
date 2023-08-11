@@ -73,5 +73,5 @@ fn finalizer(app: &mut Application, m: MutatorIndex, node_key: NodeKey) -> Resul
     app.view[node_key].xml_node_index = Some(replacement.index()).into();
     app.view[node_key].factory = app.xml_tree[replacement].factory;
 
-    app.populate(node_key, replacement)
+    app.call_populator(node_key, replacement)
 }

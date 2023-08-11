@@ -199,6 +199,14 @@ function onWheel(event) {
     // wheelDelta = parseInt(event.wheelDelta / 2);
 }
 
+function onMouseMove(event) {
+    if (wasm) {
+        let x = event.clientX;
+        let y = event.clientY;
+        wasm.exports.mouse_move(app, x, y);
+    }
+}
+
 function onKeyDown(event) {
     if (wasm) {
         if (event.key.length == 1) {
@@ -230,7 +238,7 @@ function onKeyDown(event) {
 function onLoad() {
     document.body.addEventListener('click', onClick);
     document.body.addEventListener('wheel', onWheel);
-    // document.body.addEventListener('mousemove', onMouseMove);
+    document.body.addEventListener('mousemove', onMouseMove);
     document.body.addEventListener('keydown', onKeyDown);
     canvas = document.getElementById('fb-canvas');
     let hash = document.location.hash;

@@ -8,7 +8,7 @@ use crate::{ArcStr, Box};
 use core::any::Any;
 
 #[cfg(doc)]
-use super::{app::Mutator, event::Initializer};
+use super::event::Initializer;
 
 index!(MutatorIndex, OptionalMutatorIndex, u16);
 
@@ -21,7 +21,7 @@ tree!(NodeTree, Node, NodeKey, NodeIndex, OptionalNodeIndex, Cookie64);
 /// [`Mutator`]s typically convert XML Tags to one or more nodes.
 #[derive(Debug, Default)]
 pub struct Node {                                 // bits    div4
-    pub config: NodeConfig,              // 2x4     2
+    pub config: NodeConfig,                       // 2x4     2
     pub margin: Margin,                           // 4x4     4
 
     pub size: Size,                               // 2x4     2

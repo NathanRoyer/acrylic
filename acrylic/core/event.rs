@@ -7,7 +7,7 @@ use super::visual::{Direction, Ratio, SignedPixels};
 use crate::{Box, ArcStr, Error, error};
 
 #[cfg(doc)]
-use super::app::Mutator;
+use super::node::Mutator;
 
 /// Initializes a [`Mutator`], and especially its `storage` field
 pub type Initializer = fn(

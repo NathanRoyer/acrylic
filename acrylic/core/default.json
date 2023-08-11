@@ -1,10 +1,7 @@
 {
-    "img": "acrylic.png",
-    "test": [
-        "flexbox",
-        "SIMD",
-        "XML views",
-        "click anywhere"
+    "items": [
+        "call barbara",
+        "wash dishes"
     ],
-    "omg": "Rewrite me senpai"
+    "input": "cook potatoes"
 }
