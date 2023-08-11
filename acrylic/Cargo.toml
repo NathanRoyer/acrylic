@@ -6,7 +6,7 @@ authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "ultra-portable, web-inspired UI toolkit with SIMD graphics"
 license = "MIT"
 categories = [ "gui", "rendering", "graphics", "multimedia", "no-std" ]
-keywords = [ "toolkit", "gui", "ui", "xml", "no_std", "simd" ]
+keywords = [ "toolkit", "gui", "ui", "no_std", "simd" ]
 repository = "https://github.com/NathanRoyer/acrylic"
 readme = "../README.md"
 
