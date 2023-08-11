@@ -1,5 +1,7 @@
-pub use acrylic::core::app::Application;
+use acrylic::core::app::Application;
 use acrylic::core::{rgb::RGBA8, event::UserInputEvent, visual::{Position, SignedPixels}};
+
+pub use acrylic;
 
 use log::{error, set_logger, set_max_level, Record, LevelFilter, Level, Metadata};
 use std::fmt::Write;
@@ -201,7 +203,7 @@ macro_rules! app {
         #[export_name = "init"]
         pub extern "C" fn init() -> &'static $crate::Application {
             platform::pre_init();
-            let app = $crate::Application::new($layout().into(), $callbacks);
+            let app = $crate::acrylic::core::app::Application::new($layout().into(), $callbacks);
             platform::wasm_init($path, app)
         }
     };

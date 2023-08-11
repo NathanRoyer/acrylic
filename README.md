@@ -4,7 +4,7 @@ Ultra-portable, web-inspired UI toolkit with SIMD graphics.
 
 Work in progress!
 
-Also, requires a nightly toolchain if you've enabled SIMD support.
+Also, requires a nightly toolchain if you've enabled SIMD support (which is the default).
 
 ## 🪂 Features
 
@@ -28,27 +28,23 @@ Also, requires a nightly toolchain if you've enabled SIMD support.
 - ☑ round containers
 - ☑ input events
 - ☑ event handlers
-- ☐ text editing
-- ☐ templating [WiP]
+- ☑ SIMD acceleration
+- ☑ text editing
+- ☑ templating
+- ☐ texture cache
+- ☐ non-hardcoded state file
 - ☐ scrolling [WiP]
 - ☐ rich text
 - ☐ external links
 - ☐ video playback
 - ☐ sound playback
-- ☐ accelerated rendering (GPU)
-
-## 🪀 Live Demos
-
-- [demo of version 0.3.0](https://l0.pm/acrylic/)
-
-> more coming soon!
 
 ## 🧱 Supported platforms
 
 | platform | Link | Rendering | Asset Loading | Event Handling |
 |---|---|---|---|---|
-| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ |  |
-| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | Glitchy | ☑ |  |
+| web | [acrylic-web](https://lib.rs/acrylic-web) | ☑ | ☑ | WiP |
+| wayland | [acrylic-wayland](https://lib.rs/acrylic-wayland) | ☑ | ☑ | WiP |
 | x11 |  |  |  |  |
 | gdi |  |  |  |  |
 | fbdev |  |  |  |  |
@@ -76,7 +72,7 @@ Place it in `assets/`.
 ### The view layout: default.xml
 
 ```xml
-<h-rem style="default">
+<h-rem>
     <inflate />
     <v-fixed length="400" gap="10">
         <inflate />
@@ -95,14 +91,13 @@ Place it in `assets/`.
 ### The code: app.rs
 
 ```rust
-use std::rc::Rc;
-use platform::app;
+use platform::{app, acrylic::{core::app::SimpleCallbackMap, ArcStr}};
 
-fn layout_selector() -> Rc<String> {
-    Rc::new("default.xml".into())
+fn layout_selector() -> ArcStr {
+    "default.xml".into()
 }
 
-app!("./assets/", layout_selector, "default.json");
+app!("./assets/", layout_selector, SimpleCallbackMap::new(), "default.json");
 ```
 
 ### The manifest: Cargo.toml
@@ -118,8 +113,6 @@ crate-type = [ "cdylib" ]
 path = "src/app.rs"
 
 [dependencies]
-acrylic = "0.3"
-
 # building for the web
 platform = { package = "acrylic-web", version = "0.3" }
 ```
@@ -129,6 +122,8 @@ platform = { package = "acrylic-web", version = "0.3" }
 ```bash
 cargo +nightly build --release --target wasm32-unknown-unknown
 ```
+
+Note: this uses nightly because SIMD in rust is currently unstable.
 
 #### Install a web server
 
@@ -172,12 +167,7 @@ You can use these for any question regarding this project.
 
 ### Contributions
 
-We gladly accept all contributions via Github PRs.
-
-If you contribute rust code, please put all dependencies
-behind features; adding tens of dependencies to this crate
-or another one of this project might be a reason for not
-merging your PR.
+We gladly accept all contributions via Github Pull Requests.
 
 ## 👉 See Also
 

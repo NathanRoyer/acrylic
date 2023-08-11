@@ -12,7 +12,9 @@ use tempfile::tempfile;
 
 use simple_logger::SimpleLogger;
 
-pub use acrylic::core::{app::Application, visual::{Position, SignedPixels}, event::UserInputEvent};
+pub use acrylic;
+
+use acrylic::core::{app::Application, visual::{Position, SignedPixels}, event::UserInputEvent};
 use acrylic::core::rgb::FromSlice as _;
 
 pub fn run(app: Application, assets: &str) {
@@ -417,7 +419,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
 macro_rules! app {
     ($path:literal, $layout:expr, $callbacks:expr, $initial_state:expr) => {
         fn main() {
-            $crate::run($crate::Application::new($layout().into(), $callbacks), $path);
+            $crate::run($crate::acrylic::core::app::Application::new($layout().into(), $callbacks), $path);
         }
     };
 }

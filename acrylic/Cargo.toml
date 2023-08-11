@@ -1,12 +1,12 @@
 [package]
 name = "acrylic"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "ultra-portable, web-inspired UI toolkit with SIMD graphics"
 license = "MIT"
 categories = [ "gui", "rendering", "graphics", "multimedia", "no-std" ]
-keywords = [ "toolkit", "gui", "ui", "xml", "no_std" ]
+keywords = [ "toolkit", "gui", "ui", "xml", "no_std", "simd" ]
 repository = "https://github.com/NathanRoyer/acrylic"
 readme = "../README.md"
 
@@ -17,16 +17,16 @@ path = "lib.rs"
 static_assertions = "1.1.0"
 ttf-parser = "0.18.1"
 xmlparser = "0.13.5"
-lmfu = { path = "../../bsutils" }
+lmfu = "1.2.0"
 tinyvec = "1.6.0"
-oakwood = { path = "../../oakwood" }
-railway = { path = "../../railway" }
-wizdraw = { path = "../../wizdraw" }
+oakwood = "0.1.4"
+railway = "0.3.3"
+wizdraw = "1.2.1"
 fixed = "1.23.0"
 log = "0.4.17"
 rgb = "0.8.36"
 png = "0.17"
-simd-blit = { path = "../../simd-blit" }
+simd-blit = "1.0.1"
 
 vek = { version = "0.15.8", default-features = false }
 
@@ -38,4 +38,4 @@ ssaa-x3 = []
 ssaa-x4 = []
 
 [build-dependencies]
-railway = { path = "../../railway" }
+railway = "0.3.3"
