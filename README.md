@@ -72,7 +72,7 @@ Place it in `assets/`.
 ### The view layout: default.xml
 
 ```xml
-<h-rem>
+<h-rem style="default">
     <inflate />
     <v-fixed length="400" gap="10">
         <inflate />

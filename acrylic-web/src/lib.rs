@@ -201,7 +201,7 @@ pub fn wasm_init(assets: &str, app: Application) -> &'static Application {
 macro_rules! app {
     ($path:literal, $layout:expr, $callbacks:expr, $initial_state:expr) => {
         #[export_name = "init"]
-        pub extern "C" fn init() -> &'static $crate::Application {
+        pub extern "C" fn init() -> &'static $crate::acrylic::core::app::Application {
             platform::pre_init();
             let app = $crate::acrylic::core::app::Application::new($layout().into(), $callbacks);
             platform::wasm_init($path, app)
