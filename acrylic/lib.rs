@@ -7,7 +7,6 @@
 #![no_std]
 
 extern crate alloc;
-extern crate std;
 
 use ::core::{fmt, mem::ManuallyDrop};
 

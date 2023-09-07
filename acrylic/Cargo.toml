@@ -1,6 +1,6 @@
 [package]
 name = "acrylic"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 authors = [ "Nathan ROYER <nathan.royer.pro@gmail.com>" ]
 description = "ultra-portable, web-inspired UI toolkit with SIMD graphics"
@@ -15,17 +15,17 @@ path = "lib.rs"
 
 [dependencies]
 static_assertions = "1.1.0"
-ttf-parser = "0.18.1"
-xmlparser = "0.13.5"
-lmfu = "1.2.0"
+ttf-parser = { version = "0.18.1", default-features = false, features = [ "opentype-layout", "apple-layout", "variable-fonts", "glyph-names" ] }
+xmlparser = { version = "0.13.5", default-features = false }
 tinyvec = "1.6.0"
 oakwood = "0.1.4"
 railway = "0.3.3"
 wizdraw = "1.2.1"
 fixed = "1.23.0"
+lmfu = "1.2.2"
 log = "0.4.17"
 rgb = "0.8.36"
-png = "0.17"
+zune-png = { version = "0.2.1", default-features = false }
 simd-blit = "1.0.1"
 
 vek = { version = "0.15.8", default-features = false }

@@ -4,10 +4,10 @@ use crate::core::app::Application;
 use crate::core::xml::{XmlNodeKey, XmlTagParameters, AttributeValueType};
 use crate::core::node::{NodeKey, Mutator, MutatorIndex, get_storage};
 use crate::core::event::{Handlers, DEFAULT_HANDLERS};
-use crate::{Vec, Box, HashMap, ArcStr, Rc, Error, ro_string};
+use crate::{Box, HashMap, ArcStr, Rc, Error, error, ro_string};
 
-use png::ColorType;
-use png::Decoder;
+use zune_png::PngDecoder;
+use zune_png::zune_core::{result::DecodingResult, colorspace::ColorSpace};
 
 const FILE: usize = 0;
 
@@ -40,25 +40,28 @@ fn initializer(app: &mut Application, m: MutatorIndex) -> Result<(), Error> {
 }
 
 fn parser(app: &mut Application, m: MutatorIndex, _node_key: NodeKey, asset: &ArcStr, bytes: Box<[u8]>) -> Result<(), Error> {
-    let parsed = {
-        let decoder = Decoder::new(&*bytes);
-        let mut reader = decoder.read_info().unwrap();
-        let mut buf = Vec::with_capacity(reader.output_buffer_size());
-        buf.resize(reader.output_buffer_size(), 0);
+    let mut decoder = PngDecoder::new(&*bytes);
+    let pixels = match decoder.decode() {
+        Err(e) => Err(error!("PNG decoding: {:?}", e)),
+        Ok(DecodingResult::U8(vec)) => Ok(vec.into_boxed_slice()),
+        Ok(_) => Err(error!("Unsupported PNG format")),
+    }?;
 
-        let info = reader.next_frame(&mut buf).unwrap();
-        let width = info.width as usize;
-        let height = info.height as usize;
-        let ratio = aspect_ratio(width, height);
+    let (w, h) = match decoder.get_dimensions() {
+        None => Err(error!("PNG decoding: unknown error")),
+        Some(dims) => Ok(dims),
+    }?;
 
-        let texture: Rc<dyn Texture> = match info.color_type {
-            ColorType::Rgb  => Rc::new( RgbPixelArray::new(buf.into_boxed_slice(), width, height)),
-            ColorType::Rgba => Rc::new(RgbaPixelArray::new(buf.into_boxed_slice(), width, height)),
-            _ => panic!("unsupported PNG color type"),
-        };
+    type RCDT = Rc<dyn Texture>;
 
-        (ratio, texture)
-    };
+    let texture = match decoder.get_colorspace() {
+        None => Err(error!("PNG decoding: unknown error")),
+        Some(ColorSpace::RGB)  => Ok(Rc::new( RgbPixelArray::new(pixels, w, h)) as RCDT),
+        Some(ColorSpace::RGBA) => Ok(Rc::new(RgbaPixelArray::new(pixels, w, h)) as RCDT),
+        Some(_) => Err(error!("PNG decoding: unknown error")),
+    }?;
+
+    let parsed = (aspect_ratio(w, h), texture);
 
     let storage: &mut PngStorage = get_storage(&mut app.mutators, m).unwrap();
     storage.insert(asset.clone(), parsed);

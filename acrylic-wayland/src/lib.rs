@@ -332,7 +332,12 @@ impl Dispatch<wl_callback::WlCallback, ()> for State {
                 state.app.call_user_input_handler(node_key, &event).unwrap();
             }
 
+            let now = std::time::Instant::now();
             let damages = state.app.render(size, fb.mapping.as_rgba_mut()).unwrap();
+            let frame_ms = now.elapsed().as_millis();
+            if frame_ms > 0 {
+                println!("frame time: {}ms", frame_ms);
+            }
             state.clicked = false;
 
             let surface = state.base_surface.as_ref().unwrap();

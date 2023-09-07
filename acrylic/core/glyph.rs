@@ -17,6 +17,9 @@ use wizdraw::{push_cubic_bezier_segments, fill};
 use vek::{Vec2, QuadraticBezier2, CubicBezier2};
 use rgb::FromSlice;
 
+#[allow(unused_imports)]
+use vek::num_traits::Float;
+
 const APPLY_SIDE_BEARING: bool = false;
 const CURSOR_WIDTH: usize = 2;
 
