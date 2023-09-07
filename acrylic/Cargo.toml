@@ -31,11 +31,14 @@ simd-blit = "1.0.1"
 vek = { version = "0.15.8", default-features = false }
 
 [features]
-default = [ "ssaa-x3", "simd-gfx" ]
+default = [ "ssaa-x3", "text-ssaa-x6", "simd-gfx" ]
 simd-gfx = [ "simd-blit/simd", "wizdraw/simd", "railway/simd" ]
 ssaa-x2 = []
 ssaa-x3 = []
 ssaa-x4 = []
+text-ssaa-x2 = []
+text-ssaa-x4 = []
+text-ssaa-x6 = []
 
 [build-dependencies]
 railway = "0.3.3"

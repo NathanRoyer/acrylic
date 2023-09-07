@@ -2,8 +2,8 @@
 //!
 //! todo: implement <https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
 
+use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc, TEXT_SSAA, TEXT_SSAA_SQ};
 use super::visual::{RgbaPixelArray, GrayScalePixelArray, PixelSource, SignedPixels};
-use crate::{Error, Vec, Box, HashMap, LiteMap, ArcStr, ro_string, Rc};
 use super::app::{Application, FONT_MUTATOR_INDEX};
 use super::node::{NodeKey, Mutator, MutatorIndex};
 use super::event::{Handlers, DEFAULT_HANDLERS};
@@ -185,8 +185,7 @@ impl<'a> GlyphRenderer<'a> {
                 let mut mask = Vec::with_capacity(len);
                 mask.resize(len, 0);
 
-                // this runs quite rarely, so we force a SSAA of six (which is a lot)
-                fill::<6, 36>(&segments, &mut mask, Vec2::new(width, height));
+                fill::<TEXT_SSAA, TEXT_SSAA_SQ>(&segments, &mut mask, Vec2::new(width, height));
 
                 let mask = mask.into_boxed_slice();
                 let glyph_mask = Rc::new(GrayScalePixelArray::new(mask, width, height));

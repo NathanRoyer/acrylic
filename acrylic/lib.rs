@@ -82,18 +82,11 @@ macro_rules! error {
 /// Super-Sampling Anti-Aliasing (squared)
 pub const SSAA_SQ: usize = SSAA * SSAA;
 
-#[cfg(not(any(feature = "ssaa-x2", feature = "ssaa-x3", feature = "ssaa-x4")))]
-/// Super-Sampling Anti-Aliasing
-pub const SSAA: usize = 1;
+/// Text Super-Sampling Anti-Aliasing (squared)
+pub const TEXT_SSAA_SQ: usize = TEXT_SSAA * TEXT_SSAA;
 
-#[cfg(feature = "ssaa-x2")]
-/// Super-Sampling Anti-Aliasing
-pub const SSAA: usize = 2;
+// constants that are defined based on features
+mod features;
 
-#[cfg(feature = "ssaa-x3")]
-/// Super-Sampling Anti-Aliasing
-pub const SSAA: usize = 3;
-
-#[cfg(feature = "ssaa-x4")]
-/// Super-Sampling Anti-Aliasing
-pub const SSAA: usize = 4;
+#[doc(inline)]
+pub use features::{SSAA, TEXT_SSAA};
